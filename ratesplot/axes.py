@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import matplotlib.dates as mdates
 import matplotlib.ticker as ticker
 import numpy as np
@@ -41,11 +43,71 @@ def format_currency(value: float, prefix: str = "$", *, decimals: int = 0) -> st
     return f"{prefix}{value:.{decimals}f}"
 
 
+class LogCurrencyFormatter(ticker.Formatter):
+    """Label log-axis ticks as ``$1T`` / ``$200B`` …, denser when the axis spans few decades.
+
+    The locators put major ticks at 1, 2, 5 × 10ⁿ and minor ticks at the other
+    integer multiples. The majors are always labelled; minors are labelled
+    using the densest coefficient set that still leaves at least
+    ``_MIN_LABEL_SPACING`` label-heights between labels on the visible span,
+    so a short span gets every integer multiple and a long span only 1/2/5.
+    """
+
+    # Candidate coefficient sets, densest first. The last is the floor.
+    _DENSITY_SETS = (
+        frozenset({1, 2, 3, 4, 5, 6, 7, 8, 9}),
+        frozenset({1, 2, 3, 5, 7}),
+        frozenset({1, 2, 5}),
+    )
+    # Minimum gap between adjacent labels, in multiples of the label height.
+    _MIN_LABEL_SPACING = 3.5
+
+    def __init__(self, prefix: str) -> None:
+        super().__init__()
+        self.prefix = prefix
+
+    def _label_count(self, coefficients: frozenset[int], vmin: float, vmax: float) -> int:
+        """Number of ticks with a coefficient in ``coefficients`` inside ``[vmin, vmax]``."""
+        low, high = math.floor(math.log10(vmin)), math.ceil(math.log10(vmax))
+        return sum(
+            1
+            for exponent in range(low, high + 1)
+            for c in coefficients
+            if vmin <= c * 10.0**exponent <= vmax
+        )
+
+    def _labelled_coefficients(self) -> frozenset[int]:
+        vmin, vmax = self.axis.get_view_interval()
+        if not (vmin > 0 and vmax > vmin):
+            return self._DENSITY_SETS[-1]
+        # get_tick_space() is the axis length measured in double label heights.
+        max_labels = self.axis.get_tick_space() * 2 / self._MIN_LABEL_SPACING
+        return next(
+            (s for s in self._DENSITY_SETS if self._label_count(s, vmin, vmax) <= max_labels),
+            self._DENSITY_SETS[-1],
+        )
+
+    def __call__(self, x: float, pos: int | None = None) -> str:
+        if x <= 0:
+            return ""
+        coefficient = round(x / 10 ** math.floor(math.log10(x)))
+        if coefficient == 10:  # e.g. 9.9999e11 from floating-point error
+            coefficient = 1
+        return format_currency(x, self.prefix) if coefficient in self._labelled_coefficients() else ""
+
+
 def configure_yield_axis(ax: Axes, *, label: str = "Bond Yield (%)") -> None:
-    """Configure a linear percentage axis used for bond yields."""
+    """Configure a linear percentage axis used for bond yields.
+
+    Tick steps are restricted to 1, 2, 5 × 10ⁿ. Every such step is either a
+    whole number or an exact divisor of 1, so whenever the visible range
+    contains a whole-number yield that value is a labelled tick. (Matplotlib's
+    default step set also allows 1.5, 2.5, 3, 4, 6 and 8, which produce ticks
+    like 0.6, 1.2, 1.8 … that skip the integers.)
+    """
     ax.set_ylabel(label, fontsize=LABEL_FS, labelpad=8)
     ax.set_yscale("linear")
-    ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=12, prune=None))
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=12, steps=[1, 2, 5, 10], prune=None))
     ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
     ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
     ax.tick_params(axis="y", which="both", labelsize=TICK_FS)
@@ -55,14 +117,15 @@ def configure_macro_axis(ax: Axes, metadata: CountryMetadata) -> None:
     """Configure the log-scaled dollar axis used for the macroeconomic series."""
     ax.set_ylabel(metadata.currency_label, fontsize=LABEL_FS, labelpad=8)
     ax.set_yscale("log")
-    # Major ticks at 1, 2, 5 per decade; minor ticks fill in the rest.
+    # Major ticks at 1, 2, 5 per decade; minor ticks fill in the rest. One
+    # formatter serves both so the minor labels use the same T/B/M/K form
+    # (matplotlib's default minor formatter would use scientific notation).
     ax.yaxis.set_major_locator(ticker.LogLocator(base=10, subs=(1.0, 2.0, 5.0), numticks=20))
     ax.yaxis.set_minor_locator(
         ticker.LogLocator(base=10, subs=(3.0, 4.0, 6.0, 7.0, 8.0, 9.0), numticks=20)
     )
-    ax.yaxis.set_major_formatter(
-        ticker.FuncFormatter(lambda value, _pos: format_currency(value, metadata.currency_prefix))
-    )
+    ax.yaxis.set_major_formatter(LogCurrencyFormatter(metadata.currency_prefix))
+    ax.yaxis.set_minor_formatter(LogCurrencyFormatter(metadata.currency_prefix))
     ax.tick_params(axis="y", which="both", labelsize=TICK_FS)
 
 

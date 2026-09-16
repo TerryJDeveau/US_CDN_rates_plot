@@ -9,6 +9,7 @@ plot functions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Iterable
 
 import pandas as pd
 import requests
@@ -160,18 +161,26 @@ MACRO_PLOT_STYLES = {
 
 @dataclass(frozen=True)
 class CountryMetadata:
-    """Labels, column names and title for one country's chart."""
+    """Labels, column names and title wording for one country's chart.
+
+    ``*_label`` strings appear in the legend; ``*_title`` strings are the
+    phrases assembled into the chart title for whichever series were drawn.
+    """
 
     key: str
+    country_name: str
     currency_prefix: str
     currency_label: str
+    yield_title: str
     debt_column: str
     debt_label: str
+    debt_title: str
     interest_column: str
     interest_label: str
-    title: str
+    interest_title: str = "Interest Outlays"
     gdp_column: str = GDP_COLUMN
     gdp_label: str = "TTM Nominal GDP"
+    gdp_title: str = "TTM GDP"
 
     def macro_specs(self, config: PlotConfig) -> tuple[tuple[str, bool, str, str], ...]:
         """Return ``(style_key, enabled, column, label)`` for each macro curve."""
@@ -181,27 +190,47 @@ class CountryMetadata:
             ("interest", config.include_interest, self.interest_column, self.interest_label),
         )
 
+    def title_for(self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str]) -> str:
+        """Compose the chart title from the series that were actually drawn.
+
+        Parts are joined with commas and a final ampersand, e.g.
+        ``"U.S. Treasury Yields, Aggregate US Public Debt & TTM GDP"``.
+        """
+        macro_titles = {"debt": self.debt_title, "gdp": self.gdp_title, "interest": self.interest_title}
+        parts = ([self.yield_title] if yields_drawn else []) + [
+            macro_titles[key] for key in macro_titles if key in set(macro_keys_drawn)
+        ]
+        if not parts:
+            return f"{self.country_name}: no series selected"
+        if len(parts) == 1:
+            return parts[0]
+        return f"{', '.join(parts[:-1])} & {parts[-1]}"
+
 
 CDN = CountryMetadata(
     key="cdn",
+    country_name="Canada",
     currency_prefix="C$",
-    currency_label="Dollar Amount (CAD – Log Scale)",
+    currency_label="Nominal Units (CAD – Log Scale)",
+    yield_title="CDN Benchmark Yields",
     debt_column=CDN_DEBT_COLUMN,
     debt_label="Aggregate CDN Public Debt",
+    debt_title="Aggregate CDN Public Debt",
     interest_column=CDN_INTEREST_COLUMN,
     interest_label="TTM Interest Payable",
-    title="CDN Benchmark Yields v. Aggregate CDN Public Debt, TTM GDP & Interest Outlays",
 )
 
 US = CountryMetadata(
     key="us",
+    country_name="United States",
     currency_prefix="$",
-    currency_label="Dollar Amount (USD – Log Scale)",
+    currency_label="Nominal Units (USD – Log Scale)",
+    yield_title="U.S. Treasury Yields",
     debt_column=US_DEBT_COLUMN,
     debt_label="Aggregate US Public Debt",
+    debt_title="Aggregate US Public Debt",
     interest_column=US_INTEREST_COLUMN,
     interest_label="TTM Interest Payable",
-    title="U.S. Treasury Yields v. Aggregate US Public Debt, TTM GDP & Interest Outlays",
 )
 
 

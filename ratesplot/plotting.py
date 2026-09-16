@@ -177,18 +177,23 @@ def plot_country(
     ax_macro = ax_yield.twinx()
     macro_in_range = filter_to_date_range(macro, DATE_COLUMN, config)
     macro_lines: list[Line2D] = []
-    macro_columns_plotted: list[str] = []
+    macro_keys_drawn: list[str] = []
+    macro_columns_drawn: list[str] = []
     for style_key, enabled, column, label in metadata.macro_specs(config):
         line = add_macro_line(
             ax_macro, macro_in_range, enabled=enabled, column=column, label=label, style=MACRO_PLOT_STYLES[style_key]
         )
         if line is not None:
             macro_lines.append(line)
-            macro_columns_plotted.append(column)
+            macro_keys_drawn.append(style_key)
+            macro_columns_drawn.append(column)
 
     apply_axes_formatting(ax_yield, ax_macro, config, metadata)
-    warn_dollar_limits_coverage(macro_in_range, macro_columns_plotted, config)
-    finish_legend_and_title(ax_yield, yield_lines + macro_lines, metadata.title, config)
+    warn_dollar_limits_coverage(macro_in_range, macro_columns_drawn, config)
+    # The title names only what is on the chart; the legend keeps yields and
+    # macro curves as separate column groups.
+    title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn)
+    finish_legend_and_title(ax_yield, [yield_lines, macro_lines], title, config)
     plt.show()
 
 
