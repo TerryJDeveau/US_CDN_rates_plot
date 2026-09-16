@@ -13,9 +13,10 @@ lines drawn on a twin axis, so the legend is placed here instead:
    it fits inside the axes is scored in O(1) with a summed-area table.
 4. The first shape that can be placed without covering any sampled point
    wins. If some positions keep it at least ``_TARGET_MARGIN_PX`` from every
-   line, the one nearest an axes corner is used; otherwise the position with
-   the greatest clearance is used wherever it falls. If no shape fits
-   anywhere, the shape/position covering the fewest points is used.
+   line, the one nearest an axes corner is used. Otherwise the target is
+   treated as aspirational: the legend goes where it is furthest from both
+   the lines and the axes frame, i.e. centred in the largest pocket. If no
+   shape fits anywhere, the shape/position covering the fewest points is used.
 """
 
 from __future__ import annotations
@@ -200,7 +201,7 @@ class _Placement:
     ncols: int
     fontsize: float
     covered: int  # occupied cells under the legend at its best position
-    margin: int  # clearance achieved, in cells (only meaningful when covered == 0)
+    clearance: int  # distance to the nearest line, in cells (only meaningful when covered == 0)
     row: int  # bottom-left cell of the legend
     col: int
     height: int  # legend size in cells
@@ -208,7 +209,12 @@ class _Placement:
 
 
 def _best_position(grid: _OccupancyGrid, height: int, width: int, edge_cells: int) -> tuple[int, int, int, int] | None:
-    """Return ``(covered, margin, row, col)`` for the best position of a box, or None if it cannot fit."""
+    """Return ``(covered, clearance, row, col)`` for the best position of a box, or None if it cannot fit.
+
+    ``covered`` is the number of occupied cells under the box (0 when it
+    obscures nothing) and ``clearance`` its distance from the nearest line,
+    in cells, capped at the grid padding.
+    """
     if height + 2 * edge_cells > grid.rows or width + 2 * edge_cells > grid.cols:
         return None
 
@@ -216,33 +222,50 @@ def _best_position(grid: _OccupancyGrid, height: int, width: int, edge_cells: in
         # Keep the legend at least ``edge_cells`` from the axes frame.
         return sums[edge_cells : sums.shape[0] - edge_cells, edge_cells : sums.shape[1] - edge_cells]
 
-    base = interior(grid.window_sums(height, width, margin=0))
-    if base.min() > 0:
-        r, c = np.unravel_index(base.argmin(), base.shape)
-        return int(base.min()), 0, int(r) + edge_cells, int(c) + edge_cells
+    covered = interior(grid.window_sums(height, width, margin=0))
+    if covered.min() > 0:
+        r, c = np.unravel_index(covered.argmin(), covered.shape)
+        return int(covered.min()), 0, int(r) + edge_cells, int(c) + edge_cells
 
-    # Overlap-free positions exist. Aim for the target clearance; if that is
-    # not achievable, binary-search the largest margin that is.
+    # Clearance map: a position is at least m cells clear when the box grown
+    # by m on every side still covers nothing. Growing is monotone, so the
+    # number of margins that stay free is the clearance itself.
+    clearance = np.zeros(covered.shape, dtype=np.int64)
+    for margin in range(1, grid.pad + 1):
+        free = interior(grid.window_sums(height, width, margin=margin)) == 0
+        if not free.any():
+            break
+        clearance += free
+    clearance[covered > 0] = -1
+
+    rows, cols = np.indices(covered.shape)
     target = _TARGET_MARGIN_PX // _CELL_PX
-    if interior(grid.window_sums(height, width, margin=target)).min() == 0:
-        margin = target
+    meets_target = clearance >= target
+    if meets_target.any():
+        # Plenty of room: among positions with the target clearance take the
+        # one nearest an axes corner, where a legend conventionally sits.
+        corner_distance = (
+            np.minimum(rows, covered.shape[0] - 1 - rows) ** 2
+            + np.minimum(cols, covered.shape[1] - 1 - cols) ** 2
+        ).astype(float)
+        corner_distance[~meets_target] = np.inf
+        r, c = np.unravel_index(corner_distance.argmin(), covered.shape)
     else:
-        low, high = 0, target - 1
-        while low < high:
-            mid = (low + high + 1) // 2
-            if interior(grid.window_sums(height, width, margin=mid)).min() == 0:
-                low = mid
-            else:
-                high = mid - 1
-        margin = low
+        # Cramped: the target is aspirational. Treat the axes frame as a soft
+        # obstacle too, so the legend centres itself in whatever pocket exists
+        # instead of hugging the frame at one end of it.
+        frame_distance = np.minimum(
+            np.minimum(rows, covered.shape[0] - 1 - rows),
+            np.minimum(cols, covered.shape[1] - 1 - cols),
+        ) + edge_cells
+        score = np.minimum(clearance, frame_distance).astype(float)
+        score[covered > 0] = -np.inf
+        # Tie-break on line clearance so, within a pocket, the legend still
+        # sits as far from the data as the frame allows.
+        score += clearance / (10.0 * grid.pad)
+        r, c = np.unravel_index(score.argmax(), covered.shape)
 
-    free = interior(grid.window_sums(height, width, margin=margin)) == 0
-    rows, cols = np.nonzero(free)
-    # Among acceptable positions prefer the one nearest an axes corner, where
-    # a legend conventionally sits.
-    corner_distance = np.minimum(rows, free.shape[0] - 1 - rows) ** 2 + np.minimum(cols, free.shape[1] - 1 - cols) ** 2
-    pick = corner_distance.argmin()
-    return 0, margin, int(rows[pick]) + edge_cells, int(cols[pick]) + edge_cells
+    return 0, int(clearance[r, c]), int(r) + edge_cells, int(c) + edge_cells
 
 
 def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]]) -> Legend | None:
@@ -272,8 +295,8 @@ def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]]) -> Legend | 
             result = _best_position(grid, height, width, edge_cells)
             if result is None:
                 continue
-            covered, margin, row, col = result
-            candidate = _Placement(handles, ncols, fontsize, covered, margin, row, col, height, width)
+            covered, clearance, row, col = result
+            candidate = _Placement(handles, ncols, fontsize, covered, clearance, row, col, height, width)
             if covered == 0:
                 best = candidate
                 break

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import bisect
 import math
+from typing import Iterable
 
 import matplotlib.dates as mdates
 import matplotlib.ticker as ticker
@@ -31,69 +33,117 @@ from .config import (
 _CURRENCY_SCALES = ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K"))
 
 
-def format_currency(value: float, prefix: str = "$", *, decimals: int = 0) -> str:
-    """Format a dollar amount compactly with a T/B/M/K suffix, e.g. ``2.5e9 -> "$2B"``.
+def format_currency(value: float, prefix: str = "$") -> str:
+    """Format a dollar amount compactly with a T/B/M/K suffix.
 
-    The default of zero decimals suits log-axis tick labels, which sit at
-    1/2/5 × 10^n and so are always whole numbers of the chosen unit.
+    Up to three significant figures are shown and trailing zeros dropped, so
+    ``2e9 -> "$2B"``, ``1.5e12 -> "$1.5T"``, ``1.6e10 -> "$16B"``.
     """
     for scale, suffix in _CURRENCY_SCALES:
         if value >= scale:
-            return f"{prefix}{value / scale:.{decimals}f}{suffix}"
-    return f"{prefix}{value:.{decimals}f}"
+            return f"{prefix}{value / scale:.3g}{suffix}"
+    return f"{prefix}{value:.3g}"
 
 
-class LogCurrencyFormatter(ticker.Formatter):
-    """Label log-axis ticks as ``$1T`` / ``$200B`` …, denser when the axis spans few decades.
+class LogNiceLocator(ticker.Locator):
+    """Log-axis tick positions chosen for even *visual* spacing at "nice" values.
 
-    The locators put major ticks at 1, 2, 5 × 10ⁿ and minor ticks at the other
-    integer multiples. The majors are always labelled; minors are labelled
-    using the densest coefficient set that still leaves at least
-    ``_MIN_LABEL_SPACING`` label-heights between labels on the visible span,
-    so a short span gets every integer multiple and a long span only 1/2/5.
+    Uniform coefficient sets do not work on a log axis: the 1→2 gap is six
+    times the 8→9 gap, so any set dense enough to fill the former crowds the
+    latter. Instead ticks are chosen greedily per gap:
+
+    1. every power of ten in view is a tick;
+    2. integer coefficients are added in the order 2, 5, 3, 7, 4, 6, 8, 9,
+       each only if it stays at least ``_MIN_SPACING`` label heights from the
+       ticks already accepted;
+    3. finer coefficients (steps of 0.5, then 0.2, 0.1, 0.05, 0.02, 0.01) are
+       added only where they split a gap wider than ``_MAX_GAP`` label
+       heights, again respecting the minimum spacing.
+
+    So a five-decade span gets 1/2/5 per decade; a two-decade span gains
+    3, 4, 7 and 1.5; a span of half a decade gains 1.2, 1.5, 2.5 … and a
+    very narrow span gets two-significant-figure values such as 1.4, 1.6.
     """
 
-    # Candidate coefficient sets, densest first. The last is the floor.
-    _DENSITY_SETS = (
-        frozenset({1, 2, 3, 4, 5, 6, 7, 8, 9}),
-        frozenset({1, 2, 3, 5, 7}),
-        frozenset({1, 2, 5}),
-    )
-    # Minimum gap between adjacent labels, in multiples of the label height.
-    _MIN_LABEL_SPACING = 3.5
+    _INTEGER_ORDER = (2, 5, 3, 7, 4, 6, 8, 9)
+    _REFINEMENT_STEPS = (0.5, 0.2, 0.1, 0.05, 0.02, 0.01)
+    # Spacing thresholds in multiples of the tick-label height.
+    _MIN_SPACING = 2.5
+    _MAX_GAP = 8.0
 
-    def __init__(self, prefix: str) -> None:
+    def __init__(self, label_fontsize: float) -> None:
         super().__init__()
-        self.prefix = prefix
+        self.label_fontsize = label_fontsize
 
-    def _label_count(self, coefficients: frozenset[int], vmin: float, vmax: float) -> int:
-        """Number of ticks with a coefficient in ``coefficients`` inside ``[vmin, vmax]``."""
-        low, high = math.floor(math.log10(vmin)), math.ceil(math.log10(vmax))
-        return sum(
-            1
-            for exponent in range(low, high + 1)
-            for c in coefficients
-            if vmin <= c * 10.0**exponent <= vmax
-        )
+    def __call__(self) -> list[float]:
+        return self.tick_values(*self.axis.get_view_interval())
 
-    def _labelled_coefficients(self) -> frozenset[int]:
-        vmin, vmax = self.axis.get_view_interval()
+    def _axis_length_px(self) -> float:
+        bbox = self.axis.axes.get_window_extent()
+        return bbox.height if self.axis.axis_name == "y" else bbox.width
+
+    def tick_values(self, vmin: float, vmax: float) -> list[float]:
         if not (vmin > 0 and vmax > vmin):
-            return self._DENSITY_SETS[-1]
-        # get_tick_space() is the axis length measured in double label heights.
-        max_labels = self.axis.get_tick_space() * 2 / self._MIN_LABEL_SPACING
-        return next(
-            (s for s in self._DENSITY_SETS if self._label_count(s, vmin, vmax) <= max_labels),
-            self._DENSITY_SETS[-1],
-        )
+            return []
 
-    def __call__(self, x: float, pos: int | None = None) -> str:
-        if x <= 0:
-            return ""
-        coefficient = round(x / 10 ** math.floor(math.log10(x)))
-        if coefficient == 10:  # e.g. 9.9999e11 from floating-point error
-            coefficient = 1
-        return format_currency(x, self.prefix) if coefficient in self._labelled_coefficients() else ""
+        label_px = self.label_fontsize * self.axis.get_figure().dpi / 72.0
+        px_per_decade = self._axis_length_px() / math.log10(vmax / vmin)
+        min_spacing = self._MIN_SPACING * label_px
+        max_gap = self._MAX_GAP * label_px
+        exponents = range(math.floor(math.log10(vmin)), math.ceil(math.log10(vmax)) + 1)
+
+        def in_view(values: Iterable[float]) -> list[float]:
+            return sorted(v for v in values if vmin <= v <= vmax)
+
+        def px_between(a: float, b: float) -> float:
+            return abs(math.log10(b) - math.log10(a)) * px_per_decade
+
+        accepted = in_view(10.0**e for e in exponents)
+
+        def try_add(value: float, *, require_wide_gap: bool) -> None:
+            index = bisect.bisect_left(accepted, value)
+            below = accepted[index - 1] if index > 0 else None
+            above = accepted[index] if index < len(accepted) else None
+            if below is not None and px_between(below, value) < min_spacing:
+                return
+            if above is not None and px_between(value, above) < min_spacing:
+                return
+            if require_wide_gap:
+                # Fractional labels only fill voids; the gap they split runs to
+                # the view edge when there is no accepted tick on that side.
+                gap = px_between(below if below is not None else vmin, above if above is not None else vmax)
+                if gap < max_gap:
+                    return
+            accepted.insert(index, value)
+
+        for coefficient in self._INTEGER_ORDER:
+            for value in in_view(coefficient * 10.0**e for e in exponents):
+                try_add(value, require_wide_gap=False)
+
+        for step in self._REFINEMENT_STEPS:
+            # Coefficients are built from integers (hundredths) to avoid float drift.
+            hundredths = range(100, 1000, round(step * 100))
+            candidates = in_view(c * 10.0 ** (e - 2) for e in exponents for c in hundredths)
+            for value in candidates:
+                if not any(math.isclose(value, a, rel_tol=1e-9) for a in accepted):
+                    try_add(value, require_wide_gap=True)
+
+        return accepted
+
+
+class _ComplementLogLocator(ticker.LogLocator):
+    """Integer-coefficient log ticks that are not already major ticks (for the minor grid)."""
+
+    def __init__(self, major: ticker.Locator) -> None:
+        super().__init__(base=10, subs=tuple(range(2, 10)), numticks=20)
+        self._major = major
+
+    def tick_values(self, vmin: float, vmax: float) -> list[float]:
+        majors = self._major.tick_values(vmin, vmax)
+        return [
+            v for v in super().tick_values(vmin, vmax)
+            if not any(math.isclose(v, m, rel_tol=1e-9) for m in majors)
+        ]
 
 
 def configure_yield_axis(ax: Axes, *, label: str = "Bond Yield (%)") -> None:
@@ -117,15 +167,17 @@ def configure_macro_axis(ax: Axes, metadata: CountryMetadata) -> None:
     """Configure the log-scaled dollar axis used for the macroeconomic series."""
     ax.set_ylabel(metadata.currency_label, fontsize=LABEL_FS, labelpad=8)
     ax.set_yscale("log")
-    # Major ticks at 1, 2, 5 per decade; minor ticks fill in the rest. One
-    # formatter serves both so the minor labels use the same T/B/M/K form
-    # (matplotlib's default minor formatter would use scientific notation).
-    ax.yaxis.set_major_locator(ticker.LogLocator(base=10, subs=(1.0, 2.0, 5.0), numticks=20))
-    ax.yaxis.set_minor_locator(
-        ticker.LogLocator(base=10, subs=(3.0, 4.0, 6.0, 7.0, 8.0, 9.0), numticks=20)
+    # Labelled major ticks are chosen for even spacing (see LogNiceLocator);
+    # the remaining integer multiples carry the unlabelled minor grid. The
+    # minor formatter must be silenced explicitly: matplotlib's default labels
+    # minor log ticks in scientific notation on short spans.
+    major = LogNiceLocator(TICK_FS)
+    ax.yaxis.set_major_locator(major)
+    ax.yaxis.set_minor_locator(_ComplementLogLocator(major))
+    ax.yaxis.set_major_formatter(
+        ticker.FuncFormatter(lambda value, _pos: format_currency(value, metadata.currency_prefix))
     )
-    ax.yaxis.set_major_formatter(LogCurrencyFormatter(metadata.currency_prefix))
-    ax.yaxis.set_minor_formatter(LogCurrencyFormatter(metadata.currency_prefix))
+    ax.yaxis.set_minor_formatter(ticker.NullFormatter())
     ax.tick_params(axis="y", which="both", labelsize=TICK_FS)
 
 

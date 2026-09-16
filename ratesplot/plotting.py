@@ -66,7 +66,7 @@ def warn_dollar_limits_coverage(
         return
 
     def limit_text(value: float | None) -> str:
-        return "None" if value is None else format_currency(value, "", decimals=1)
+        return "None" if value is None else format_currency(value, "")
 
     limits_text = f"--bottom:{limit_text(config.macro_bottom)}, --top:{limit_text(config.macro_top)}"
     bottom = config.macro_bottom if config.macro_bottom is not None else float("-inf")
