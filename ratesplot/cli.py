@@ -1,44 +1,49 @@
-"""
-US_CDN_rates_plot_9.py
-======================
-Canadian and/or U.S. benchmark bond yields vs public debt, TTM nominal GDP,
-and TTM interest outlays (1996–present).
+"""Command-line parsing and the program entry point.
 
-This version keeps the original command-line behavior while separating:
-    1. configuration and CLI parsing,
-    2. data acquisition/transformation, and
-    3. chart construction/formatting.
+Canadian and/or U.S. benchmark bond yields vs public debt, TTM nominal GDP and
+TTM interest outlays, on a two-axis chart per country.
 
-CLI compatibility
------------------
+Usage summary (also printed by ``--help``)
+------------------------------------------
 Run with no flags to produce both charts (Canadian, then U.S.).
 
-Country selection (case-insensitive; first character is significant):
-    --C / -C / --canada / --cdn   -> Canadian chart only
-    --U / -U / --us / --usa       -> U.S. chart only
+Country selection (case-insensitive; only the first letter matters):
+    --C / -C / --canada / --cdn       Canadian chart only
+    --U / -U / --us / --usa           U.S. chart only
 
-Curve selection (case-insensitive; first character is significant):
-    --GDP / --no-GDP              -> include/exclude TTM Nominal GDP
-    --debt / --no-debt            -> include/exclude Public Debt
-    --interest / --no-interest    -> include/exclude TTM Interest
-    --yield / --no-yield          -> include/exclude Bond Yields
+Curve selection (case-insensitive; only the first letter matters). Naming any
+curve positively shows *only* the named curves; ``--no-`` forms hide curves
+from the default set of all four:
+    --GDP / --no-GDP                  TTM nominal GDP
+    --debt / --no-debt                aggregate public debt
+    --interest / --no-interest        TTM interest outlays
+    --yield / --no-yield              bond yields
 
-Yield-axis limits:
-    --min:VAL / --mn:VAL / --minimum:VAL -> lower bound
-    --max:VAL / --mx:VAL / --maxim:VAL    -> upper bound
+Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):
+    --start:DATE / --s:DATE           first date (default 1966-01-01)
+    --end:DATE / --e:DATE             last date (default today)
 
-Dollar-axis limits:
-    --top:VAL / --t:VAL             -> upper bound
-    --bottom:VAL / --b:VAL          -> lower bound
+Canvas size in pixels (4:3 assumed when only one dimension is given):
+    --dimensions:WxH / --d:W / --d:xH   (minimum 800 px each way)
 
-Dollar values accept b/B, t/T, m/M, and k/K suffixes. Unsuffixed values
-are interpreted as billions, matching the original script.
+Yield-axis limits (percent):
+    --min:VAL / --mn:VAL              lower bound
+    --max:VAL / --mx:VAL              upper bound
+
+Dollar-axis limits (suffixes k/m/b/t; unsuffixed values are billions):
+    --top:VAL / --t:VAL               upper bound
+    --bottom:VAL / --b:VAL            lower bound
+
+Maintenance:
+    --bake-archives                   refresh ratesplot/cdn_archive_data.py from
+                                      the archived StatCan tables, then exit
 """
 
 from __future__ import annotations
 
 import argparse
-import datetime
+import calendar
+import re
 import sys
 
 import pandas as pd
@@ -47,55 +52,40 @@ from .bake import bake_canadian_archives
 from .config import DEFAULT_CANVAS_PX, DEFAULT_START, MIN_CANVAS_PX, PlotConfig
 from .plotting import run_cdn, run_us
 
+# Curve flags keyed by first letter: ``--g``, ``--debt``, ``--i``, ``--yield`` …
+_CURVE_BY_INITIAL = {"g": "gdp", "d": "debt", "i": "interest", "y": "yield"}
+_DOLLAR_SUFFIX_MULTIPLIERS = {"t": 1e12, "b": 1e9, "m": 1e6, "k": 1e3}
+_DEFAULT_DOLLAR_MULTIPLIER = 1e9
 
-def days_in_month(year: int, month: int) -> int:
-    """Return the number of days in a calendar month without external helpers."""
-    if month in (1, 3, 5, 7, 8, 10, 12):
-        return 31
-    if month in (4, 6, 9, 11):
-        return 30
-    is_leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-    return 29 if is_leap_year else 28
+_DATE_SPEC = re.compile(r"^(\d{4})(?:[-/](\d{1,2})(?:[-/](\d{1,2}))?)?$")
+
+
+# ---------------------------------------------------------------------------
+# Value parsers (each raises ValueError with a user-facing message)
+# ---------------------------------------------------------------------------
 
 
 def parse_date_spec(spec: str, *, kind: str) -> pd.Timestamp:
-    """Parse YYYY, YYYY-MM, or YYYY-MM-DD (also accepting '/')."""
+    """Parse ``YYYY``, ``YYYY-MM`` or ``YYYY-MM-DD`` (``/`` also accepted) to a Timestamp.
+
+    Omitted month/day default to 1. ``kind`` ("start"/"end") is used in messages.
+    """
     value = spec.strip()
     if not value:
         raise ValueError(f"empty {kind} date spec")
 
-    parts = value.replace("/", "-").split("-")
-    if len(parts) > 3:
-        raise ValueError(f"invalid {kind} date {spec!r}: too many components")
+    match = _DATE_SPEC.match(value)
+    if not match:
+        raise ValueError(f"invalid {kind} date {spec!r}: expected YYYY, YYYY-MM or YYYY-MM-DD")
 
-    year_text = parts[0]
-    if not (year_text.isdigit() and len(year_text) == 4):
-        raise ValueError(f"invalid {kind} year {year_text!r}: must be exactly 4 digits")
-    year = int(year_text)
-
-    if len(parts) >= 2:
-        month_text = parts[1]
-        if not month_text.isdigit() or int(month_text) == 0:
-            raise ValueError(f"invalid {kind} month {month_text!r}: must be 1–12")
-        month = int(month_text)
-        if not 1 <= month <= 12:
-            raise ValueError(f"invalid {kind} month {month}: must be 1–12")
-    else:
-        month = 1
-
-    if len(parts) == 3:
-        day_text = parts[2]
-        if not day_text.isdigit() or int(day_text) == 0:
-            raise ValueError(f"invalid {kind} day {day_text!r}: must be a positive integer")
-        day = int(day_text)
-        max_day = days_in_month(year, month)
-        if day > max_day:
-            raise ValueError(
-                f"invalid {kind} day {day} for {year}-{month:02d}: month has only {max_day} days"
-            )
-    else:
-        day = 1
-
+    year = int(match.group(1))
+    month = int(match.group(2) or 1)
+    day = int(match.group(3) or 1)
+    if not 1 <= month <= 12:
+        raise ValueError(f"invalid {kind} month {month}: must be 1–12")
+    max_day = calendar.monthrange(year, month)[1]
+    if not 1 <= day <= max_day:
+        raise ValueError(f"invalid {kind} day {day} for {year}-{month:02d}: month has only {max_day} days")
     return pd.Timestamp(year=year, month=month, day=day)
 
 
@@ -104,13 +94,11 @@ def validate_date_range(start: pd.Timestamp, end: pd.Timestamp) -> None:
     if end < start:
         raise ValueError(f"end date {end.date()} is before start date {start.date()}")
     if (end - start).days < 7:
-        raise ValueError(
-            f"end date {end.date()} is less than 7 days after start date {start.date()}"
-        )
+        raise ValueError(f"end date {end.date()} is less than 7 days after start date {start.date()}")
 
 
 def parse_dimensions_spec(spec: str) -> tuple[int, int]:
-    """Parse width, height, or aspect-preserving xN/NxN dimensions."""
+    """Parse ``W``, ``xH`` or ``WxH`` into ``(width, height)`` pixels, assuming 4:3 if needed."""
     value = spec.strip().lower()
     if not value:
         raise ValueError("empty dimensions spec")
@@ -119,77 +107,70 @@ def parse_dimensions_spec(spec: str) -> tuple[int, int]:
         if not value[1:].isdigit():
             raise ValueError(f"dimensions height must be digits only, got {spec!r}")
         height = int(value[1:])
-        width = int(round(height * 4 / 3))
+        width = round(height * 4 / 3)
     elif "x" in value:
         width_text, height_text = value.split("x", 1)
-        if not width_text.isdigit() or not height_text.isdigit():
+        if not (width_text.isdigit() and height_text.isdigit()):
             raise ValueError(f"dimensions must be digits around 'x', got {spec!r}")
         width, height = int(width_text), int(height_text)
     else:
         if not value.isdigit():
             raise ValueError(f"dimensions width must be digits only, got {spec!r}")
         width = int(value)
-        height = int(round(width * 3 / 4))
+        height = round(width * 3 / 4)
 
-    if width < MIN_CANVAS_PX or height < MIN_CANVAS_PX:
-        raise ValueError(
-            f"canvas {width}x{height} px is below minimum size of {MIN_CANVAS_PX} px"
-        )
+    if min(width, height) < MIN_CANVAS_PX:
+        raise ValueError(f"canvas {width}x{height} px is below minimum size of {MIN_CANVAS_PX} px")
     return width, height
 
 
 def parse_yield_bound(spec: str, *, kind: str) -> float:
-    """Parse a yield axis bound as a value in [0, 100)."""
+    """Parse a yield-axis bound in percent, allowed range ``[0, 100)``."""
     value = spec.strip()
     if not value:
         raise ValueError(f"empty {kind} yield bound")
     try:
         parsed = float(value)
     except ValueError:
-        raise ValueError(
-            f"invalid {kind} yield bound {spec!r}: must be a decimal number"
-        ) from None
-    if parsed < 0 or parsed >= 100:
+        raise ValueError(f"invalid {kind} yield bound {spec!r}: must be a decimal number") from None
+    if not 0 <= parsed < 100:
         raise ValueError(f"{kind} yield bound must be non-negative and < 100, got {parsed}")
     return parsed
 
 
 def parse_dollar_bound(spec: str, *, kind: str) -> float:
-    """Parse a dollar-axis bound, defaulting unsuffixed values to billions."""
-    value = spec.strip()
+    """Parse a dollar-axis bound; ``k/m/b/t`` suffixes scale, unsuffixed means billions."""
+    value = spec.strip().lower()
     if not value:
         raise ValueError(f"empty {kind} dollar limit")
 
-    multipliers = {
-        "t": 1e12,
-        "b": 1e9,
-        "m": 1e6,
-        "k": 1e3,
-    }
-    normalized = value.lower()
-    suffix = normalized[-1] if normalized and normalized[-1] in multipliers else None
-    multiplier = multipliers.get(suffix, 1e9)
-    numeric_part = normalized[:-1].strip() if suffix else normalized
+    multiplier = _DOLLAR_SUFFIX_MULTIPLIERS.get(value[-1])
+    if multiplier is not None:
+        value = value[:-1].strip()
+    else:
+        multiplier = _DEFAULT_DOLLAR_MULTIPLIER
 
     try:
-        parsed = float(numeric_part)
+        parsed = float(value)
     except ValueError:
-        raise ValueError(
-            f"invalid {kind} dollar limit {spec!r}: must be a positive decimal value"
-        ) from None
+        raise ValueError(f"invalid {kind} dollar limit {spec!r}: must be a positive decimal value") from None
     if parsed <= 0:
         raise ValueError(f"{kind} dollar limit must be positive, got {parsed}")
     return parsed * multiplier
 
 
-def consume_custom_cli_token(
-    token: str,
-    state: dict[str, object],
-) -> bool:
-    """Consume one custom token and store its parsed payload in ``state``.
+# ---------------------------------------------------------------------------
+# Token-level CLI handling
+# ---------------------------------------------------------------------------
 
-    The original CLI intentionally accepts many aliases by inspecting only the
-    first character(s), so this helper preserves that compatibility in one place.
+
+def consume_custom_cli_token(token: str, state: dict[str, object]) -> bool:
+    """Interpret one legacy-style token, storing its raw payload in ``state``.
+
+    Returns True when the token was recognised (and must not reach argparse).
+    Recognition is deliberately loose — only the leading letter(s) matter — so
+    the many historical spellings (``--dim:``, ``--dimensions:``, ``--GDP``,
+    ``--no-gdp`` …) all keep working.
     """
     core = token.lstrip("-")
     if not core:
@@ -197,157 +178,102 @@ def consume_custom_cli_token(
 
     if ":" in core:
         key, _, payload = core.partition(":")
-        key_lower = key.lower()
-        first_letter = key_lower[:1]
-
-        if first_letter == "d":
-            state["dimensions"] = payload
+        key = key.lower()
+        initial = key[:1]
+        if initial in {"d", "s", "e", "t", "b"}:
+            state[{"d": "dimensions", "s": "start", "e": "end", "t": "top", "b": "bottom"}[initial]] = payload
             return True
-        if first_letter == "s":
-            state["start"] = payload
+        if key[:2] in {"mx", "ma"}:
+            state["ymax"] = payload
             return True
-        if first_letter == "e":
-            state["end"] = payload
+        if key[:2] in {"mn", "mi"}:
+            state["ymin"] = payload
             return True
-        if first_letter == "t":
-            state["top"] = payload
-            return True
-        if first_letter == "b":
-            state["bottom"] = payload
-            return True
-        if first_letter == "m" and len(key_lower) >= 2:
-            prefix = key_lower[:2]
-            if prefix in {"mx", "ma"}:
-                state["ymax"] = payload
-                return True
-            if prefix in {"mn", "mi"}:
-                state["ymin"] = payload
-                return True
+        return False
 
     lower = core.lower()
     is_negative = lower.startswith("no-")
-    base_option = lower[3:] if is_negative else lower
-    if base_option:
-        first = base_option[0]
-        if first in {"g", "d", "i", "y"}:
-            state[{"g": "gdp", "d": "debt", "i": "interest", "y": "yield"}[first]] = not is_negative
-            return True
-
-    return False
+    option = lower[3:] if is_negative else lower
+    curve = _CURVE_BY_INITIAL.get(option[:1])
+    if curve is None:
+        return False
+    state[curve] = not is_negative
+    return True
 
 
 def normalize_country_flag(token: str) -> str | None:
-    """Normalize legacy country spellings to argparse's ``--C`` or ``--U``."""
-    core = token.lstrip("-")
-    if not core:
-        return None
-    first = core[0].upper()
-    if first == "C":
-        return "--C"
-    if first == "U":
-        return "--U"
-    return None
+    """Map any ``-c``/``--canada``/``--U``/``--usa`` spelling to argparse's ``--C``/``--U``."""
+    initial = token.lstrip("-")[:1].upper()
+    return {"C": "--C", "U": "--U"}.get(initial)
+
+
+def _resolve_curve_selection(custom: dict[str, object]) -> dict[str, bool]:
+    """Turn the raw curve flags into four booleans.
+
+    If any curve was named positively, only positively named curves are shown.
+    Otherwise every curve is shown except those explicitly negated.
+    """
+    requests = {curve: custom[curve] for curve in _CURVE_BY_INITIAL.values()}
+    if any(value is True for value in requests.values()):
+        return {curve: value is True for curve, value in requests.items()}
+    return {curve: value is not False for curve, value in requests.items()}
 
 
 def parse_args(argv: list[str] | None = None) -> PlotConfig:
-    """Parse CLI arguments and return an immutable runtime configuration."""
+    """Parse the command line into an immutable :class:`PlotConfig`."""
     parser = argparse.ArgumentParser(
         description="Plot Canadian and/or U.S. benchmark yields vs public debt, TTM GDP, and interest.",
+        epilog=__doc__.split("Usage summary", 1)[1].split("\n", 2)[2],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--C", dest="show_cdn", action="store_true", default=False)
-    parser.add_argument("--U", dest="show_us", action="store_true", default=False)
-    parser.add_argument("--bake-archives", action="store_true", default=False,
-                        help="Download inactive Canadian StatCan archives once and embed them in ratesplot/cdn_archive_data.py.")
+    parser.add_argument("--C", dest="show_cdn", action="store_true", default=False, help="Canadian chart only")
+    parser.add_argument("--U", dest="show_us", action="store_true", default=False, help="U.S. chart only")
+    parser.add_argument(
+        "--bake-archives",
+        action="store_true",
+        default=False,
+        help="Download the archived Canadian StatCan tables once and embed them in ratesplot/cdn_archive_data.py.",
+    )
 
     raw_tokens = list(argv) if argv is not None else sys.argv[1:]
-    normalized_tokens: list[str] = []
-    custom: dict[str, object] = {
-        "dimensions": None,
-        "start": None,
-        "end": None,
-        "ymin": None,
-        "ymax": None,
-        "top": None,
-        "bottom": None,
-        "gdp": None,
-        "debt": None,
-        "interest": None,
-        "yield": None,
-    }
-
+    custom: dict[str, object] = dict.fromkeys(
+        ("dimensions", "start", "end", "ymin", "ymax", "top", "bottom", *_CURVE_BY_INITIAL.values())
+    )
+    argparse_tokens: list[str] = []
     for token in raw_tokens:
-        if consume_custom_cli_token(token, custom):
-            continue
-        country_flag = normalize_country_flag(token)
-        normalized_tokens.append(country_flag or token)
+        if not consume_custom_cli_token(token, custom):
+            argparse_tokens.append(normalize_country_flag(token) or token)
 
-    args = parser.parse_args(normalized_tokens)
-
-    # A positive selection means only explicitly enabled curves are shown;
-    # otherwise the absence of --no-* leaves that curve enabled by default.
-    curve_requests = [custom["gdp"], custom["debt"], custom["interest"], custom["yield"]]
-    any_positive = any(value is True for value in curve_requests)
-    if any_positive:
-        include_gdp = custom["gdp"] is True
-        include_debt = custom["debt"] is True
-        include_interest = custom["interest"] is True
-        include_yield = custom["yield"] is True
-    else:
-        include_gdp = custom["gdp"] is not False
-        include_debt = custom["debt"] is not False
-        include_interest = custom["interest"] is not False
-        include_yield = custom["yield"] is not False
+    args = parser.parse_args(argparse_tokens)
+    curves = _resolve_curve_selection(custom)
 
     try:
-        if custom["dimensions"] is not None:
-            width_px, height_px = parse_dimensions_spec(str(custom["dimensions"]))
-        else:
-            width_px, height_px = DEFAULT_CANVAS_PX
-
-        start = (
-            parse_date_spec(str(custom["start"]), kind="start")
-            if custom["start"] is not None
-            else DEFAULT_START
+        width_px, height_px = (
+            parse_dimensions_spec(str(custom["dimensions"])) if custom["dimensions"] is not None else DEFAULT_CANVAS_PX
         )
+        start = parse_date_spec(str(custom["start"]), kind="start") if custom["start"] is not None else DEFAULT_START
         end = (
             parse_date_spec(str(custom["end"]), kind="end")
             if custom["end"] is not None
-            else pd.Timestamp(datetime.date.today())
+            else pd.Timestamp.today().normalize()
         )
         validate_date_range(start, end)
 
-        yield_ymin = (
-            parse_yield_bound(str(custom["ymin"]), kind="min")
-            if custom["ymin"] is not None
-            else None
-        )
-        yield_ymax = (
-            parse_yield_bound(str(custom["ymax"]), kind="max")
-            if custom["ymax"] is not None
-            else None
-        )
+        yield_ymin = parse_yield_bound(str(custom["ymin"]), kind="min") if custom["ymin"] is not None else None
+        yield_ymax = parse_yield_bound(str(custom["ymax"]), kind="max") if custom["ymax"] is not None else None
         if yield_ymin is not None and yield_ymax is not None and yield_ymin >= yield_ymax:
             raise ValueError(f"yield min ({yield_ymin}) must be less than max ({yield_ymax})")
 
-        macro_top = (
-            parse_dollar_bound(str(custom["top"]), kind="top")
-            if custom["top"] is not None
-            else None
-        )
-        macro_bottom = (
-            parse_dollar_bound(str(custom["bottom"]), kind="bottom")
-            if custom["bottom"] is not None
-            else None
-        )
+        macro_top = parse_dollar_bound(str(custom["top"]), kind="top") if custom["top"] is not None else None
+        macro_bottom = parse_dollar_bound(str(custom["bottom"]), kind="bottom") if custom["bottom"] is not None else None
         if macro_top is not None and macro_bottom is not None and macro_bottom >= macro_top:
             raise ValueError(f"bottom limit ({macro_bottom}) must be less than top limit ({macro_top})")
     except ValueError as exc:
         parser.error(str(exc))
 
-    show_cdn = args.show_cdn
-    show_us = args.show_us
-    if not show_cdn and not show_us:
+    # No country flag means both charts.
+    show_cdn, show_us = args.show_cdn, args.show_us
+    if not (show_cdn or show_us):
         show_cdn = show_us = True
 
     return PlotConfig(
@@ -359,10 +285,10 @@ def parse_args(argv: list[str] | None = None) -> PlotConfig:
         yield_ymax=yield_ymax,
         macro_bottom=macro_bottom,
         macro_top=macro_top,
-        include_yield=include_yield,
-        include_debt=include_debt,
-        include_gdp=include_gdp,
-        include_interest=include_interest,
+        include_yield=curves["yield"],
+        include_debt=curves["debt"],
+        include_gdp=curves["gdp"],
+        include_interest=curves["interest"],
         show_cdn=show_cdn,
         show_us=show_us,
         bake_archives=args.bake_archives,
@@ -370,7 +296,7 @@ def parse_args(argv: list[str] | None = None) -> PlotConfig:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Parse the command line, run the requested charts, and report completion."""
+    """Parse the command line, run the requested charts (or bake), and report completion."""
     config = parse_args(argv)
 
     if config.bake_archives:
@@ -381,5 +307,4 @@ def main(argv: list[str] | None = None) -> None:
         run_cdn(config)
     if config.show_us:
         run_us(config)
-
     print("All requested charts finished.")

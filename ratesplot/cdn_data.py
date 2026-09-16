@@ -1,4 +1,15 @@
-"""Bank of Canada / Statistics Canada data pipelines."""
+"""Bank of Canada / Statistics Canada data pipelines.
+
+Each ``fetch_cdn_*`` function returns a quarter-start-indexed frame (or ``None``
+when the curve is deselected or unavailable). ``align_cdn_macro`` then
+forward-fills those quarterly values onto the daily yield dates for plotting.
+
+Debt and interest are each the splice of two sources:
+
+* a baked archive (``cdn_archive_data``) covering 1961 to the mid-1990s, taken
+  from terminated StatCan tables that no longer change; and
+* the live modern table, which starts in 1990 and is authoritative from there.
+"""
 
 from __future__ import annotations
 
@@ -20,195 +31,38 @@ from .config import (
     BOC_START_DATE,
     CANADIAN_HISTORICAL_START,
     CANADIAN_SESSION,
+    CDN_DEBT_COLUMN,
+    CDN_INTEREST_COLUMN,
     DATE_COLUMN,
+    GDP_COLUMN,
     HTTP_POST_TIMEOUT_SECONDS,
-    STATCAN_MILLION_TO_DOLLAR,
+    MILLION,
+    STATCAN_CDN_DEBT_FALLBACK_VECTOR,
+    STATCAN_CDN_DEBT_TABLE,
+    STATCAN_CDN_GDP_TABLE,
+    STATCAN_CDN_INTEREST_TABLE,
     STATCAN_TABLE_URL,
     STATCAN_TIMEOUT_SECONDS,
     STATCAN_WDS_URL,
     YIELD_COLUMNS,
     PlotConfig,
 )
+from .frames import normalize_date_column, rows_to_frame
 from .http import canadian_get, fetch_fred_csv, parse_boc_csv
 
+# Bank of Canada Valet series codes -> chart column names. The 3-month T-bill
+# is not part of the benchmark group, so it is fetched as a separate series.
+BOC_BENCHMARK_GROUP = "bond_yields_benchmark"
+BOC_BENCHMARK_COLUMNS = {
+    "BD.CDN.2YR.DQ.YLD": "2-Year",
+    "BD.CDN.5YR.DQ.YLD": "5-Year",
+    "BD.CDN.10YR.DQ.YLD": "10-Year",
+    "BD.CDN.LONG.DQ.YLD": "30-Year",
+}
+BOC_3M_TBILL_SERIES = "V80691303"
+FRED_CDN_GDP_SERIES = "NGDPSAXDCCAQ"  # fallback if the StatCan GDP table fails
 
-def boc_valet_group(group: str = "bond_yields_benchmark", start: str = BOC_START_DATE) -> pd.DataFrame:
-    """Download a Bank of Canada Valet observation group as a time-indexed frame."""
-    url = BOC_GROUP_URL.format(group=group)
-    response = canadian_get(url, params={"start_date": start})
-    frame = parse_boc_csv(response.text)
-    for column in frame.columns:
-        frame[column] = pd.to_numeric(frame[column], errors="coerce")
-    return frame
-
-
-def boc_valet_series(series_code: str, start: str = BOC_START_DATE) -> pd.DataFrame:
-    """Download one Bank of Canada Valet series as a time-indexed frame."""
-    url = BOC_SERIES_URL.format(series_code=series_code)
-    response = canadian_get(url, params={"start_date": start})
-    frame = parse_boc_csv(response.text)
-    frame.iloc[:, 0] = pd.to_numeric(frame.iloc[:, 0], errors="coerce")
-    return frame
-
-
-def statcan_zip_table(table_id: str) -> pd.DataFrame:
-    """Download the non-metadata CSV from a Statistics Canada ZIP table."""
-    url = STATCAN_TABLE_URL.format(table_id=table_id)
-    print(f"Downloading StatCan table {table_id} (ZIP) …")
-    response = canadian_get(url, timeout=STATCAN_TIMEOUT_SECONDS)
-
-    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        csv_name = next(
-            name
-            for name in archive.namelist()
-            if name.endswith(".csv") and "MetaData" not in name
-        )
-        with archive.open(csv_name) as csv_file:
-            return pd.read_csv(csv_file, low_memory=False)
-
-
-def _splice_archived_series(
-    historical: pd.DataFrame,
-    current: pd.DataFrame,
-    value_column: str,
-    *,
-    calibration_end_year: int = ARCHIVE_CALIBRATION_END_YEAR,
-    transition_years: int = ARCHIVE_SPLICE_YEARS,
-    quarterly_current: bool = False,
-) -> pd.DataFrame:
-    """Join embedded historical data to the live series with a smooth level bridge.
-
-    The archived and current sources use related, but not necessarily identical,
-    accounting definitions. A median overlap ratio is estimated from 1990 through
-    the calibration end year. The final ``transition_years`` of the historical
-    segment are then multiplied by a geometric ramp toward that ratio. The live
-    series remains unchanged from its first observation onward.
-    """
-    if historical is None or historical.empty:
-        return current.copy()
-    if current is None or current.empty:
-        return historical.copy()
-
-    historical = historical[[value_column]].dropna().sort_index()
-    current = current[[value_column]].dropna().sort_index()
-    if historical.empty or current.empty:
-        return historical if not historical.empty else current
-
-    overlap_start = max(historical.index.min(), current.index.min())
-    overlap_end = min(
-        historical.index.max(),
-        current.index.max(),
-        pd.Timestamp(f"{calibration_end_year}-12-31"),
-    )
-
-    hist_for_ratio = historical
-    current_for_ratio = current
-    if quarterly_current:
-        # The archived debt series is annual year-end data, while the live series is
-        # quarterly. Compare like-for-like year-end observations.
-        current_for_ratio = current.resample("YE").last()
-
-    hist_overlap = hist_for_ratio.loc[
-        (hist_for_ratio.index >= overlap_start) & (hist_for_ratio.index <= overlap_end),
-        value_column,
-    ]
-    current_overlap = current_for_ratio.loc[
-        (current_for_ratio.index >= overlap_start) & (current_for_ratio.index <= overlap_end),
-        value_column,
-    ]
-
-    if quarterly_current:
-        hist_overlap = hist_overlap.copy()
-        hist_overlap.index = hist_overlap.index.year
-        current_overlap = current_overlap.copy()
-        current_overlap.index = current_overlap.index.year
-        overlap = pd.concat([hist_overlap.rename("historical"), current_overlap.rename("current")], axis=1).dropna()
-    else:
-        overlap = pd.concat([hist_overlap.rename("historical"), current_overlap.rename("current")], axis=1).dropna()
-
-    ratios = overlap["current"] / overlap["historical"]
-    ratios = ratios.replace([np.inf, -np.inf], np.nan).dropna()
-    ratios = ratios[ratios > 0]
-    scale_ratio = float(ratios.median()) if not ratios.empty else 1.0
-
-    # Use only historical observations through the point where the modern series begins.
-    live_start = current.index.min()
-    historical_part = historical.loc[historical.index < live_start].copy()
-    if historical_part.empty:
-        return current.copy()
-
-    # Geometric/exponential scaling preserves positivity and avoids the abrupt vertical
-    # step that a single multiplicative correction would introduce at the splice.
-    end_year = historical_part.index.year.max()
-    transition_start_year = end_year - transition_years + 1
-    years = historical_part.index.year.to_numpy(dtype=float)
-    weights = np.clip(
-        (years - transition_start_year) / max(transition_years - 1, 1),
-        0.0,
-        1.0,
-    )
-    scale = np.power(scale_ratio, weights)
-    historical_part[value_column] = historical_part[value_column].to_numpy() * scale
-
-    return pd.concat([historical_part, current]).sort_index()
-
-
-
-def load_embedded_canadian_archives() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """Load hard-coded archived Canadian debt and interest data, when present.
-
-    Returns:
-        A pair ``(debt_history, interest_history)``. An absent archive block is
-        represented by ``None`` so callers can retain a one-time download fallback.
-    """
-    debt_rows = EMBEDDED_CDN_DEBT_HISTORY
-    interest_rows = EMBEDDED_CDN_INTEREST_HISTORY
-
-    debt = None
-    interest = None
-    if debt_rows:
-        debt = pd.DataFrame(debt_rows, columns=[DATE_COLUMN, "Total Canadian Debt ($)"])
-        debt[DATE_COLUMN] = pd.to_datetime(debt[DATE_COLUMN])
-        debt = debt.set_index(DATE_COLUMN).sort_index()
-    if interest_rows:
-        interest = pd.DataFrame(interest_rows, columns=[DATE_COLUMN, "TTM Interest Payable ($)"])
-        interest[DATE_COLUMN] = pd.to_datetime(interest[DATE_COLUMN])
-        interest = interest.set_index(DATE_COLUMN).sort_index()
-    return debt, interest
-
-
-def statcan_wds_vectors(vector_ids: Iterable[str | int], *, latest_n: int = 250) -> pd.DataFrame:
-    """Retrieve the latest observations for one or more StatCan WDS vectors."""
-    payload = [
-        {"vectorId": int(str(vector).lstrip("vV")), "latestN": latest_n}
-        for vector in vector_ids
-    ]
-    response = CANADIAN_SESSION.post(STATCAN_WDS_URL, json=payload, timeout=HTTP_POST_TIMEOUT_SECONDS)
-    response.raise_for_status()
-
-    frames: list[pd.DataFrame] = []
-    for item in response.json():
-        if item.get("status") != "SUCCESS":
-            continue
-
-        obj = item["object"]
-        vector_id = obj["vectorId"]
-        points = obj.get("vectorDataPoint", [])
-        if not points:
-            continue
-
-        frame = pd.DataFrame(points)
-        frame[DATE_COLUMN] = pd.to_datetime(frame["refPer"])
-        column_name = f"v{vector_id}"
-        frame = frame.set_index(DATE_COLUMN)[["value"]].rename(columns={"value": column_name})
-        frame[column_name] = pd.to_numeric(frame[column_name], errors="coerce")
-        frames.append(frame)
-
-    if not frames:
-        raise RuntimeError("No data returned from WDS")
-    return pd.concat(frames, axis=1).sort_index()
-
-
+# First observation of each Canadian input, used to warn when ``--start`` is earlier.
 CANADIAN_SERIES_EARLIEST = {
     "3-Month Yield (Bank of Canada historical table)": pd.Timestamp("1934-03-01"),
     "2-Year Yield (Bank of Canada historical table)": pd.Timestamp("1982-06-01"),
@@ -221,145 +75,284 @@ CANADIAN_SERIES_EARLIEST = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Raw source access
+# ---------------------------------------------------------------------------
+
+
+def boc_valet_group(group: str, start: str = BOC_START_DATE) -> pd.DataFrame:
+    """Download a Bank of Canada Valet observation group as a date-indexed frame."""
+    response = canadian_get(BOC_GROUP_URL.format(group=group), params={"start_date": start})
+    return parse_boc_csv(response.text).apply(pd.to_numeric, errors="coerce")
+
+
+def boc_valet_series(series_code: str, start: str = BOC_START_DATE) -> pd.Series:
+    """Download one Bank of Canada Valet series as a date-indexed numeric Series."""
+    response = canadian_get(BOC_SERIES_URL.format(series_code=series_code), params={"start_date": start})
+    frame = parse_boc_csv(response.text)
+    return pd.to_numeric(frame.iloc[:, 0], errors="coerce")
+
+
+def statcan_zip_table_with_metadata(table_id: str) -> tuple[pd.DataFrame, str]:
+    """Download a full Statistics Canada table ZIP and return ``(data, metadata_csv)``.
+
+    The archive holds the data CSV plus a ``*_MetaData.csv`` describing the
+    table's dimensions and members; the latter is returned as raw text.
+    """
+    print(f"Downloading StatCan table {table_id} (ZIP) …")
+    response = canadian_get(STATCAN_TABLE_URL.format(table_id=table_id), timeout=STATCAN_TIMEOUT_SECONDS)
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = [name for name in archive.namelist() if name.endswith(".csv")]
+        data_name = next(name for name in names if "MetaData" not in name)
+        meta_name = next((name for name in names if "MetaData" in name), None)
+        with archive.open(data_name) as csv_file:
+            data = pd.read_csv(csv_file, low_memory=False)
+        metadata = archive.read(meta_name).decode("utf-8-sig", errors="replace") if meta_name else ""
+    return data, metadata
+
+
+def statcan_zip_table(table_id: str) -> pd.DataFrame:
+    """Download a full Statistics Canada table (CSV inside a ZIP) as a frame."""
+    return statcan_zip_table_with_metadata(table_id)[0]
+
+
+def statcan_wds_vectors(vector_ids: Iterable[str | int], *, latest_n: int = 250) -> pd.DataFrame:
+    """Fetch the latest ``latest_n`` observations of StatCan WDS vectors.
+
+    Returns one column per vector, named ``v<id>``. Vectors that the service
+    reports as failed are skipped; if none succeed a ``RuntimeError`` is raised.
+    """
+    payload = [
+        {"vectorId": int(str(vector).lstrip("vV")), "latestN": latest_n} for vector in vector_ids
+    ]
+    response = CANADIAN_SESSION.post(STATCAN_WDS_URL, json=payload, timeout=HTTP_POST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+
+    frames: list[pd.DataFrame] = []
+    for item in response.json():
+        if item.get("status") != "SUCCESS":
+            continue
+        obj = item["object"]
+        points = obj.get("vectorDataPoint", [])
+        if not points:
+            continue
+
+        column = f"v{obj['vectorId']}"
+        frame = pd.DataFrame(points)
+        frame[DATE_COLUMN] = pd.to_datetime(frame["refPer"])
+        frame[column] = pd.to_numeric(frame["value"], errors="coerce")
+        frames.append(frame.set_index(DATE_COLUMN)[[column]])
+
+    if not frames:
+        raise RuntimeError("No data returned from WDS")
+    return pd.concat(frames, axis=1).sort_index()
+
+
+def _statcan_quarterly(table: pd.DataFrame, mask: pd.Series, column: str) -> pd.DataFrame:
+    """Select ``mask`` rows of a StatCan table and return ``VALUE`` in dollars.
+
+    ``REF_DATE`` is ``YYYY-MM`` for quarterly tables; the result is indexed by
+    quarter start (``QS``) so all Canadian macro series share one calendar.
+    """
+    selected = table.loc[mask, ["REF_DATE", "VALUE"]]
+    dates = pd.DatetimeIndex(pd.to_datetime(selected["REF_DATE"].astype(str) + "-01"), name=DATE_COLUMN)
+    values = pd.to_numeric(selected["VALUE"], errors="coerce") * MILLION
+    return values.rename(column).set_axis(dates).sort_index().to_frame().resample("QS").last()
+
+
+# ---------------------------------------------------------------------------
+# Archive splicing
+# ---------------------------------------------------------------------------
+
+
+def load_embedded_canadian_archives() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Return ``(debt_history, interest_history)`` from the baked archive module.
+
+    Either element is ``None`` when its list is empty (i.e. ``--bake-archives``
+    has never been run), so callers fall back to the live series alone.
+    """
+    debt = rows_to_frame(EMBEDDED_CDN_DEBT_HISTORY, CDN_DEBT_COLUMN) if EMBEDDED_CDN_DEBT_HISTORY else None
+    interest = (
+        rows_to_frame(EMBEDDED_CDN_INTEREST_HISTORY, CDN_INTEREST_COLUMN)
+        if EMBEDDED_CDN_INTEREST_HISTORY
+        else None
+    )
+    return debt, interest
+
+
+def _splice_archived_series(
+    historical: pd.DataFrame,
+    current: pd.DataFrame,
+    value_column: str,
+    *,
+    calibration_end_year: int = ARCHIVE_CALIBRATION_END_YEAR,
+    transition_years: int = ARCHIVE_SPLICE_YEARS,
+    annual_historical: bool = False,
+) -> pd.DataFrame:
+    """Join the baked archive to the live series with a smooth level bridge.
+
+    The archived and live sources use related but not identical accounting
+    definitions, so their levels differ by a roughly constant factor. That
+    factor is estimated as the median ``current / historical`` ratio over the
+    overlap window (from the live series' start through ``calibration_end_year``).
+    The final ``transition_years`` of the archive are then scaled by a
+    geometric ramp from 1 toward the ratio, so the archive meets the live
+    series without a step. Live observations are never modified.
+
+    Args:
+        annual_historical: True when the archive holds year-end observations
+            (debt); the live quarterly series is then compared year-end to
+            year-end when estimating the ratio.
+    """
+    historical = historical[[value_column]].dropna().sort_index()
+    current = current[[value_column]].dropna().sort_index()
+    if historical.empty:
+        return current
+    if current.empty:
+        return historical
+
+    # --- 1. estimate the level ratio over the calibration overlap ------------
+    overlap_start = max(historical.index.min(), current.index.min())
+    overlap_end = min(historical.index.max(), current.index.max(), pd.Timestamp(year=calibration_end_year, month=12, day=31))
+
+    hist_overlap = historical.loc[overlap_start:overlap_end, value_column]
+    current_for_ratio = current.resample("YE").last() if annual_historical else current
+    current_overlap = current_for_ratio.loc[overlap_start:overlap_end, value_column]
+    if annual_historical:
+        # Year-end dates differ slightly between sources; match on year instead.
+        hist_overlap = hist_overlap.set_axis(hist_overlap.index.year)
+        current_overlap = current_overlap.set_axis(current_overlap.index.year)
+
+    ratios = (current_overlap / hist_overlap).replace([np.inf, -np.inf], np.nan).dropna()
+    ratios = ratios[ratios > 0]
+    scale_ratio = float(ratios.median()) if not ratios.empty else 1.0
+
+    # --- 2. keep only archive rows that precede the live series --------------
+    historical_part = historical.loc[historical.index < current.index.min()].copy()
+    if historical_part.empty:
+        return current
+
+    # --- 3. geometric ramp over the last ``transition_years`` of the archive --
+    # weight goes 0 -> 1 linearly by calendar year, so scale goes 1 -> ratio
+    # geometrically. Scaling multiplicatively keeps the series positive.
+    years = historical_part.index.year.to_numpy(dtype=float)
+    transition_start_year = years.max() - transition_years + 1
+    weights = np.clip((years - transition_start_year) / max(transition_years - 1, 1), 0.0, 1.0)
+    historical_part[value_column] *= np.power(scale_ratio, weights)
+
+    return pd.concat([historical_part, current]).sort_index()
+
+
+def _splice_or_fallback(
+    archive: pd.DataFrame | None, modern: pd.DataFrame | None, column: str, *, annual_historical: bool
+) -> pd.DataFrame | None:
+    """Combine whichever of the archive and live series are available."""
+    if archive is None:
+        return modern
+    if modern is None:
+        return archive
+    return _splice_archived_series(archive, modern, column, annual_historical=annual_historical)
+
+
+# ---------------------------------------------------------------------------
+# Per-curve fetchers
+# ---------------------------------------------------------------------------
+
+
 def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
-    """Fetch Canadian benchmark yields and merge them with the historical table."""
+    """Return Canadian benchmark yields: transcribed history through 2000, live after.
+
+    The result is date-indexed with the ``YIELD_COLUMNS`` that are available,
+    trimmed to the configured window.
+    """
     if not config.include_yield:
         return pd.DataFrame()
 
     print("Fetching Bank of Canada benchmark yields …")
-    yields_raw = boc_valet_group("bond_yields_benchmark", start=BOC_START_DATE)
-    yield_column_map = {
-        "BD.CDN.2YR.DQ.YLD": "2-Year",
-        "BD.CDN.5YR.DQ.YLD": "5-Year",
-        "BD.CDN.10YR.DQ.YLD": "10-Year",
-        "BD.CDN.LONG.DQ.YLD": "30-Year",
-    }
-    yields = yields_raw.rename(columns=yield_column_map)
+    yields = boc_valet_group(BOC_BENCHMARK_GROUP).rename(columns=BOC_BENCHMARK_COLUMNS)
 
     try:
-        # The BoC group does not supply the 3-month series in the desired form,
-        # so retrieve it separately and add it to the group observations.
-        three_month = boc_valet_series("V80691303", start=BOC_START_DATE)
-        three_month = three_month.rename(columns={three_month.columns[0]: "3-Month"})
-        yields = yields.join(three_month[["3-Month"]], how="outer")
+        yields = yields.join(boc_valet_series(BOC_3M_TBILL_SERIES).rename("3-Month"), how="outer")
     except Exception as exc:
         print("  3-month T-bill failed:", exc)
 
-    available_columns = [column for column in YIELD_COLUMNS if column in yields.columns]
-    yields = yields[available_columns].dropna(how="all").ffill(limit=3)
+    available = [column for column in YIELD_COLUMNS if column in yields.columns]
+    # Short forward-fill bridges holidays and single missing prints only.
+    yields = yields[available].dropna(how="all").ffill(limit=3)
 
     historical = build_cdn_hist_yields()
-    historical_end = historical.index.max()
-    api_part = yields[yields.index > historical_end]
-    all_yields = pd.concat([historical, api_part]).sort_index().ffill(limit=3)
-
-    return all_yields.loc[
-        (all_yields.index >= config.start) & (all_yields.index <= config.end)
-    ]
+    live_part = yields[yields.index > historical.index.max()]
+    all_yields = pd.concat([historical, live_part]).sort_index().ffill(limit=3)
+    return all_yields.loc[config.start : config.end]
 
 
 def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
-    """Combine embedded archival debt history with the live modern debt series."""
+    """Return general-government gross debt: baked archive spliced to the live table."""
     if not config.include_debt:
         return None
 
-    embedded_debt, _ = load_embedded_canadian_archives()
-
+    archive, _ = load_embedded_canadian_archives()
     try:
-        debt_raw = statcan_zip_table("36100467")
-        debt = (
-            debt_raw.query('Estimates == "Debt"')
-            .assign(DATE=lambda frame: pd.to_datetime(frame["REF_DATE"] + "-01"))
-            .set_index("DATE")
-            .sort_index()
-        )
-        debt["Total Canadian Debt ($)"] = debt["VALUE"] * STATCAN_MILLION_TO_DOLLAR
-        modern = debt[["Total Canadian Debt ($)"]].resample("QS").last()
-    except Exception:
+        table = statcan_zip_table(STATCAN_CDN_DEBT_TABLE)
+        modern = _statcan_quarterly(table, table["Estimates"].eq("Debt"), CDN_DEBT_COLUMN)
+    except Exception as exc:
+        print(f"  Warning: StatCan debt table failed ({exc}); trying WDS vector fallback …")
         try:
-            # The vector is the compact fallback used when the full ZIP table fails.
-            wds = statcan_wds_vectors(["v111463452"], latest_n=250)
-            debt_quarterly = wds["v111463452"] * STATCAN_MILLION_TO_DOLLAR
-            modern = debt_quarterly.to_frame("Total Canadian Debt ($)").resample("QS").last()
-        except Exception:
+            wds = statcan_wds_vectors([STATCAN_CDN_DEBT_FALLBACK_VECTOR], latest_n=250)
+            modern = (wds[STATCAN_CDN_DEBT_FALLBACK_VECTOR] * MILLION).rename(CDN_DEBT_COLUMN).to_frame().resample("QS").last()
+        except Exception as exc2:
+            print(f"  Warning: WDS fallback failed ({exc2}); using archive only.")
             modern = None
 
-    if embedded_debt is not None:
-        return _splice_archived_series(
-            embedded_debt,
-            modern,
-            "Total Canadian Debt ($)",
-            quarterly_current=True,
-        ) if modern is not None else embedded_debt
-    return modern
+    return _splice_or_fallback(archive, modern, CDN_DEBT_COLUMN, annual_historical=True)
 
 
 def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
-    """Fetch Canadian current-price GDP and derive trailing-twelve-month GDP."""
+    """Return trailing-twelve-month nominal GDP (mean of four SAAR quarters)."""
     if not config.include_gdp:
         return None
 
     try:
-        gdp_raw = statcan_zip_table("36100104")
+        table = statcan_zip_table(STATCAN_CDN_GDP_TABLE)
         mask = (
-            gdp_raw["Estimates"].str.contains(
-                "Gross domestic product at market prices", case=False, na=False
-            )
-            & gdp_raw["Prices"].str.contains("Current prices", case=False, na=False)
-            & gdp_raw["Seasonal adjustment"].str.contains(
-                "Seasonally adjusted at annual rates", case=False, na=False
-            )
+            table["Estimates"].str.contains("Gross domestic product at market prices", case=False, na=False)
+            & table["Prices"].str.contains("Current prices", case=False, na=False)
+            & table["Seasonal adjustment"].str.contains("Seasonally adjusted at annual rates", case=False, na=False)
         )
-        gdp = (
-            gdp_raw.loc[mask]
-            .assign(DATE=lambda frame: pd.to_datetime(frame["REF_DATE"]))
-            .set_index("DATE")
-            .sort_index()
-        )
-        gdp["GDP_SAAR"] = gdp["VALUE"] * STATCAN_MILLION_TO_DOLLAR
-        gdp["TTM Nominal GDP ($)"] = gdp["GDP_SAAR"].rolling(4).mean()
-        return gdp[["TTM Nominal GDP ($)"]].resample("QS").last()
-    except Exception:
+        saar = _statcan_quarterly(table, mask, "GDP_SAAR")
+    except Exception as exc:
+        print(f"  Warning: StatCan GDP table failed ({exc}); trying FRED fallback …")
         try:
-            # FRED provides a compatible quarterly nominal-GDP fallback.
-            fred = fetch_fred_csv("NGDPSAXDCCAQ").set_index(DATE_COLUMN)
-            fred["GDP_SAAR"] = fred.iloc[:, 0] * STATCAN_MILLION_TO_DOLLAR
-            fred["TTM Nominal GDP ($)"] = fred["GDP_SAAR"].rolling(4).mean()
-            return fred[["TTM Nominal GDP ($)"]].resample("QS").last()
-        except Exception:
+            fred = fetch_fred_csv(FRED_CDN_GDP_SERIES).set_index(DATE_COLUMN)
+            saar = (fred.iloc[:, 0] * MILLION).rename("GDP_SAAR").to_frame().resample("QS").last()
+        except Exception as exc2:
+            print(f"  Warning: FRED GDP fallback failed ({exc2}); GDP curve omitted.")
             return None
+
+    # A SAAR value is already an annual rate, so the TTM level is the 4-quarter mean.
+    return saar["GDP_SAAR"].rolling(4).mean().rename(GDP_COLUMN).to_frame()
 
 
 def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
-    """Combine embedded archival interest history with the live modern series."""
+    """Return TTM public-debt interest: baked archive spliced to the live GFS table."""
     if not config.include_interest:
         return None
 
-    _, embedded_interest = load_embedded_canadian_archives()
-
+    _, archive = load_embedded_canadian_archives()
     try:
-        gfs_raw = statcan_zip_table("10100015")
-        interest = (
-            gfs_raw.query('`Government sectors` == "Consolidated government"')
-            .query('`Statement of government operations and balance sheet` == "Interest"')
-            .assign(DATE=lambda frame: pd.to_datetime(frame["REF_DATE"] + "-01"))
-            .set_index("DATE")
-            .sort_index()
-        )
-        interest["Interest_q"] = interest["VALUE"] * STATCAN_MILLION_TO_DOLLAR
-        interest["TTM Interest Payable ($)"] = interest["Interest_q"].rolling(4).sum()
-        modern = interest[["TTM Interest Payable ($)"]].resample("QS").last()
-    except Exception:
+        table = statcan_zip_table(STATCAN_CDN_INTEREST_TABLE)
+        mask = table["Government sectors"].eq("Consolidated government") & table[
+            "Statement of government operations and balance sheet"
+        ].eq("Interest")
+        quarterly = _statcan_quarterly(table, mask, "Interest_q")
+        # The GFS table reports actual quarterly flows (not annualised), so TTM is a 4-quarter sum.
+        modern = quarterly["Interest_q"].rolling(4).sum().rename(CDN_INTEREST_COLUMN).to_frame()
+    except Exception as exc:
+        print(f"  Warning: StatCan interest table failed ({exc}); using archive only.")
         modern = None
 
-    if embedded_interest is not None:
-        return _splice_archived_series(
-            embedded_interest,
-            modern,
-            "TTM Interest Payable ($)",
-            quarterly_current=False,
-        ) if modern is not None else embedded_interest
-    return modern
+    return _splice_or_fallback(archive, modern, CDN_INTEREST_COLUMN, annual_historical=False)
 
 
 def align_cdn_macro(
@@ -369,29 +362,23 @@ def align_cdn_macro(
     interest_q: pd.DataFrame | None,
     config: PlotConfig,
 ) -> pd.DataFrame:
-    """Forward-fill quarterly macro data onto the yield observation dates."""
+    """Forward-fill the quarterly macro series onto the yield observation dates.
+
+    Returns a frame with a ``DATE`` column plus one column per available series.
+    When yields are deselected a daily calendar over the window is used instead.
+    """
     plot_index = (
-        yields_all.index
-        if not yields_all.empty
-        else pd.date_range(config.start, config.end, freq="D")
+        yields_all.index if not yields_all.empty else pd.date_range(config.start, config.end, freq="D")
     )
     parts = [part for part in (debt_q, gdp_q, interest_q) if part is not None]
     if not parts:
         return pd.DataFrame({DATE_COLUMN: plot_index})
 
     with warnings.catch_warnings():
+        # pandas warns about concatenating frames with differing index dtypes/names.
         warnings.simplefilter("ignore", FutureWarning)
         macro = pd.concat(parts, axis=1, sort=False)
         aligned = (
-            macro.reindex(macro.index.union(plot_index))
-            .sort_index()
-            .ffill()
-            .reindex(plot_index)
-            .reset_index()
+            macro.reindex(macro.index.union(plot_index)).sort_index().ffill().reindex(plot_index).reset_index()
         )
-
-    # reset_index() can produce DATE, date, or index depending on the source index.
-    for candidate in (DATE_COLUMN, "date", "index"):
-        if candidate in aligned.columns:
-            return aligned.rename(columns={candidate: DATE_COLUMN})
-    raise KeyError("Unable to identify the date column in aligned Canadian macro data")
+    return normalize_date_column(aligned)
