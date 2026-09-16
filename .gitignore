@@ -3,3 +3,4 @@ __pycache__/
 # transient files written by --bake-archives before os.replace()
 ratesplot/cdn_archive_data_bake_*.py
 *.png
+out/
