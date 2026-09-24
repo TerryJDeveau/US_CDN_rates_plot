@@ -89,8 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(argv: list[str] | None = None) -> PlotConfig:
-    """Parse the command line into an immutable :class:`PlotConfig`."""
+def parse_choices(argv: list[str] | None = None) -> tuple[dict[str, str], dict[str, bool], argparse.ArgumentParser]:
+    """Return what the command line explicitly chose, as ``(payloads, flags, parser)``.
+
+    Only options actually given appear (see ``options`` for the shapes). The
+    GUI needs this, not just the resulting PlotConfig, to lay the command line
+    over the remembered settings. Unrecognised tokens exit via argparse.
+    """
     parser = build_parser()
     raw_tokens = list(argv) if argv is not None else sys.argv[1:]
 
@@ -114,7 +119,12 @@ def parse_args(argv: list[str] | None = None) -> PlotConfig:
     for option in options_of(Kind.SWITCH):
         if getattr(args, option.fields[0]):
             flags[option.name] = True
+    return payloads, flags, parser
 
+
+def parse_args(argv: list[str] | None = None) -> PlotConfig:
+    """Parse the command line into an immutable :class:`PlotConfig`."""
+    payloads, flags, parser = parse_choices(argv)
     try:
         return config_from_choices(payloads, flags)
     except ValueError as exc:
@@ -123,7 +133,11 @@ def parse_args(argv: list[str] | None = None) -> PlotConfig:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse the command line, then open the GUI, bake, or draw the charts in matplotlib windows."""
-    config = parse_args(argv)
+    payloads, flags, parser = parse_choices(argv)
+    try:
+        config = config_from_choices(payloads, flags)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if config.bake_archives:
         bake_canadian_archives()
@@ -133,7 +147,7 @@ def main(argv: list[str] | None = None) -> None:
         # Imported here so --no-gui runs (and the harnesses) never load tkinter.
         from .gui import run_gui
 
-        run_gui(config)
+        run_gui(config, payloads, flags)
         return
 
     if config.show_cdn:

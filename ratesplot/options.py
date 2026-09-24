@@ -239,6 +239,7 @@ class Option:
     label: str = ""
     format: Callable[[tuple], str] | None = None
     in_gui: bool = True
+    picker: str | None = None  # GUI: "date" adds a calendar button beside the text field
 
 
 # Help-listing sections, in display order: key -> heading (and any notes).
@@ -297,11 +298,12 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE", "first date (default 1966-01-01)",
         prefixes=("s",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
+        picker="date",
     ),
     Option(
         "end", Kind.VALUE, ("end",), "dates", "--end:DATE / --e:DATE", "last date (default today)",
         prefixes=("e",), parse=partial(parse_date_spec, kind="end"), check=check_date_range,
-        label="End", format=format_date,
+        label="End", format=format_date, picker="date",
     ),
     Option(
         "min", Kind.VALUE, ("yield_ymin",), "yield", "--min:VAL / --mn:VAL", "lower bound",
@@ -408,7 +410,12 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
 
     Every GUI option is included. An unset value (a blank yield or dollar
     bound) comes back as "", which the GUI treats as "use the default".
+    So does a value equal to a *moving* default (one PlotConfig computes
+    afresh, such as the end date "today"): written out as a date it would be
+    remembered and frozen, and tomorrow's chart would stop at yesterday.
     """
+    defaults = PlotConfig()
+    moving = {field.name for field in dataclasses.fields(PlotConfig) if field.default_factory is not dataclasses.MISSING}
     payloads: dict[str, str] = {}
     flags: dict[str, bool] = {}
     for option in OPTIONS:
@@ -416,7 +423,10 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
             continue
         field_values = tuple(getattr(config, field) for field in option.fields)
         if option.kind is Kind.VALUE:
-            payloads[option.name] = option.format(field_values)
+            at_moving_default = any(field in moving for field in option.fields) and field_values == tuple(
+                getattr(defaults, field) for field in option.fields
+            )
+            payloads[option.name] = "" if at_moving_default else option.format(field_values)
         else:
             flags[option.name] = bool(field_values[0])
     return payloads, flags
