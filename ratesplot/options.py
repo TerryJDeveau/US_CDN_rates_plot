@@ -20,9 +20,9 @@ How a token is matched (see ``cli.parse_args``), in this order:
    ``no-`` must be one of the ``prefixes``.
 4. ``SWITCH`` options go to argparse. A switch with ``initial`` set is also
    reached by any remaining token whose first letter (after dashes) is that
-   letter, so ``Canada``, ``-c`` and ``--cdn`` all mean ``--C``. Other switches
-   keep argparse's unique-prefix abbreviation (``--bake`` for
-   ``--bake-archives``).
+   letter, so ``Canada``, ``-c`` and ``--cdn`` all mean ``--C``. argparse
+   would also accept unique prefixes of a long switch name, so any option
+   that must not be abbreviated belongs in ``EXACT`` instead.
 
 Anything still unmatched reaches argparse, which reports it as unrecognised.
 
@@ -264,12 +264,12 @@ OPTIONS: tuple[Option, ...] = (
         "bottom", Kind.VALUE, ("macro_bottom",), "dollar", "--bottom:VAL / --b:VAL", "lower bound",
         prefixes=("b",), parse=partial(parse_dollar_bound, kind="bottom"), check=check_dollar_bounds,
     ),
-    # Maintenance. Note argparse abbreviation: "--b" (no colon) also means this.
+    # Maintenance. EXACT, so it must be spelled in full: as an argparse switch,
+    # "--b" (a bottom bound missing its ":VAL") silently rewrote the archive
+    # data module. Kept for a possible repurposed use.
     Option(
-        "bake-archives", Kind.SWITCH, ("bake_archives",), "maintenance", "--bake-archives",
+        "bake-archives", Kind.EXACT, ("bake_archives",), "maintenance", "--bake-archives",
         "refresh ratesplot/cdn_archive_data.py from\nthe archived StatCan tables, then exit",
-        flag="--bake-archives",
-        flag_help="Download the archived Canadian StatCan tables once and embed them in ratesplot/cdn_archive_data.py.",
     ),
 )
 

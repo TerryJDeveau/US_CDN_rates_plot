@@ -18,8 +18,8 @@ so records made on different days still compare.
 
 The case list is deliberately heavy on odd spellings. The legacy parser
 matches on leading letters, so ``--dimensions`` without a colon is the *debt*
-curve, ``--b`` is an abbreviation of ``--bake-archives``, and ``Canada`` needs
-no dashes. Those behaviours are part of what must not change by accident.
+curve and ``Canada`` needs no dashes, while ``--bake-archives`` must be spelled
+in full. Those behaviours are part of what must not change by accident.
 """
 
 from __future__ import annotations
@@ -66,6 +66,7 @@ CASES: list[list[str]] = [
     ["--b:0"], ["--b:-1"], ["--b:5t", "--t:1t"], ["--t:x"], ["--t:"], ["--t:k"],
     # Flags handled by argparse, and unknown tokens.
     ["--bake-archives"], ["--bake"], ["--b"], ["--ba"], ["--bottom"], ["--h:1"],
+    ["--Bake-Archives"], ["bake-archives"], ["--bake-archive"], ["--no-bake-archives"],
     ["--x"], ["foo"], ["--"], ["-"], ["--help"], ["-h"], ["--h"], ["--he"],
     # A realistic combination.
     ["-c", "--gdp", "--debt", "-s:1990", "--e:2026-09-01", "--d:1100", "--min:1", "--max:5", "--t:5t", "--b:10b"],
