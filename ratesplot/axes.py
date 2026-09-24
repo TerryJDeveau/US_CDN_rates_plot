@@ -6,6 +6,7 @@ import bisect
 import math
 from typing import Iterable
 
+import matplotlib as mpl
 import matplotlib.dates as mdates
 import matplotlib.ticker as ticker
 import numpy as np
@@ -241,6 +242,30 @@ def set_macro_ylim(ax: Axes, config: PlotConfig) -> None:
     ax.set_ylim(10 ** (log_low - pad), 10 ** (log_high + pad))
 
 
+def scale_line_widths(ax_yield: Axes, ax_macro: Axes, line_scale: float) -> None:
+    """Widen the plotted lines, axes frame and tick marks by ``PlotConfig.line_scale``.
+
+    The widths in ``config`` (and matplotlib's defaults for frame and ticks)
+    are designed for the default canvas. Must run after every data line is
+    plotted and before the legend is made, so legend samples copy the scaled
+    widths. Dash patterns follow the width automatically (``lines.scale_dashes``).
+    Grid lines are scaled where the grid is switched on, in ``apply_axes_formatting``.
+    """
+    for ax in (ax_yield, ax_macro):
+        for line in ax.get_lines():
+            line.set_linewidth(line.get_linewidth() * line_scale)
+        for spine in ax.spines.values():
+            spine.set_linewidth(spine.get_linewidth() * line_scale)
+        for axis_name in ("x", "y"):
+            for which in ("major", "minor"):
+                ax.tick_params(
+                    axis=axis_name,
+                    which=which,
+                    width=mpl.rcParams[f"{axis_name}tick.{which}.width"] * line_scale,
+                    length=mpl.rcParams[f"{axis_name}tick.{which}.size"] * line_scale,
+                )
+
+
 def apply_axes_formatting(
     ax_yield: Axes, ax_macro: Axes, config: PlotConfig, metadata: CountryMetadata
 ) -> None:
@@ -251,13 +276,15 @@ def apply_axes_formatting(
     shows a second, meaningless scale.
     """
     scale = config.font_scale
+    scale_line_widths(ax_yield, ax_macro, config.line_scale)
     ax_yield.set_xlabel("Date", fontsize=LABEL_FS * scale)
     ax_yield.tick_params(axis="both", which="major", labelsize=TICK_FS * scale)
     ax_yield.tick_params(axis="both", which="minor", labelsize=(TICK_FS - 4) * scale)
     ax_yield.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=6, maxticks=12))
     ax_yield.xaxis.set_minor_locator(mdates.AutoDateLocator(minticks=12, maxticks=24))
-    ax_yield.grid(True, which="major", linestyle="--", alpha=0.40)
-    ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22)
+    grid_width = mpl.rcParams["grid.linewidth"] * config.line_scale
+    ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
+    ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22, linewidth=grid_width)
 
     if config.include_yield and config.has_dollar_series:
         configure_yield_axis(ax_yield, font_scale=scale)

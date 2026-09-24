@@ -293,6 +293,18 @@ class PlotConfig:
         return max(MIN_FONT_SCALE, ratio)
 
     @property
+    def line_scale(self) -> float:
+        """Return the factor applied to line widths, grid lines, tick marks and the axes frame.
+
+        On canvases larger than the default it equals ``font_scale``, so a
+        4096 px render is a true enlargement rather than big text over
+        hairlines. It never goes below 1.0: the default yield lines are
+        1.2 pt, only about 1.7 px, and thinning them on a small canvas
+        would make them fade.
+        """
+        return max(1.0, self.font_scale)
+
+    @property
     def has_dollar_series(self) -> bool:
         """True when at least one curve on the log-dollar axis is selected."""
         return self.include_debt or self.include_gdp or self.include_interest
