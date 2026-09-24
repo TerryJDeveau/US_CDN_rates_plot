@@ -58,7 +58,7 @@ from .options import (
 from .plotting import COUNTRIES, Country, build_figure
 
 WINDOW_TITLE = "Rates plot: yields, public debt, GDP & interest"
-_SCRIPT_NAME = "US_CDN_rates_plot_9.py"
+_SCRIPT_NAME = "US_CDN_rates_plot.py"
 # Pause after the last keystroke in a text field before the chart is redrawn,
 # so typing "2001" does not try to draw 2, 20 and 200 on the way.
 _TEXT_REDRAW_DELAY_MS = 700
