@@ -13,6 +13,7 @@ import pandas as pd
 from matplotlib.axes import Axes
 
 from .config import (
+    AXIS_LABEL_PAD_PT,
     DATE_PAD_FRACTION,
     DEFAULT_MACRO_YLIM,
     DEFAULT_YIELD_YLIM,
@@ -146,8 +147,11 @@ class _ComplementLogLocator(ticker.LogLocator):
         ]
 
 
-def configure_yield_axis(ax: Axes, *, label: str = "Bond Yield (%)") -> None:
+def configure_yield_axis(ax: Axes, *, font_scale: float, label: str = "Bond Yield (%)") -> None:
     """Configure a linear percentage axis used for bond yields.
+
+    ``font_scale`` is ``PlotConfig.font_scale``, applied to the label, its pad
+    and the tick labels.
 
     Tick steps are restricted to 1, 2, 5 × 10ⁿ. Every such step is either a
     whole number or an exact divisor of 1, so whenever the visible range
@@ -155,30 +159,35 @@ def configure_yield_axis(ax: Axes, *, label: str = "Bond Yield (%)") -> None:
     default step set also allows 1.5, 2.5, 3, 4, 6 and 8, which produce ticks
     like 0.6, 1.2, 1.8 … that skip the integers.)
     """
-    ax.set_ylabel(label, fontsize=LABEL_FS, labelpad=8)
+    ax.set_ylabel(label, fontsize=LABEL_FS * font_scale, labelpad=AXIS_LABEL_PAD_PT * font_scale)
     ax.set_yscale("linear")
     ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=12, steps=[1, 2, 5, 10], prune=None))
     ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
     ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
-    ax.tick_params(axis="y", which="both", labelsize=TICK_FS)
+    ax.tick_params(axis="y", which="both", labelsize=TICK_FS * font_scale)
 
 
-def configure_macro_axis(ax: Axes, metadata: CountryMetadata) -> None:
-    """Configure the log-scaled dollar axis used for the macroeconomic series."""
-    ax.set_ylabel(metadata.currency_label, fontsize=LABEL_FS, labelpad=8)
+def configure_macro_axis(ax: Axes, metadata: CountryMetadata, *, font_scale: float) -> None:
+    """Configure the log-scaled dollar axis used for the macroeconomic series.
+
+    ``font_scale`` is ``PlotConfig.font_scale``. The tick locator is given the
+    *scaled* label size, because its spacing rules are counted in label heights.
+    """
+    tick_fs = TICK_FS * font_scale
+    ax.set_ylabel(metadata.currency_label, fontsize=LABEL_FS * font_scale, labelpad=AXIS_LABEL_PAD_PT * font_scale)
     ax.set_yscale("log")
     # Labelled major ticks are chosen for even spacing (see LogNiceLocator);
     # the remaining integer multiples carry the unlabelled minor grid. The
     # minor formatter must be silenced explicitly: matplotlib's default labels
     # minor log ticks in scientific notation on short spans.
-    major = LogNiceLocator(TICK_FS)
+    major = LogNiceLocator(tick_fs)
     ax.yaxis.set_major_locator(major)
     ax.yaxis.set_minor_locator(_ComplementLogLocator(major))
     ax.yaxis.set_major_formatter(
         ticker.FuncFormatter(lambda value, _pos: format_currency(value, metadata.currency_prefix))
     )
     ax.yaxis.set_minor_formatter(ticker.NullFormatter())
-    ax.tick_params(axis="y", which="both", labelsize=TICK_FS)
+    ax.tick_params(axis="y", which="both", labelsize=tick_fs)
 
 
 def set_yield_ylim(ax: Axes, config: PlotConfig) -> None:
@@ -241,28 +250,29 @@ def apply_axes_formatting(
     curves is selected the unused axis mirrors the other so the chart never
     shows a second, meaningless scale.
     """
-    ax_yield.set_xlabel("Date", fontsize=LABEL_FS)
-    ax_yield.tick_params(axis="both", which="major", labelsize=TICK_FS)
-    ax_yield.tick_params(axis="both", which="minor", labelsize=TICK_FS - 4)
+    scale = config.font_scale
+    ax_yield.set_xlabel("Date", fontsize=LABEL_FS * scale)
+    ax_yield.tick_params(axis="both", which="major", labelsize=TICK_FS * scale)
+    ax_yield.tick_params(axis="both", which="minor", labelsize=(TICK_FS - 4) * scale)
     ax_yield.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=6, maxticks=12))
     ax_yield.xaxis.set_minor_locator(mdates.AutoDateLocator(minticks=12, maxticks=24))
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40)
     ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22)
 
     if config.include_yield and config.has_dollar_series:
-        configure_yield_axis(ax_yield)
+        configure_yield_axis(ax_yield, font_scale=scale)
         set_yield_ylim(ax_yield, config)
-        configure_macro_axis(ax_macro, metadata)
+        configure_macro_axis(ax_macro, metadata, font_scale=scale)
         set_macro_ylim(ax_macro, config)
     elif config.include_yield:
-        configure_yield_axis(ax_yield)
+        configure_yield_axis(ax_yield, font_scale=scale)
         set_yield_ylim(ax_yield, config)
-        configure_yield_axis(ax_macro)
+        configure_yield_axis(ax_macro, font_scale=scale)
         ax_macro.set_ylim(ax_yield.get_ylim())
     elif config.has_dollar_series:
-        configure_macro_axis(ax_macro, metadata)
+        configure_macro_axis(ax_macro, metadata, font_scale=scale)
         set_macro_ylim(ax_macro, config)
-        configure_macro_axis(ax_yield, metadata)
+        configure_macro_axis(ax_yield, metadata, font_scale=scale)
         ax_yield.set_ylim(ax_macro.get_ylim())
     else:
         # Nothing selected on either y-axis (e.g. ``--no-yield --no-debt

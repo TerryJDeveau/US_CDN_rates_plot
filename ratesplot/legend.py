@@ -17,6 +17,12 @@ lines drawn on a twin axis, so the legend is placed here instead:
    treated as aspirational: the legend goes where it is furthest from both
    the lines and the axes frame, i.e. centred in the largest pocket. If no
    shape fits anywhere, the shape/position covering the fewest points is used.
+
+Font sizes and the pixel distances tied to them (clearance target, frame
+padding, title spacing) are multiplied by ``PlotConfig.font_scale``, so a small
+canvas is laid out as a scaled-down copy of the default one. The occupancy
+grid itself (cell size, sampling density) is not scaled: it measures lines,
+whose widths are fixed.
 """
 
 from __future__ import annotations
@@ -39,16 +45,29 @@ _SAMPLE_SPACING_PX = 3.0
 # Occupancy-grid cell size. Lines are 1-3 px wide, so a 4 px cell marks
 # exactly the cells a line passes through without exaggerating its footprint.
 _CELL_PX = 4
-# Minimum gap between the legend and the axes frame.
+# Minimum gap between the legend and the axes frame (at font scale 1).
 _EDGE_PADDING_PX = 8.0
 # Clearance from lines the search aims for. Once a shape can be placed this
 # far from every line, corner proximity decides between positions; a smaller
 # clearance is accepted only when no position reaches the target, in which
 # case the largest achievable clearance wins wherever it is on the chart.
+# Given at font scale 1; a scaled-down legend needs proportionally less room.
 _TARGET_MARGIN_PX = 200
-# Shapes in preference order: column counts first, then reduced font sizes.
+# Shapes in preference order: column counts first, then reduced font sizes
+# (points below LEGEND_FS, before scaling).
 _COLUMN_PREFERENCE = (2, 3, 1)
-_FONT_SIZE_PREFERENCE = (LEGEND_FS, LEGEND_FS - 2, LEGEND_FS - 4)
+_FONT_SIZE_REDUCTIONS_PT = (0, 2, 4)
+
+# Title block, at font scale 1. The subtitle's top sits this many title font
+# sizes below the title's top (the spacing tuned on the default canvas: 0.027
+# of its 15.36 in height), and the axes start a fixed gap below the subtitle.
+_TITLE_TOP_Y = 0.995
+_SUBTITLE_DROP_TITLE_SIZES = 0.027 * 15.36 * 72.0 / TITLE_FS
+_SUBTITLE_FS_REDUCTION_PT = 6
+_AXES_GAP_BELOW_SUBTITLE_PX = 10.0
+# The title may use at most this fraction of the figure width before it is
+# shrunk further than font_scale alone would make it.
+_TITLE_MAX_WIDTH_FRACTION = 0.98
 
 
 # ---------------------------------------------------------------------------
@@ -208,12 +227,15 @@ class _Placement:
     width: int
 
 
-def _best_position(grid: _OccupancyGrid, height: int, width: int, edge_cells: int) -> tuple[int, int, int, int] | None:
+def _best_position(
+    grid: _OccupancyGrid, height: int, width: int, edge_cells: int, target: int
+) -> tuple[int, int, int, int] | None:
     """Return ``(covered, clearance, row, col)`` for the best position of a box, or None if it cannot fit.
 
     ``covered`` is the number of occupied cells under the box (0 when it
     obscures nothing) and ``clearance`` its distance from the nearest line,
-    in cells, capped at the grid padding.
+    in cells, capped at the grid padding. ``target`` is the clearance goal in
+    cells (``_TARGET_MARGIN_PX`` scaled and converted).
     """
     if height + 2 * edge_cells > grid.rows or width + 2 * edge_cells > grid.cols:
         return None
@@ -239,7 +261,6 @@ def _best_position(grid: _OccupancyGrid, height: int, width: int, edge_cells: in
     clearance[covered > 0] = -1
 
     rows, cols = np.indices(covered.shape)
-    target = _TARGET_MARGIN_PX // _CELL_PX
     meets_target = clearance >= target
     if meets_target.any():
         # Plenty of room: among positions with the target clearance take the
@@ -268,16 +289,18 @@ def _best_position(grid: _OccupancyGrid, height: int, width: int, edge_cells: in
     return 0, int(clearance[r, c]), int(r) + edge_cells, int(c) + edge_cells
 
 
-def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]]) -> Legend | None:
+def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]], font_scale: float) -> Legend | None:
     """Place the legend where it obscures the plotted lines least. See module docstring."""
     figure = ax.figure
     figure.canvas.draw()  # data→display transforms must be final before sampling
     renderer = figure.canvas.get_renderer()
-    grid = _OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=_TARGET_MARGIN_PX // _CELL_PX)
-    edge_cells = math.ceil(_EDGE_PADDING_PX / _CELL_PX)
+    target = round(_TARGET_MARGIN_PX * font_scale / _CELL_PX)
+    grid = _OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=target)
+    edge_cells = math.ceil(_EDGE_PADDING_PX * font_scale / _CELL_PX)
 
     best: _Placement | None = None
-    for fontsize in _FONT_SIZE_PREFERENCE:
+    for reduction in _FONT_SIZE_REDUCTIONS_PT:
+        fontsize = (LEGEND_FS - reduction) * font_scale
         for requested_cols in _COLUMN_PREFERENCE:
             handles, ncols = arrange_legend_groups(groups, requested_cols)
             if not handles:
@@ -292,7 +315,7 @@ def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]]) -> Legend | 
             height = math.ceil(extent.height / _CELL_PX)
             width = math.ceil(extent.width / _CELL_PX)
 
-            result = _best_position(grid, height, width, edge_cells)
+            result = _best_position(grid, height, width, edge_cells, target)
             if result is None:
                 continue
             covered, clearance, row, col = result
@@ -308,7 +331,7 @@ def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]]) -> Legend | 
     if best is None:
         # Nothing fits inside the axes at all; fall back to matplotlib's default corner.
         handles, ncols = arrange_legend_groups(groups, _COLUMN_PREFERENCE[0])
-        return _draw_legend(ax, handles, ncols=ncols, fontsize=LEGEND_FS, anchor=(0.02, 0.98))
+        return _draw_legend(ax, handles, ncols=ncols, fontsize=LEGEND_FS * font_scale, anchor=(0.02, 0.98))
 
     # Convert the chosen cell to the legend's upper-left corner in axes fraction.
     upper_left_display = (
@@ -333,9 +356,22 @@ def finish_legend_and_title(
     geometry, so nothing may move after it is placed.
     """
     figure = ax.figure
-    subtitle_fs = TITLE_FS - 6
-    subtitle_y = 0.968
-    figure.suptitle(title, fontsize=TITLE_FS, fontweight="bold", y=0.995, va="top")
+    scale = config.font_scale
+    figure_height = figure.get_figheight()
+    title_artist = figure.suptitle(title, fontsize=TITLE_FS * scale, fontweight="bold", y=_TITLE_TOP_Y, va="top")
+
+    # Scaling keeps the title's share of the width, but at MIN_FONT_SCALE (or
+    # with a long composed title on a narrow canvas) it can still overflow;
+    # shrink it to fit rather than let both ends fall off the figure.
+    title_width = title_artist.get_window_extent(figure.canvas.get_renderer()).width
+    max_width = _TITLE_MAX_WIDTH_FRACTION * figure.bbox.width
+    if title_width > max_width:
+        title_artist.set_fontsize(title_artist.get_fontsize() * max_width / title_width)
+
+    # The subtitle follows the title's actual size, so a shrunken title does
+    # not leave a gap above the date range.
+    subtitle_fs = (TITLE_FS - _SUBTITLE_FS_REDUCTION_PT) * scale
+    subtitle_y = _TITLE_TOP_Y - _SUBTITLE_DROP_TITLE_SIZES * title_artist.get_fontsize() / 72.0 / max(figure_height, 0.1)
     figure.text(
         0.5,
         subtitle_y,
@@ -348,11 +384,10 @@ def finish_legend_and_title(
     figure.tight_layout(rect=[0, 0, 1, 0.99], pad=0.4)
 
     # tight_layout does not know about suptitle/text, so push the axes top down
-    # to sit a fixed 10 px below the subtitle's baseline (points → inches → fraction).
-    figure_height = figure.get_figheight()
+    # to sit a fixed gap below the subtitle's baseline (points → inches → fraction).
     subtitle_bottom = subtitle_y - subtitle_fs / 72.0 / max(figure_height, 0.1)
-    gap_fraction = 10.0 / (figure_height * CANVAS_DPI)
+    gap_fraction = _AXES_GAP_BELOW_SUBTITLE_PX * scale / (figure_height * CANVAS_DPI)
     figure.subplots_adjust(top=subtitle_bottom - gap_fraction)
     apply_date_xlim(ax, config)
 
-    auto_place_legend(ax, legend_groups)
+    auto_place_legend(ax, legend_groups, scale)

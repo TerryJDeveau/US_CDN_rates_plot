@@ -52,11 +52,21 @@ MACRO_MIN_PAD_DECADES = 0.05
 DATE_PAD_FRACTION = 0.015
 MIN_DATE_PAD_DAYS = 1
 
-# Font sizes in points.
+# Font sizes in points, as designed for the default 2048 x 1536 canvas. Every
+# use multiplies them by ``PlotConfig.font_scale`` so other canvas sizes keep
+# the same proportions (a fixed 24 pt title overflowed a 1100 px canvas).
 TITLE_FS = 24
 LABEL_FS = 22
 TICK_FS = 18
 LEGEND_FS = 16
+# Gap between a y-axis label and its tick labels, in points (scaled like the fonts).
+AXIS_LABEL_PAD_PT = 8
+
+# Lower bound on ``PlotConfig.font_scale``. Linear scaling would take the
+# 800 px minimum canvas to 0.39 (7 pt tick labels, about 10 px tall); 0.5
+# keeps them legible. At the floor the title may still be too wide, so it is
+# also shrunk to fit on its own (see ``legend.finish_legend_and_title``).
+MIN_FONT_SCALE = 0.5
 
 # ---------------------------------------------------------------------------
 # Networking
@@ -267,6 +277,20 @@ class PlotConfig:
     def figsize_inches(self) -> tuple[float, float]:
         """Return the configured pixel canvas converted to inches for Matplotlib."""
         return self.width_px / CANVAS_DPI, self.height_px / CANVAS_DPI
+
+    @property
+    def font_scale(self) -> float:
+        """Return the factor applied to every font size and font-related spacing.
+
+        Exactly 1.0 on the default canvas, so the default chart is unchanged.
+        Otherwise it is the smaller of the width and height ratios to the
+        default. That way a wide, short canvas is scaled for the height it
+        lacks, and a tall, narrow one for the width. It never goes below
+        ``MIN_FONT_SCALE``. Canvases larger than the default scale up, so text
+        does not shrink to a speck on a 4096 px render.
+        """
+        ratio = min(self.width_px / DEFAULT_CANVAS_PX[0], self.height_px / DEFAULT_CANVAS_PX[1])
+        return max(MIN_FONT_SCALE, ratio)
 
     @property
     def has_dollar_series(self) -> bool:
