@@ -33,6 +33,7 @@ that into an argparse error (exit status 2).
 from __future__ import annotations
 
 import calendar
+import dataclasses
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -41,7 +42,7 @@ from typing import Callable, Mapping
 
 import pandas as pd
 
-from .config import MIN_CANVAS_PX
+from .config import MIN_CANVAS_PX, PlotConfig
 
 _DOLLAR_SUFFIX_MULTIPLIERS = {"t": 1e12, "b": 1e9, "m": 1e6, "k": 1e3}
 _DEFAULT_DOLLAR_MULTIPLIER = 1e9
@@ -141,6 +142,39 @@ def parse_dollar_bound(spec: str, *, kind: str) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Value formatters: field value(s) -> text the matching parser accepts
+# ---------------------------------------------------------------------------
+# Used to fill the GUI's text fields from a PlotConfig. Each receives the
+# option's field values as a tuple and returns "" for "not set".
+
+
+def format_date(values: tuple) -> str:
+    """Format a date field as ``YYYY-MM-DD``."""
+    return f"{values[0]:%Y-%m-%d}"
+
+
+def format_dimensions(values: tuple) -> str:
+    """Format ``(width_px, height_px)`` as ``WxH``."""
+    return f"{values[0]}x{values[1]}"
+
+
+def format_yield_bound(values: tuple) -> str:
+    """Format a yield bound in percent; blank when unset."""
+    return "" if values[0] is None else f"{values[0]:g}"
+
+
+def format_dollar_bound(values: tuple) -> str:
+    """Format a dollar bound with the largest k/m/b/t suffix that keeps it ≥ 1; blank when unset."""
+    value = values[0]
+    if value is None:
+        return ""
+    for suffix, multiplier in _DOLLAR_SUFFIX_MULTIPLIERS.items():  # t, b, m, k: largest first
+        if value >= multiplier:
+            return f"{value / multiplier:g}{suffix}"
+    return f"{value / _DOLLAR_SUFFIX_MULTIPLIERS['k']:g}k"
+
+
+# ---------------------------------------------------------------------------
 # Checks that involve more than one option
 # ---------------------------------------------------------------------------
 # Each receives the field values gathered so far (PlotConfig defaults plus
@@ -198,9 +232,17 @@ class Option:
     flag: str | None = None  # SWITCH: the argparse flag
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     initial: str | None = None  # SWITCH: legacy first-letter alias (upper case)
+    # GUI. ``label`` is the caption beside the control. ``format`` turns the
+    # field value(s) back into text a parser accepts (VALUE only). Options with
+    # ``in_gui=False`` get no control: they choose the interface or run
+    # maintenance rather than shape the chart.
+    label: str = ""
+    format: Callable[[tuple], str] | None = None
+    in_gui: bool = True
 
 
 # Help-listing sections, in display order: key -> heading (and any notes).
+# The GUI titles its panels with the heading up to the first " (" or ":".
 GROUPS: dict[str, str] = {
     "country": "Country selection (case-insensitive; only the first letter matters):",
     "curves": (
@@ -212,6 +254,7 @@ GROUPS: dict[str, str] = {
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
     "yield": "Yield-axis limits (percent):",
     "dollar": "Dollar-axis limits (suffixes k/m/b/t; unsuffixed values are billions):",
+    "interface": "Interface (spelled in full; no abbreviation):",
     "maintenance": "Maintenance:",
 }
 
@@ -219,50 +262,70 @@ OPTIONS: tuple[Option, ...] = (
     # Country selection: argparse store_true flags; no flag at all means both.
     Option(
         "cdn", Kind.SWITCH, ("show_cdn",), "country", "--C / -C / --canada / --cdn", "Canadian chart only",
-        flag="--C", flag_help="Canadian chart only", initial="C",
+        flag="--C", flag_help="Canadian chart only", initial="C", label="Canada",
     ),
     Option(
         "us", Kind.SWITCH, ("show_us",), "country", "--U / -U / --us / --usa", "U.S. chart only",
-        flag="--U", flag_help="U.S. chart only", initial="U",
+        flag="--U", flag_help="U.S. chart only", initial="U", label="United States",
     ),
-    # Curves. The listing order here is the help order; resolution rules are in cli.
-    Option("gdp", Kind.TOGGLE, ("include_gdp",), "curves", "--GDP / --no-GDP", "TTM nominal GDP", prefixes=("g",)),
-    Option("debt", Kind.TOGGLE, ("include_debt",), "curves", "--debt / --no-debt", "aggregate public debt", prefixes=("d",)),
+    # Curves. The listing order here is the help order; the selection rule is
+    # in ``config_from_choices``.
+    Option(
+        "gdp", Kind.TOGGLE, ("include_gdp",), "curves", "--GDP / --no-GDP", "TTM nominal GDP",
+        prefixes=("g",), label="TTM nominal GDP",
+    ),
+    Option(
+        "debt", Kind.TOGGLE, ("include_debt",), "curves", "--debt / --no-debt", "aggregate public debt",
+        prefixes=("d",), label="Aggregate public debt",
+    ),
     Option(
         "interest", Kind.TOGGLE, ("include_interest",), "curves", "--interest / --no-interest", "TTM interest outlays",
-        prefixes=("i",),
+        prefixes=("i",), label="TTM interest outlays",
     ),
-    Option("yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields", prefixes=("y",)),
+    Option(
+        "yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields",
+        prefixes=("y",), label="Bond yields",
+    ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its
     # fields are known.
     Option(
         "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --d:W / --d:xH",
         f"(minimum {MIN_CANVAS_PX} px each way)", prefixes=("d",), parse=parse_dimensions_spec,
+        label="W x H px", format=format_dimensions,
     ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE", "first date (default 1966-01-01)",
-        prefixes=("s",), parse=partial(parse_date_spec, kind="start"),
+        prefixes=("s",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
     ),
     Option(
         "end", Kind.VALUE, ("end",), "dates", "--end:DATE / --e:DATE", "last date (default today)",
         prefixes=("e",), parse=partial(parse_date_spec, kind="end"), check=check_date_range,
+        label="End", format=format_date,
     ),
     Option(
         "min", Kind.VALUE, ("yield_ymin",), "yield", "--min:VAL / --mn:VAL", "lower bound",
-        prefixes=("mn", "mi"), parse=partial(parse_yield_bound, kind="min"),
+        prefixes=("mn", "mi"), parse=partial(parse_yield_bound, kind="min"), label="Min %", format=format_yield_bound,
     ),
     Option(
         "max", Kind.VALUE, ("yield_ymax",), "yield", "--max:VAL / --mx:VAL", "upper bound",
         prefixes=("mx", "ma"), parse=partial(parse_yield_bound, kind="max"), check=check_yield_bounds,
+        label="Max %", format=format_yield_bound,
     ),
     Option(
         "top", Kind.VALUE, ("macro_top",), "dollar", "--top:VAL / --t:VAL", "upper bound",
-        prefixes=("t",), parse=partial(parse_dollar_bound, kind="top"),
+        prefixes=("t",), parse=partial(parse_dollar_bound, kind="top"), label="Top", format=format_dollar_bound,
     ),
     Option(
         "bottom", Kind.VALUE, ("macro_bottom",), "dollar", "--bottom:VAL / --b:VAL", "lower bound",
         prefixes=("b",), parse=partial(parse_dollar_bound, kind="bottom"), check=check_dollar_bounds,
+        label="Bottom", format=format_dollar_bound,
+    ),
+    # Interface. EXACT, so "--g", "--gu" and "--guix" still mean the GDP curve.
+    Option(
+        "gui", Kind.EXACT, ("gui",), "interface", "--gui / --no-gui",
+        "interactive window (default); --no-gui\ndraws plain matplotlib windows instead",
+        in_gui=False,
     ),
     # Maintenance. EXACT, so it must be spelled in full: as an argparse switch,
     # "--b" (a bottom bound missing its ":VAL") silently rewrote the archive
@@ -270,6 +333,7 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "bake-archives", Kind.EXACT, ("bake_archives",), "maintenance", "--bake-archives",
         "refresh ratesplot/cdn_archive_data.py from\nthe archived StatCan tables, then exit",
+        in_gui=False,
     ),
 )
 
@@ -287,6 +351,108 @@ def by_name(name: str) -> Option:
     raise KeyError(name)
 
 
+def group_title(group: str) -> str:
+    """Return a group's short title: its help heading up to the first " (" or ":"."""
+    return GROUPS[group].split(" (")[0].split(":")[0]
+
+
+# ---------------------------------------------------------------------------
+# Choices <-> PlotConfig (shared by the command line and the GUI)
+# ---------------------------------------------------------------------------
+# "Choices" are what a user expressed, keyed by option name:
+#   payloads: VALUE option -> its text (absent = not given, so the default)
+#   flags:    EXACT / TOGGLE / SWITCH option -> True or False (absent = not given)
+
+
+def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> PlotConfig:
+    """Build the PlotConfig the choices describe; raise ValueError naming the first problem.
+
+    Starts from PlotConfig's defaults (the default end date is today). VALUE
+    options are parsed in table order and each option's ``check`` runs straight
+    after it, against everything gathered so far. Two rules span several options:
+
+    * Curves: if any curve is chosen positively, only the positively chosen
+      curves are drawn; otherwise all four are, minus any switched off. (With
+      every curve given explicitly, as the GUI does, this is simply "draw the
+      ones switched on".)
+    * Countries: no country chosen means both charts.
+    """
+    values = dataclasses.asdict(PlotConfig())
+    for option in options_of(Kind.VALUE):
+        if option.name in payloads:
+            parsed = option.parse(payloads[option.name])
+            values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
+        if option.check is not None:
+            option.check(values)
+
+    for option in options_of(Kind.EXACT):
+        if option.name in flags:
+            values[option.fields[0]] = flags[option.name]
+
+    curves = {option.fields[0]: flags.get(option.name) for option in options_of(Kind.TOGGLE)}
+    if any(chosen is True for chosen in curves.values()):
+        values.update({field: chosen is True for field, chosen in curves.items()})
+    else:
+        values.update({field: chosen is not False for field, chosen in curves.items()})
+
+    for option in options_of(Kind.SWITCH):
+        values[option.fields[0]] = flags.get(option.name, False)
+    if not (values["show_cdn"] or values["show_us"]):
+        values["show_cdn"] = values["show_us"] = True
+
+    return PlotConfig(**values)
+
+
+def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, bool]]:
+    """Return ``(payloads, flags)`` describing ``config``, for filling the GUI's controls.
+
+    Every GUI option is included. An unset value (a blank yield or dollar
+    bound) comes back as "", which the GUI treats as "use the default".
+    """
+    payloads: dict[str, str] = {}
+    flags: dict[str, bool] = {}
+    for option in OPTIONS:
+        if not option.in_gui:
+            continue
+        field_values = tuple(getattr(config, field) for field in option.fields)
+        if option.kind is Kind.VALUE:
+            payloads[option.name] = option.format(field_values)
+        else:
+            flags[option.name] = bool(field_values[0])
+    return payloads, flags
+
+
+def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> list[str]:
+    """Return the shortest command line (after the script name) that reproduces the GUI choices.
+
+    Options left at their defaults are omitted. The GUI passes every option,
+    blanks included; blank values are omitted too.
+    """
+    defaults, _ = choices_from_config(PlotConfig())
+    tokens: list[str] = []
+
+    countries = [option for option in options_of(Kind.SWITCH) if option.in_gui]
+    chosen = [option for option in countries if flags.get(option.name)]
+    if 0 < len(chosen) < len(countries):
+        tokens += [option.flag for option in chosen]
+
+    # Curves: name the ones on, or negate the ones off, whichever is shorter
+    # (both mean the same under the curve rule; all off needs every "--no-").
+    curves = options_of(Kind.TOGGLE)
+    on = [option for option in curves if flags.get(option.name, True)]
+    off = [option for option in curves if option not in on]
+    if off and (not on or len(off) <= len(on)):
+        tokens += [f"--no-{option.name}" for option in off]
+    elif off:
+        tokens += [f"--{option.name}" for option in on]
+
+    for option in options_of(Kind.VALUE):
+        text = payloads.get(option.name, "").strip()
+        if text and text != defaults.get(option.name):
+            tokens.append(f"--{option.name}:{text}")
+    return tokens
+
+
 # ---------------------------------------------------------------------------
 # Help text
 # ---------------------------------------------------------------------------
@@ -298,7 +464,7 @@ _HELP_MIN_GAP = 3  # a spelling longer than the column still gets this many spac
 
 def help_epilog() -> str:
     """Return the option reference printed after argparse's own ``--help`` output."""
-    lines = ["Run with no flags to produce both charts (Canadian, then U.S.).", ""]
+    lines = ["Run with no flags to open the interactive window with both charts (Canadian,", "then U.S.). Flags set the window's starting values.", ""]
     for group, heading in GROUPS.items():
         lines.append(heading)
         for option in OPTIONS:

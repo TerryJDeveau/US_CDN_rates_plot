@@ -8,11 +8,14 @@ the Canadian pre-2001 history is monthly and drawn as steps.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable, Iterable
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
 from .axes import apply_axes_formatting, format_currency
@@ -26,6 +29,7 @@ from .cdn_data import (
 )
 from .config import (
     CANADIAN_YIELD_HIST_END,
+    CANVAS_DPI,
     CDN,
     DATE_COLUMN,
     MACRO_PLOT_STYLES,
@@ -163,15 +167,19 @@ def add_us_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
 # ---------------------------------------------------------------------------
 
 
-def plot_country(
+def draw_country(
+    ax_yield: Axes,
     yields: pd.DataFrame,
     macro: pd.DataFrame,
     config: PlotConfig,
     metadata: CountryMetadata,
     draw_yield_lines: YieldLineDrawer,
 ) -> None:
-    """Build and display one country's chart from already-prepared data."""
-    _figure, ax_yield = plt.subplots(figsize=config.figsize_inches)
+    """Draw one country's complete chart (lines, axes, title, legend) onto ``ax_yield``'s figure.
+
+    Works on any figure: a pyplot one (``plot_country``) or a bare Agg one
+    (``build_figure``), so the window and the GUI draw identical charts.
+    """
     yield_lines = draw_yield_lines(ax_yield, yields, config)
 
     ax_macro = ax_yield.twinx()
@@ -194,22 +202,38 @@ def plot_country(
     # macro curves as separate column groups.
     title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn)
     finish_legend_and_title(ax_yield, [yield_lines, macro_lines], title, config)
+
+
+def plot_country(
+    yields: pd.DataFrame,
+    macro: pd.DataFrame,
+    config: PlotConfig,
+    metadata: CountryMetadata,
+    draw_yield_lines: YieldLineDrawer,
+) -> None:
+    """Build one country's chart on a pyplot figure and show it in a matplotlib window."""
+    _figure, ax_yield = plt.subplots(figsize=config.figsize_inches)
+    draw_country(ax_yield, yields, macro, config, metadata, draw_yield_lines)
     plt.show()
 
 
-def run_cdn(config: PlotConfig) -> None:
-    """Fetch all selected Canadian inputs and render the Canadian chart."""
+# ---------------------------------------------------------------------------
+# Data preparation and run drivers
+# ---------------------------------------------------------------------------
+
+
+def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fetch and align all selected Canadian inputs; return ``(yields, macro)``."""
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields = fetch_cdn_yields(config)
     macro = align_cdn_macro(
         yields, fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config), config
     )
-    plot_country(yields, macro, config, CDN, add_canadian_yield_lines)
-    print("CDN chart finished.\n")
+    return yields, macro
 
 
-def run_us(config: PlotConfig) -> None:
-    """Fetch all selected U.S. inputs and render the U.S. chart."""
+def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fetch all selected U.S. inputs, trimmed to the end date; return ``(yields, macro)``."""
     warn_series_coverage(config.start, US_SERIES_EARLIEST)
     yields = fetch_us_yields(config)
     if not yields.empty:
@@ -219,6 +243,52 @@ def run_us(config: PlotConfig) -> None:
     macro = fetch_us_macro(config, last_yield_date)
     if not macro.empty:
         macro = macro.loc[macro[DATE_COLUMN] <= config.end]
+    return yields, macro
 
+
+@dataclass(frozen=True)
+class Country:
+    """Everything needed to produce one country's chart."""
+
+    key: str  # short name, as used for its tab and output file
+    show_field: str  # PlotConfig field that selects it
+    metadata: CountryMetadata
+    prepare: Callable[[PlotConfig], tuple[pd.DataFrame, pd.DataFrame]]
+    draw_yield_lines: YieldLineDrawer
+
+
+# In drawing order (Canadian, then U.S.), as the command line always has.
+COUNTRIES: tuple[Country, ...] = (
+    Country("cdn", "show_cdn", CDN, prepare_cdn, add_canadian_yield_lines),
+    Country("us", "show_us", US, prepare_us, add_us_yield_lines),
+)
+
+
+def build_figure(country: Country, config: PlotConfig) -> Figure:
+    """Fetch, prepare and draw one country's chart on a new Agg figure, without pyplot.
+
+    pyplot keeps global state and drives GUI windows, so it must not be used
+    from a worker thread; a bare ``Figure`` with an Agg canvas is safe there
+    as long as one thread uses it at a time. The DPI is pinned to
+    ``CANVAS_DPI`` so the pixel size is exactly ``width_px`` x ``height_px``.
+    """
+    figure = Figure(figsize=config.figsize_inches, dpi=CANVAS_DPI)
+    FigureCanvasAgg(figure)
+    ax_yield = figure.subplots()
+    yields, macro = country.prepare(config)
+    draw_country(ax_yield, yields, macro, config, country.metadata, country.draw_yield_lines)
+    return figure
+
+
+def run_cdn(config: PlotConfig) -> None:
+    """Fetch all selected Canadian inputs and show the Canadian chart in a matplotlib window."""
+    yields, macro = prepare_cdn(config)
+    plot_country(yields, macro, config, CDN, add_canadian_yield_lines)
+    print("CDN chart finished.\n")
+
+
+def run_us(config: PlotConfig) -> None:
+    """Fetch all selected U.S. inputs and show the U.S. chart in a matplotlib window."""
+    yields, macro = prepare_us(config)
     plot_country(yields, macro, config, US, add_us_yield_lines)
     print("US chart finished.\n")

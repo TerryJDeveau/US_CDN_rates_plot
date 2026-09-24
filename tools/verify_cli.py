@@ -49,6 +49,8 @@ CASES: list[list[str]] = [
     ["--interest"], ["--i"], ["--no-interest"], ["--yield"], ["--y"], ["--yes"], ["--no-yield"],
     ["--gdp", "--no-debt"], ["--no-gdp", "--no-debt", "--no-interest", "--no-yield"],
     ["--gdp", "--no-gdp"], ["--no-gdp", "--gdp"], ["--gui"], ["--no-gui"],
+    # --gui is EXACT: these must not fall through to the GDP curve's first-letter rule.
+    ["--GUI"], ["--No-Gui"], ["gui"], ["--gu"], ["--guix"], ["--gui:1"], ["--no-gui", "--gui"],
     ["--no-c"], ["--no-"], ["--no"],
     # Dates.
     ["--start:2001"], ["--s:2001-05"], ["--s:2001/5/7"], ["--START:2001-05-07"], ["--s:"],

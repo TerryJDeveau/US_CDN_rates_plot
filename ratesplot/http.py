@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import time
 from typing import Callable, TypeVar
 
@@ -20,6 +21,45 @@ from .config import (
 )
 
 T = TypeVar("T")
+
+# ---------------------------------------------------------------------------
+# Session download cache
+# ---------------------------------------------------------------------------
+# Off by default: a command-line run downloads everything fresh, as it always
+# has. The GUI turns it on so that redrawing after a change re-processes what
+# was already downloaded instead of fetching it again; "Reload data" clears it.
+# Keyed by URL (and query parameters). Only the two download helpers below use
+# it; the StatCan WDS fallback is rare and stays uncached.
+
+_download_cache: dict[tuple, object] | None = None
+_download_cache_lock = threading.Lock()
+
+
+def enable_download_cache() -> None:
+    """Keep every download for the rest of the session (see above)."""
+    global _download_cache
+    with _download_cache_lock:
+        if _download_cache is None:
+            _download_cache = {}
+
+
+def clear_download_cache() -> None:
+    """Forget cached downloads so the next fetch goes to the network again."""
+    with _download_cache_lock:
+        if _download_cache is not None:
+            _download_cache.clear()
+
+
+def _cached(key: tuple, download: Callable[[], T]) -> T:
+    """Return the cached result for ``key``, downloading it first if needed (or if caching is off)."""
+    with _download_cache_lock:
+        if _download_cache is not None and key in _download_cache:
+            return _download_cache[key]  # type: ignore[return-value]
+    result = download()
+    with _download_cache_lock:
+        if _download_cache is not None:
+            _download_cache[key] = result
+    return result
 
 
 def _with_retries(
@@ -70,8 +110,13 @@ def canadian_get(
         response.raise_for_status()
         return response
 
-    return _with_retries(
-        "Canadian request", attempt, max_retries=max_retries, retry_on=(requests.RequestException,)
+    # A Response keeps its body, so a cached one can be read again by later callers.
+    key = ("canadian", url, tuple(sorted((params or {}).items())))
+    return _cached(
+        key,
+        lambda: _with_retries(
+            "Canadian request", attempt, max_retries=max_retries, retry_on=(requests.RequestException,)
+        ),
     )
 
 
@@ -100,7 +145,8 @@ def fetch_fred_csv(series_id: str, *, max_retries: int = DEFAULT_FRED_RETRIES) -
         data[series_id] = pd.to_numeric(data[series_id], errors="coerce")
         return data
 
-    return _with_retries(series_id, attempt, max_retries=max_retries)
+    # Callers modify the frame they get, so each receives its own copy of the cached one.
+    return _cached(("fred", series_id), lambda: _with_retries(series_id, attempt, max_retries=max_retries)).copy()
 
 
 def parse_boc_csv(response_text: str) -> pd.DataFrame:

@@ -272,6 +272,8 @@ class PlotConfig:
     show_cdn: bool = True
     show_us: bool = True
     bake_archives: bool = False
+    # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
+    gui: bool = True
 
     @property
     def figsize_inches(self) -> tuple[float, float]:

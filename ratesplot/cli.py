@@ -5,20 +5,19 @@ TTM interest outlays, on a two-axis chart per country.
 
 Every option is declared once, in ``options.OPTIONS``; this module only walks
 that table (the matching rules are described in the ``options`` docstring).
-``--help`` prints the reference generated from the same table. The two rules
-here that involve several options at once are the curve-selection rule and
-"no country flag means both charts".
+``--help`` prints the reference generated from the same table. Turning the
+recognised choices into a PlotConfig, including the rules that span several
+options, is ``options.config_from_choices``, which the GUI shares.
 """
 
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import sys
 
 from .bake import bake_canadian_archives
 from .config import PlotConfig
-from .options import Kind, Option, help_epilog, options_of
+from .options import Kind, Option, config_from_choices, help_epilog, options_of
 from .plotting import run_cdn, run_us
 
 
@@ -90,17 +89,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_curve_selection(requests: dict[str, bool | None]) -> dict[str, bool]:
-    """Turn the curve flags (True, False or not given) into one boolean per field.
-
-    If any curve was named positively, only positively named curves are shown.
-    Otherwise every curve is shown except those explicitly negated.
-    """
-    if any(value is True for value in requests.values()):
-        return {field: value is True for field, value in requests.items()}
-    return {field: value is not False for field, value in requests.items()}
-
-
 def parse_args(argv: list[str] | None = None) -> PlotConfig:
     """Parse the command line into an immutable :class:`PlotConfig`."""
     parser = build_parser()
@@ -121,44 +109,31 @@ def parse_args(argv: list[str] | None = None) -> PlotConfig:
             flags[matched[0].name] = bool(matched[1])
 
     # argparse first, so unrecognised tokens are reported before bad values.
+    # A switch argparse saw as absent counts as "not given".
     args = parser.parse_args(argparse_tokens)
+    for option in options_of(Kind.SWITCH):
+        if getattr(args, option.fields[0]):
+            flags[option.name] = True
 
-    # Start from PlotConfig's defaults (the default end date is today) and
-    # overwrite what was given. Values are parsed in table order, and each
-    # option's cross-check runs straight after it, against everything so far.
-    values = dataclasses.asdict(PlotConfig())
     try:
-        for option in options_of(Kind.VALUE):
-            if option.name in payloads:
-                parsed = option.parse(payloads[option.name])
-                values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
-            if option.check is not None:
-                option.check(values)
+        return config_from_choices(payloads, flags)
     except ValueError as exc:
         parser.error(str(exc))
 
-    for option in options_of(Kind.EXACT):
-        if option.name in flags:
-            values[option.fields[0]] = flags[option.name]
-
-    curve_requests = {option.fields[0]: flags.get(option.name) for option in options_of(Kind.TOGGLE)}
-    values.update(_resolve_curve_selection(curve_requests))
-
-    for option in options_of(Kind.SWITCH):
-        values[option.fields[0]] = getattr(args, option.fields[0])
-    # No country flag means both charts.
-    if not (values["show_cdn"] or values["show_us"]):
-        values["show_cdn"] = values["show_us"] = True
-
-    return PlotConfig(**values)
-
 
 def main(argv: list[str] | None = None) -> None:
-    """Parse the command line, run the requested charts (or bake), and report completion."""
+    """Parse the command line, then open the GUI, bake, or draw the charts in matplotlib windows."""
     config = parse_args(argv)
 
     if config.bake_archives:
         bake_canadian_archives()
+        return
+
+    if config.gui:
+        # Imported here so --no-gui runs (and the harnesses) never load tkinter.
+        from .gui import run_gui
+
+        run_gui(config)
         return
 
     if config.show_cdn:
