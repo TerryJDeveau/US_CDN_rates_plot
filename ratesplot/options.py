@@ -239,7 +239,10 @@ class Option:
     label: str = ""
     format: Callable[[tuple], str] | None = None
     in_gui: bool = True
-    picker: str | None = None  # GUI: "date" adds a calendar button beside the text field
+    # GUI editor for a VALUE option: None = a plain text field; "date" = text
+    # field plus calendar button; "size" = width and height boxes with an
+    # aspect-ratio lock (for a "WxH" option such as the canvas size).
+    editor: str | None = None
 
 
 # Help-listing sections, in display order: key -> heading (and any notes).
@@ -293,17 +296,17 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --d:W / --d:xH",
         f"(minimum {MIN_CANVAS_PX} px each way)", prefixes=("d",), parse=parse_dimensions_spec,
-        label="W x H px", format=format_dimensions,
+        label="Size", format=format_dimensions, editor="size",
     ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE", "first date (default 1966-01-01)",
         prefixes=("s",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
-        picker="date",
+        editor="date",
     ),
     Option(
         "end", Kind.VALUE, ("end",), "dates", "--end:DATE / --e:DATE", "last date (default today)",
         prefixes=("e",), parse=partial(parse_date_spec, kind="end"), check=check_date_range,
-        label="End", format=format_date, picker="date",
+        label="End", format=format_date, editor="date",
     ),
     Option(
         "min", Kind.VALUE, ("yield_ymin",), "yield", "--min:VAL / --mn:VAL", "lower bound",

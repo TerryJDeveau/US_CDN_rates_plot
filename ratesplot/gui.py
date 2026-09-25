@@ -4,8 +4,9 @@ Opened by default (``--gui``); ``--no-gui`` gives the plain matplotlib windows.
 
 Controls
     Generated from ``options.OPTIONS``: a check box for every on/off option, a
-    text field for every VALUE option (with a calendar button where the option
-    has ``picker="date"``), grouped as in ``--help``, each with the option's
+    text field for every VALUE option (``editor="date"`` adds a calendar
+    button; ``editor="size"`` gives width and height boxes with an
+    aspect-ratio lock), grouped as in ``--help``, each with the option's
     help text and command-line spelling as a tooltip. A new option in the table
     appears here with no change to this module (``in_gui=False`` opts out). The
     choices become a ``PlotConfig`` through ``options.config_from_choices``, the
@@ -463,6 +464,82 @@ class DatePicker:
         self.on_pick()
 
 
+class _SizeEditor:
+    """Keeps two boxes (width, height) and one ``WxH`` text variable in step.
+
+    See ``RatesPlotApp._add_size_control``. ``syncing`` stops the three
+    variables' write traces from triggering each other.
+    """
+
+    def __init__(self, payload: tk.StringVar, keep_ratio: bool) -> None:
+        self.payload = payload
+        self.width = tk.StringVar()
+        self.height = tk.StringVar()
+        self.keep_ratio = tk.BooleanVar(value=keep_ratio)
+        self.ratio: float | None = None  # width / height, used while the lock is on
+        self.syncing = False
+        self.width.trace_add("write", lambda *_args: self._box_changed("width"))
+        self.height.trace_add("write", lambda *_args: self._box_changed("height"))
+        self.payload.trace_add("write", lambda *_args: self._payload_changed())
+
+    @staticmethod
+    def _number(text: str) -> int | None:
+        text = text.strip()
+        return int(text) if text.isdigit() and int(text) > 0 else None
+
+    def _remember_ratio(self) -> None:
+        width, height = self._number(self.width.get()), self._number(self.height.get())
+        if width and height:
+            self.ratio = width / height
+
+    def lock_changed(self) -> None:
+        # Ticking the lock freezes the shape the boxes have now.
+        if self.keep_ratio.get():
+            self._remember_ratio()
+
+    def _box_changed(self, which: str) -> None:
+        if self.syncing:
+            return
+        self.syncing = True
+        try:
+            if self.keep_ratio.get() and self.ratio:
+                changed = self.width if which == "width" else self.height
+                other = self.height if which == "width" else self.width
+                value = self._number(changed.get())
+                if value is not None:
+                    other.set(str(max(1, round(value / self.ratio if which == "width" else value * self.ratio))))
+                elif not changed.get().strip():
+                    other.set("")
+            else:
+                self._remember_ratio()
+            width, height = self.width.get().strip(), self.height.get().strip()
+            self.payload.set(f"{width}x{height}" if width and height else width or (f"x{height}" if height else ""))
+        finally:
+            self.syncing = False
+
+    def _payload_changed(self) -> None:
+        """Show a ``WxH`` text set from elsewhere (loading, Back, Reset) in the boxes."""
+        if self.syncing:
+            return
+        text = self.payload.get().strip().lower()
+        if "x" in text:
+            width, height = (part.strip() for part in text.split("x", 1))
+        else:
+            width, height = text, ""
+        # One dimension alone means 4:3 on the command line; show the height it implies.
+        if width.isdigit() and not height:
+            height = str(round(int(width) * 3 / 4))
+        elif height.isdigit() and not width:
+            width = str(round(int(height) * 4 / 3))
+        self.syncing = True
+        try:
+            self.width.set(width)
+            self.height.set(height)
+        finally:
+            self.syncing = False
+        self._remember_ratio()
+
+
 def _tooltip_text(option: Option) -> str:
     """Return an option's group notes, its help text and its command-line spelling."""
     return (
@@ -513,6 +590,7 @@ class RatesPlotApp:
         self.payload_vars: dict[str, tk.StringVar] = {}
         self.flag_vars: dict[str, tk.BooleanVar] = {}
         self.value_labels: dict[str, ttk.Label] = {}
+        self.size_editors: dict[str, _SizeEditor] = {}
 
         # Per-country preview state, keyed by Country.key.
         self.tabs: dict[str, ttk.Frame] = {}
@@ -548,6 +626,9 @@ class RatesPlotApp:
 
         self._build_layout()
         self._load_choices(choices)
+        for name, keep in state.get("keep_ratio", {}).items():
+            if name in self.size_editors and isinstance(keep, bool):
+                self.size_editors[name].keep_ratio.set(keep)
         if state.get("tab") in self.tabs:
             self.notebook.select(self.tabs[state["tab"]])
         for note in notes or []:
@@ -598,7 +679,9 @@ class RatesPlotApp:
             frame.pack(fill="x", pady=(0, 6))
             frame.columnconfigure(1, weight=1)
             for row, option in enumerate(members):
-                if option.kind is Kind.VALUE:
+                if option.kind is Kind.VALUE and option.editor == "size":
+                    self._add_size_control(frame, row, option)
+                elif option.kind is Kind.VALUE:
                     self._add_value_control(frame, row, option)
                 else:
                     self._add_flag_control(frame, row, option)
@@ -624,13 +707,51 @@ class RatesPlotApp:
         self.value_labels[option.name] = label
         for widget in (label, entry):
             _Tooltip(widget, _tooltip_text(option) + "\nBlank = default.")
-        if option.picker == "date":
+        if option.editor == "date":
             button = ttk.Button(
                 frame, text="📅", width=3,
                 command=lambda: DatePicker(entry, variable, option.name, on_pick=self.request_redraw),
             )
             button.grid(row=row, column=2, padx=(2, 0), pady=1)
             _Tooltip(button, "Pick a date from a calendar")
+
+    def _add_size_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+        """Width and height boxes, "x" between them, and a "Preserve aspect ratio" lock.
+
+        The option's own text variable (``WxH``, the command-line form) stays
+        the single source of truth for drawing, the command line, Back/Unzoom
+        and the remembered settings; the two boxes are a view of it and write
+        it back. With the lock on, changing one box recomputes the other from
+        the ratio the pair had when the lock was last set (or the pair was
+        loaded); with it off, each box changes alone. A blank box with the
+        other filled keeps the command line's meaning: 4:3 from the one given.
+        """
+        payload = tk.StringVar()
+        self.payload_vars[option.name] = payload
+        label = ttk.Label(frame, text=option.label)
+        label.grid(row=row, column=0, sticky="nw", padx=(0, 6), pady=(3, 1))
+        self.value_labels[option.name] = label
+
+        box = ttk.Frame(frame)
+        box.grid(row=row, column=1, columnspan=2, sticky="w", pady=1)
+        editor = _SizeEditor(payload, keep_ratio=True)
+        self.size_editors[option.name] = editor
+        width_entry = ttk.Entry(box, textvariable=editor.width, width=7, justify="right")
+        width_entry.grid(row=0, column=0)
+        ttk.Label(box, text=" x ").grid(row=0, column=1)
+        height_entry = ttk.Entry(box, textvariable=editor.height, width=7, justify="right")
+        height_entry.grid(row=0, column=2)
+        ttk.Label(box, text=" px").grid(row=0, column=3)
+        lock = ttk.Checkbutton(box, text="Preserve aspect ratio", variable=editor.keep_ratio, command=editor.lock_changed)
+        lock.grid(row=1, column=0, columnspan=4, sticky="w", pady=(2, 0))
+
+        payload.trace_add("write", lambda *_args: self._text_changed())
+        for entry in (width_entry, height_entry):
+            entry.bind("<Return>", lambda _event: self.request_redraw())
+        tip = _tooltip_text(option) + "\nWidth x height in pixels. Blank = default."
+        for widget in (label, width_entry, height_entry):
+            _Tooltip(widget, tip)
+        _Tooltip(lock, "When ticked, changing one box changes the other to keep the current shape.")
 
     def _build_actions(self, panel: ttk.Frame) -> None:
         preview = ttk.LabelFrame(panel, text="Preview", padding=(8, 4))
@@ -1132,6 +1253,7 @@ class RatesPlotApp:
                 "zoom": self.zoom.get(),
                 "tab": self._current_tab_key(),
                 "geometry": self.root.geometry(),
+                "keep_ratio": {name: editor.keep_ratio.get() for name, editor in self.size_editors.items()},
             }
         )
         if error is not None:
