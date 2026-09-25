@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 import math
+import warnings
 from typing import Iterable
 
 import matplotlib as mpl
@@ -242,6 +243,38 @@ def set_macro_ylim(ax: Axes, config: PlotConfig) -> None:
     ax.set_ylim(10 ** (log_low - pad), 10 ** (log_high + pad))
 
 
+class _DateLocator(mdates.AutoDateLocator):
+    """AutoDateLocator that takes its own fallback without warning about it.
+
+    AutoDateLocator uses the coarsest frequency (years, months, days, hours …)
+    that gives at least ``minticks`` ticks, then the first interval in that
+    frequency's list that gives at most ``maxticks``. A span just short of
+    ``minticks`` years drops to months, where even the longest interval (6
+    months) gives one or two ticks more than ``maxticks``. Matplotlib then
+    warns "unable to pick an appropriate interval" and uses 6 months anyway.
+    With the chart's limits that happens for spans of about 5.6-6 years (major
+    ticks) and 11.6-12 years (minor ticks).
+
+    That fallback is the right answer: it continues the 6-monthly ticks of
+    slightly shorter spans. The alternative that silences the warning by
+    configuration (adding a 12-month interval) was tried and rejected: for the
+    minor ticks it lands every 1 January, on top of the major ticks, and the
+    chart loses its minor ticks and grid altogether. So the fallback is kept,
+    and only that one warning is suppressed. Tick positions are exactly
+    matplotlib's for every span (checked from 7 days to 120 years).
+    """
+
+    def get_locator(self, dmin, dmax):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="AutoDateLocator was unable to pick an appropriate interval")
+            return super().get_locator(dmin, dmax)
+
+
+def _date_locator(*, minticks: int, maxticks: int) -> mdates.AutoDateLocator:
+    """Return the chart's date locator (see ``_DateLocator``)."""
+    return _DateLocator(minticks=minticks, maxticks=maxticks)
+
+
 def scale_line_widths(ax_yield: Axes, ax_macro: Axes, line_scale: float) -> None:
     """Widen the plotted lines, axes frame and tick marks by ``PlotConfig.line_scale``.
 
@@ -280,8 +313,8 @@ def apply_axes_formatting(
     ax_yield.set_xlabel("Date", fontsize=LABEL_FS * scale)
     ax_yield.tick_params(axis="both", which="major", labelsize=TICK_FS * scale)
     ax_yield.tick_params(axis="both", which="minor", labelsize=(TICK_FS - 4) * scale)
-    ax_yield.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=6, maxticks=12))
-    ax_yield.xaxis.set_minor_locator(mdates.AutoDateLocator(minticks=12, maxticks=24))
+    ax_yield.xaxis.set_major_locator(_date_locator(minticks=6, maxticks=12))
+    ax_yield.xaxis.set_minor_locator(_date_locator(minticks=12, maxticks=24))
     grid_width = mpl.rcParams["grid.linewidth"] * config.line_scale
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
     ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22, linewidth=grid_width)
