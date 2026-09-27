@@ -130,6 +130,10 @@ ARCHIVED_CDN_PROV_LOCAL_DEBT_TABLE = "36100534"
 ARCHIVED_CDN_INTEREST_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CDN_INTEREST_TABLE)
 ARCHIVED_CDN_FEDERAL_DEBT_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CDN_FEDERAL_DEBT_TABLE)
 ARCHIVED_CDN_PROV_LOCAL_DEBT_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CDN_PROV_LOCAL_DEBT_TABLE)
+# The same balance sheet split by level (provincial + local = 36100534 exactly),
+# for the debt components (--debt:p, --debt:m).
+ARCHIVED_CDN_PROVINCIAL_DEBT_TABLE = "36100535"
+ARCHIVED_CDN_LOCAL_DEBT_TABLE = "36100536"
 
 # Older history, also baked by ``--bake-archives`` (see ``ratesplot.bake``).
 # National accounts on the 1968 SNA basis, the source of GDP and government

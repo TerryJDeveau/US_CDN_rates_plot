@@ -25,6 +25,7 @@ import os
 import py_compile
 import re
 import tempfile
+import textwrap
 from pathlib import Path
 
 import pandas as pd
@@ -38,8 +39,10 @@ from .config import (
     ARCHIVED_CDN_FEDERAL_DEBT_URL,
     ARCHIVED_CDN_INTEREST_TABLE,
     ARCHIVED_CDN_INTEREST_URL,
+    ARCHIVED_CDN_LOCAL_DEBT_TABLE,
     ARCHIVED_CDN_PROV_LOCAL_DEBT_TABLE,
     ARCHIVED_CDN_PROV_LOCAL_DEBT_URL,
+    ARCHIVED_CDN_PROVINCIAL_DEBT_TABLE,
     BOC_FINANCIAL_MARKET_TABLE,
     CDN_DEBT_COLUMN,
     CDN_FEDERAL_DEBT_COLUMN,
@@ -69,6 +72,16 @@ _SAAR = "Seasonally adjusted at annual rates"
 _GDP_MARKET_PRICES = "Gross domestic product (GDP) at market prices"
 _INTEREST_ON_PUBLIC_DEBT = "Interest on the public debt"
 _TOTAL_GOVERNMENT = "Total government"
+# Levels of government for the component lines, keyed like the --debt:fpm letters.
+# 36-10-0245 (1961-1994): federal + provincial + local = total.
+_LEVELS_1961 = {"f": "Federal government", "p": "Provincial government", "m": "Local government"}
+# 1968 SNA (1926-1994): hospitals are a level of their own from 1961 and part of
+# provincial government in the later accounts, so they are counted as provincial.
+_LEVELS_1968_SNA = {
+    "f": ("Federal government",),
+    "p": ("Provincial government", "Hospital"),
+    "m": ("Local government",),
+}
 
 # Historical Statistics of Canada, section H: the series summed as debt
 # securities outstanding, the nearest match to the balance sheets'
@@ -168,17 +181,19 @@ def _require_columns(table: pd.DataFrame, required: set[str], what: str) -> None
         raise KeyError(f"Archived {what} table is missing columns: {sorted(missing)}")
 
 
-def _extract_archived_cdn_interest(table: pd.DataFrame) -> pd.DataFrame:
-    """Extract total-government TTM interest on public debt from table 36-10-0245.
+def _extract_archived_cdn_interest(table: pd.DataFrame, level: str = "Total government") -> pd.DataFrame:
+    """Extract TTM interest on public debt for one level of government from table 36-10-0245.
 
     The source is a seasonally adjusted *annual-rate* flow, so each quarter's
-    value is divided by four before the trailing four-quarter sum.
+    value is divided by four before the trailing four-quarter sum. Its levels
+    are total, federal, provincial and local government and the two pension
+    plans; federal + provincial + local equals the total in every quarter.
     """
     _require_columns(table, {"Seasonal adjustment", "Levels of government", "Sector accounts", "REF_DATE", "VALUE"}, "interest")
 
     mask = (
         table["Seasonal adjustment"].eq("Seasonally adjusted at annual rates")
-        & table["Levels of government"].eq("Total government")
+        & table["Levels of government"].eq(level)
         # The member was renamed at some point; accept either spelling.
         & table["Sector accounts"].isin(["Interest on public debt", "Interest on the public debt"])
     )
@@ -305,8 +320,31 @@ def _extract_historical_gdp(annual_table: pd.DataFrame, quarterly_table: pd.Data
     return ttm.rename(GDP_COLUMN).rename_axis(DATE_COLUMN).to_frame()
 
 
-def _extract_historical_interest(annual_table: pd.DataFrame, quarterly_table: pd.DataFrame) -> pd.DataFrame:
-    """Extract TTM interest on the public debt, all governments, 1926 onwards (1968 SNA).
+def _levels_summed(table: pd.DataFrame, base_mask: pd.Series, levels: tuple[str, ...], what: str) -> pd.DataFrame:
+    """Return ``REF_DATE``/``VALUE`` rows for the sum of ``levels``, each checked to be one row per period.
+
+    With one level this is just that level's rows. A level after the first
+    that is blank in some periods counts as zero there (in the 1968-SNA
+    tables hospitals are a level of their own only from 1961); the first
+    level must be present, or the sum is blank.
+    """
+    parts = [
+        _one_row_per_period(table, base_mask & table["Levels of government"].eq(level), f"{what} ({level})", "millions")
+        for level in levels
+    ]
+    if len(parts) == 1:
+        return parts[0]
+    values = pd.concat(
+        [pd.to_numeric(part.set_index("REF_DATE")["VALUE"], errors="coerce") for part in parts], axis=1
+    )
+    summed = values.iloc[:, 0] + values.iloc[:, 1:].fillna(0.0).sum(axis=1)
+    return summed.rename("VALUE").rename_axis("REF_DATE").reset_index()
+
+
+def _extract_historical_interest(
+    annual_table: pd.DataFrame, quarterly_table: pd.DataFrame, levels: tuple[str, ...] = (_TOTAL_GOVERNMENT,)
+) -> pd.DataFrame:
+    """Extract TTM interest on the public debt, 1926 onwards (1968 SNA), summed over ``levels``.
 
     Annual 36-10-0177 until 1949, then quarterly SAAR 36-10-0142 (blank for
     1947-1949, so its first four-quarter total is 1950). "Total
@@ -319,20 +357,14 @@ def _extract_historical_interest(annual_table: pd.DataFrame, quarterly_table: pd
         {"Seasonal adjustment", "Levels of government", "Estimates", "REF_DATE", "VALUE", "SCALAR_FACTOR"},
         "quarterly interest",
     )
-    annual = _one_row_per_period(
-        annual_table,
-        annual_table["Levels of government"].eq(_TOTAL_GOVERNMENT)
-        & annual_table["Estimates"].eq(_INTEREST_ON_PUBLIC_DEBT),
-        "annual interest",
-        "millions",
+    annual = _levels_summed(
+        annual_table, annual_table["Estimates"].eq(_INTEREST_ON_PUBLIC_DEBT), levels, "annual interest"
     )
-    quarterly = _one_row_per_period(
+    quarterly = _levels_summed(
         quarterly_table,
-        quarterly_table["Seasonal adjustment"].eq(_SAAR)
-        & quarterly_table["Levels of government"].eq(_TOTAL_GOVERNMENT)
-        & quarterly_table["Estimates"].eq(_INTEREST_ON_PUBLIC_DEBT),
+        quarterly_table["Seasonal adjustment"].eq(_SAAR) & quarterly_table["Estimates"].eq(_INTEREST_ON_PUBLIC_DEBT),
+        levels,
         "quarterly interest",
-        "millions",
     )
     ttm = _annual_then_quarterly_ttm(annual, quarterly)
     return ttm.rename(CDN_INTEREST_COLUMN).rename_axis(DATE_COLUMN).to_frame()
@@ -413,11 +445,32 @@ def _extract_hsc_debt(federal: pd.DataFrame, provincial: pd.DataFrame, local: pd
     if federal_only.isna().any():
         raise RuntimeError(f"H35_51: federal debt blank in {list(federal_only.index[federal_only.isna()])}")
 
-    def at_year_end(series: pd.Series, column: str) -> pd.DataFrame:
-        dates = pd.to_datetime([f"{year}-12-31" for year in series.index])
-        return series.set_axis(dates).rename(column).rename_axis(DATE_COLUMN).to_frame()
+    return _at_year_end(aggregate, CDN_DEBT_COLUMN), _at_year_end(federal_only, CDN_FEDERAL_DEBT_COLUMN)
 
-    return at_year_end(aggregate, CDN_DEBT_COLUMN), at_year_end(federal_only, CDN_FEDERAL_DEBT_COLUMN)
+
+def _at_year_end(series: pd.Series, column: str) -> pd.DataFrame:
+    """Turn a year-indexed series into a frame stamped at 31 December of each year."""
+    dates = pd.to_datetime([f"{year}-12-31" for year in series.index])
+    return series.set_axis(dates).rename(column).rename_axis(DATE_COLUMN).to_frame()
+
+
+def _extract_hsc_debt_by_level(
+    federal: pd.DataFrame, provincial: pd.DataFrame, local: pd.DataFrame
+) -> dict[str, pd.DataFrame]:
+    """Return each level's debt securities at year end from the HSC tables, keyed "f", "p", "m".
+
+    The same series as the aggregate (``_HSC_*_SECURITIES``), kept apart:
+    federal for every year 1867-1975, provincial and local for the years
+    they exist (1933, 1937, 1939, 1941, 1943, then 1945-1975).
+    """
+    levels = {
+        "f": _hsc_securities(federal, _HSC_FEDERAL_SECURITIES),
+        "p": _hsc_securities(provincial, _HSC_PROVINCIAL_SECURITIES),
+        "m": _hsc_securities(local, _HSC_LOCAL_SECURITIES),
+    }
+    if levels["f"].isna().any():
+        raise RuntimeError(f"H35_51: federal debt blank in {list(levels['f'].index[levels['f'].isna()])}")
+    return {key: _at_year_end(series.dropna(), CDN_DEBT_COLUMN) for key, series in levels.items()}
 
 
 def _extract_historical_population(table: pd.DataFrame) -> pd.DataFrame:
@@ -513,6 +566,24 @@ def _embedded_list(name: str, comment: str, frame: pd.DataFrame, value_column: s
     return f"{comment_lines}\n{name} = [\n{_format_embedded_rows(frame, value_column)}\n]\n"
 
 
+def _embedded_level_dict(name: str, comment: str, frames: dict[str, pd.DataFrame], value_column: str) -> str:
+    """Return one ``NAME = {"f": [...], ...}`` assignment (a list per level), preceded by its comment."""
+    comment_lines = "\n".join(f"# {line}" for line in comment.splitlines())
+    body = "".join(
+        f'    "{key}": [\n{textwrap.indent(_format_embedded_rows(frame, value_column), "    ")}\n    ],\n'
+        for key, frame in frames.items()
+    )
+    return f"{comment_lines}\n{name} = {{\n{body}}}\n"
+
+
+def _through_calibration_end(frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Keep rows up to ``ARCHIVE_CALIBRATION_END_YEAR``; raise if a level is left empty."""
+    kept = {key: frame.loc[frame.index.year <= ARCHIVE_CALIBRATION_END_YEAR] for key, frame in frames.items()}
+    for key, frame in kept.items():
+        _require_rows(frame, f"Level {key!r} after the calibration cutoff")
+    return kept
+
+
 def _table_url(table_id: str) -> str:
     return STATCAN_TABLE_URL.format(table_id=table_id)
 
@@ -530,9 +601,12 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
     source_path = source_path or Path(__file__).resolve().with_name("cdn_archive_data.py")
 
     print("Downloading archived Canadian interest data …")
-    interest = _require_rows(
-        _extract_archived_cdn_interest(statcan_zip_table(ARCHIVED_CDN_INTEREST_TABLE)), "Archived Canadian interest"
-    )
+    archived_interest_table = statcan_zip_table(ARCHIVED_CDN_INTEREST_TABLE)
+    interest = _require_rows(_extract_archived_cdn_interest(archived_interest_table), "Archived Canadian interest")
+    interest_by_level = {
+        key: _require_rows(_extract_archived_cdn_interest(archived_interest_table, level), f"Archived {level} interest")
+        for key, level in _LEVELS_1961.items()
+    }
 
     print("Downloading archived Canadian federal debt data …")
     federal = _require_rows(
@@ -546,6 +620,19 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
         "Archived Canadian provincial/local debt",
     )
 
+    print("Downloading archived Canadian provincial and local debt data, each level alone …")
+    debt_by_level = {
+        "f": federal,
+        "p": _require_rows(
+            _extract_archived_cdn_debt(*statcan_zip_table_with_metadata(ARCHIVED_CDN_PROVINCIAL_DEBT_TABLE)),
+            "Archived Canadian provincial debt",
+        ),
+        "m": _require_rows(
+            _extract_archived_cdn_debt(*statcan_zip_table_with_metadata(ARCHIVED_CDN_LOCAL_DEBT_TABLE)),
+            "Archived Canadian local debt",
+        ),
+    }
+
     # Aggregate public debt = federal + provincial/local securities outstanding.
     debt = federal.add(provincial_local, fill_value=0.0)
 
@@ -553,6 +640,8 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
     interest = interest.loc[interest.index.year <= ARCHIVE_CALIBRATION_END_YEAR]
     if debt.empty or interest.empty:
         raise RuntimeError("Archived Canadian data became empty after the calibration cutoff; data module not modified.")
+    debt_by_level = _through_calibration_end(debt_by_level)
+    interest_by_level = _through_calibration_end(interest_by_level)
 
     print("Downloading 1968-SNA national accounts (GDP and government interest from 1926) …")
     gdp_history = _require_rows(
@@ -561,21 +650,29 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
         ),
         "Historical GDP",
     )
+    annual_interest_table = statcan_zip_table(HISTORICAL_CDN_INTEREST_ANNUAL_TABLE)
+    quarterly_interest_table = statcan_zip_table(HISTORICAL_CDN_INTEREST_QUARTERLY_TABLE)
     early_interest = _require_rows(
-        _extract_historical_interest(
-            statcan_zip_table(HISTORICAL_CDN_INTEREST_ANNUAL_TABLE),
-            statcan_zip_table(HISTORICAL_CDN_INTEREST_QUARTERLY_TABLE),
-        ),
-        "Historical interest",
+        _extract_historical_interest(annual_interest_table, quarterly_interest_table), "Historical interest"
+    )
+    early_interest_by_level = _through_calibration_end(
+        {
+            key: _require_rows(
+                _extract_historical_interest(annual_interest_table, quarterly_interest_table, levels),
+                f"Historical interest ({', '.join(levels)})",
+            )
+            for key, levels in _LEVELS_1968_SNA.items()
+        }
     )
     gdp_history = gdp_history.loc[gdp_history.index.year <= ARCHIVE_CALIBRATION_END_YEAR]
     early_interest = early_interest.loc[early_interest.index.year <= ARCHIVE_CALIBRATION_END_YEAR]
 
-    early_debt, federal_only_debt = _extract_hsc_debt(
-        _download_hsc_table(HSC_FEDERAL_DEBT_SERIES),
-        _download_hsc_table(HSC_PROVINCIAL_DEBT_SERIES),
-        _download_hsc_table(HSC_LOCAL_DEBT_SERIES),
-    )
+    hsc_tables = [
+        _download_hsc_table(series)
+        for series in (HSC_FEDERAL_DEBT_SERIES, HSC_PROVINCIAL_DEBT_SERIES, HSC_LOCAL_DEBT_SERIES)
+    ]
+    early_debt, federal_only_debt = _extract_hsc_debt(*hsc_tables)
+    early_debt_by_level = _extract_hsc_debt_by_level(*hsc_tables)
 
     print("Downloading historical population estimates …")
     population = _require_rows(
@@ -655,6 +752,42 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
                 column,
             )
         )
+    # Each level of government alone, for the component lines (--debt:fnpm).
+    # Keys: "f" federal, "p" provincial, "m" local (municipal); "n" is p + m,
+    # formed at run time. Same definitions and sources as the aggregates above.
+    lists += [
+        _embedded_level_dict(
+            "EMBEDDED_CDN_DEBT_HISTORY_BY_LEVEL",
+            f"EMBEDDED_CDN_DEBT_HISTORY by level, 1961-{ARCHIVE_CALIBRATION_END_YEAR}: federal, provincial and\n"
+            "local balance sheets (provincial + local = the combined table exactly):\n"
+            f"{ARCHIVED_CDN_FEDERAL_DEBT_URL}\n{_table_url(ARCHIVED_CDN_PROVINCIAL_DEBT_TABLE)}\n"
+            f"{_table_url(ARCHIVED_CDN_LOCAL_DEBT_TABLE)}",
+            debt_by_level,
+            CDN_DEBT_COLUMN,
+        ),
+        _embedded_level_dict(
+            "EMBEDDED_CDN_INTEREST_HISTORY_BY_LEVEL",
+            f"EMBEDDED_CDN_INTEREST_HISTORY by level (federal, provincial, local government), 1961-"
+            f"{ARCHIVE_CALIBRATION_END_YEAR}:\n{ARCHIVED_CDN_INTEREST_URL}",
+            interest_by_level,
+            CDN_INTEREST_COLUMN,
+        ),
+        _embedded_level_dict(
+            "EMBEDDED_CDN_EARLY_DEBT_HISTORY_BY_LEVEL",
+            "Historical Statistics of Canada debt securities by level: federal H37+H38 (1867-1975),\n"
+            f"provincial H384+H385 and local H400 (1933-1975, yearly from 1945):\n{hsc_urls}",
+            early_debt_by_level,
+            CDN_DEBT_COLUMN,
+        ),
+        _embedded_level_dict(
+            "EMBEDDED_CDN_EARLY_INTEREST_HISTORY_BY_LEVEL",
+            "EMBEDDED_CDN_EARLY_INTEREST_HISTORY by level (1968 SNA): federal; provincial plus\n"
+            "hospitals (a level of their own there from 1961, part of provincial in later accounts);\n"
+            f"local:\n{_table_url(HISTORICAL_CDN_INTEREST_ANNUAL_TABLE)}\n{_table_url(HISTORICAL_CDN_INTEREST_QUARTERLY_TABLE)}",
+            early_interest_by_level,
+            CDN_INTEREST_COLUMN,
+        ),
+    ]
 
     block = (
         f"{ARCHIVE_BEGIN_MARKER}\n"
@@ -690,5 +823,12 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
         ("Population", population),
         *((f"{column} stand-in", frame) for column, frame in stand_ins.items()),
     ]
+    for name, by_level in (
+        ("Debt 1961- by level", debt_by_level),
+        ("Interest 1961- by level", interest_by_level),
+        ("Debt history by level", early_debt_by_level),
+        ("Interest history by level", early_interest_by_level),
+    ):
+        summary += [(f"{name} [{key}]", frame) for key, frame in by_level.items()]
     for label, frame in summary:
         print(f"  {label + ':':32} {len(frame):4,} rows, {frame.index.min():%Y-%m-%d} to {frame.index.max():%Y-%m-%d}")
