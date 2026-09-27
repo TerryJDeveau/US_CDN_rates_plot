@@ -33,6 +33,7 @@ from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.legend import Legend
@@ -348,13 +349,22 @@ def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]], font_scale: 
 
 
 def finish_legend_and_title(
-    ax: Axes, legend_groups: Sequence[Sequence[Artist]], title: str, config: PlotConfig
+    ax: Axes,
+    legend_groups: Sequence[Sequence[Artist]],
+    title: str,
+    config: PlotConfig,
+    data_span: tuple[pd.Timestamp, pd.Timestamp] | None,
 ) -> None:
     """Add title and date-range subtitle, fix the layout and x-limits, then place the legend.
+
+    The subtitle names ``data_span``, the first and last dates of the data
+    actually drawn, which may be narrower than the axis (``config.start`` to
+    ``config.end``). With nothing drawn it falls back to the axis range.
 
     The legend goes last: its position is chosen against the final axes
     geometry, so nothing may move after it is placed.
     """
+    first, last = data_span if data_span is not None else (config.start, config.end)
     figure = ax.figure
     scale = config.font_scale
     figure_height = figure.get_figheight()
@@ -375,7 +385,7 @@ def finish_legend_and_title(
     figure.text(
         0.5,
         subtitle_y,
-        f"{config.start:%Y-%m-%d} – {config.end:%Y-%m-%d}",
+        f"{first:%Y-%m-%d} – {last:%Y-%m-%d}",
         ha="center",
         va="top",
         fontsize=subtitle_fs,

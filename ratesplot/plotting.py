@@ -2,16 +2,20 @@
 
 Both country charts share one layout: yield curves on the left (linear %)
 axis, the three macro curves on a right (log $) twin axis, an auto-placed
-legend and a title/date-range subtitle. Only the yield-line style differs:
+legend, a title and a subtitle naming the dates the drawn data cover (which
+can be narrower than the axis). Only the yield-line style differs:
 the Canadian pre-2001 history is monthly and drawn as steps.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -162,6 +166,25 @@ def add_us_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
     return lines
 
 
+def drawn_date_span(axes: Iterable[Axes]) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """Return the first and last dates at which any line on ``axes`` has a value, or None if none does.
+
+    This is the span the subtitle names. It can be narrower than the axis
+    (``--start``/``--end``), which is kept as requested: e.g. ``-s:1900`` on
+    a series that begins in 1919 shows 1900 onwards but reports 1919.
+    """
+    first, last = math.inf, -math.inf
+    for ax in axes:
+        for line in ax.get_lines():
+            xy = np.asarray(line.get_xydata(), dtype=float)  # dates already converted to numbers
+            xy = xy[np.isfinite(xy).all(axis=1)]
+            if len(xy):
+                first, last = min(first, xy[:, 0].min()), max(last, xy[:, 0].max())
+    if first > last:
+        return None
+    return tuple(pd.Timestamp(mdates.num2date(value).replace(tzinfo=None)).normalize() for value in (first, last))
+
+
 # ---------------------------------------------------------------------------
 # Chart assembly
 # ---------------------------------------------------------------------------
@@ -198,10 +221,13 @@ def draw_country(
 
     apply_axes_formatting(ax_yield, ax_macro, config, metadata)
     warn_dollar_limits_coverage(macro_in_range, macro_columns_drawn, config)
-    # The title names only what is on the chart; the legend keeps yields and
-    # macro curves as separate column groups.
+    # The title names only what is on the chart, and the subtitle only the
+    # dates it covers; the legend keeps yields and macro curves as separate
+    # column groups.
     title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn)
-    finish_legend_and_title(ax_yield, [yield_lines, macro_lines], title, config)
+    finish_legend_and_title(
+        ax_yield, [yield_lines, macro_lines], title, config, drawn_date_span((ax_yield, ax_macro))
+    )
 
 
 def plot_country(
