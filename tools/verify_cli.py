@@ -13,8 +13,10 @@ Usage (from the project root)::
     python tools/verify_cli.py out/cli_after.txt --compare out/cli_before.txt
 
 With ``--compare`` each case is reported only if it differs; the exit code is
-1 if any case differs. The default end date (today) is written as ``TODAY``
-so records made on different days still compare.
+1 if any case differs. Cases added at the end of ``CASES`` since the earlier
+record (for a new option) are counted as NEW, not as differences. The
+default end date (today) is written as ``TODAY`` so records made on
+different days still compare.
 
 The case list is deliberately heavy on odd spellings. The legacy parser
 matches on leading letters, so ``--dimensions`` without a colon is the *debt*
@@ -116,15 +118,18 @@ def main(argv: list[str]) -> int:
 
     previous = args.compare.read_text(encoding="utf-8").split("\n\n### ")
     current = args.outfile.read_text(encoding="utf-8").split("\n\n### ")
-    if len(previous) != len(current):
-        print(f"case count differs: {len(previous)} before, {len(current)} now")
+    if len(current) < len(previous):
+        print(f"case count shrank: {len(previous)} before, {len(current)} now")
         return 1
+    # Cases are only ever appended (for new options), so the earlier record
+    # is compared case by case with the start of this one; the rest are new.
     differing = 0
     for before, after in zip(previous, current):
         if before != after:
             differing += 1
             print(f"DIFFER\n--- before\n{before}\n--- after\n{after}\n")
-    print(f"[verify_cli] {len(current) - differing} IDENTICAL, {differing} DIFFER")
+    new = len(current) - len(previous)
+    print(f"[verify_cli] {len(previous) - differing} IDENTICAL, {differing} DIFFER, {new} NEW")
     return 1 if differing else 0
 
 
