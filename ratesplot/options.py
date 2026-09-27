@@ -120,11 +120,31 @@ def parse_yield_bound(spec: str, *, kind: str) -> float:
     return parsed
 
 
-def parse_dollar_bound(spec: str, *, kind: str) -> float:
-    """Parse a dollar-axis bound; ``k/m/b/t`` suffixes scale, unsuffixed means billions."""
+def is_percent_bound(spec: str) -> bool:
+    """True when a right-axis bound is written as a percentage (``150%``), as ``-r`` requires."""
+    return spec.strip().endswith("%")
+
+
+def parse_macro_bound(spec: str, *, kind: str) -> float:
+    """Parse a right-axis bound: dollars, or with a ``%`` sign a percentage (for ``-r``).
+
+    Dollars: ``k/m/b/t`` suffixes scale, unsuffixed means billions. A
+    percentage is returned as the number of percent (``150%`` -> 150.0).
+    Which of the two the chart needs is checked in ``config_from_choices``,
+    once ``-r`` is known.
+    """
     value = spec.strip().lower()
     if not value:
-        raise ValueError(f"empty {kind} dollar limit")
+        raise ValueError(f"empty {kind} limit")
+
+    if value.endswith("%"):
+        try:
+            parsed = float(value[:-1].strip())
+        except ValueError:
+            raise ValueError(f"invalid {kind} percentage {spec!r}: must be a positive decimal value") from None
+        if parsed <= 0:
+            raise ValueError(f"{kind} percentage must be positive, got {parsed}")
+        return parsed
 
     multiplier = _DOLLAR_SUFFIX_MULTIPLIERS.get(value[-1])
     if multiplier is not None:
@@ -145,20 +165,21 @@ def parse_dollar_bound(spec: str, *, kind: str) -> float:
 # Value formatters: field value(s) -> text the matching parser accepts
 # ---------------------------------------------------------------------------
 # Used to fill the GUI's text fields from a PlotConfig. Each receives the
-# option's field values as a tuple and returns "" for "not set".
+# option's field values as a tuple, and the whole config (a right-axis bound
+# is a percentage under -r), and returns "" for "not set".
 
 
-def format_date(values: tuple) -> str:
+def format_date(values: tuple, _config: PlotConfig) -> str:
     """Format a date field as ``YYYY-MM-DD``."""
     return f"{values[0]:%Y-%m-%d}"
 
 
-def format_dimensions(values: tuple) -> str:
+def format_dimensions(values: tuple, _config: PlotConfig) -> str:
     """Format ``(width_px, height_px)`` as ``WxH``."""
     return f"{values[0]}x{values[1]}"
 
 
-def format_yield_bound(values: tuple) -> str:
+def format_yield_bound(values: tuple, _config: PlotConfig) -> str:
     """Format a yield bound in percent; blank when unset."""
     return "" if values[0] is None else f"{values[0]:g}"
 
@@ -172,6 +193,13 @@ def format_dollar_bound(values: tuple) -> str:
         if value >= multiplier:
             return f"{value / multiplier:g}{suffix}"
     return f"{value / _DOLLAR_SUFFIX_MULTIPLIERS['k']:g}k"
+
+
+def format_macro_bound(values: tuple, config: PlotConfig) -> str:
+    """Format a right-axis bound: a percentage under -r, otherwise dollars; blank when unset."""
+    if values[0] is None:
+        return ""
+    return f"{values[0]:g}%" if config.relative else format_dollar_bound(values)
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +225,27 @@ def check_yield_bounds(values: Mapping[str, object]) -> None:
         raise ValueError(f"yield min ({low}) must be less than max ({high})")
 
 
-def check_dollar_bounds(values: Mapping[str, object]) -> None:
-    """Require bottom < top when both dollar bounds are given."""
+def check_macro_bounds(values: Mapping[str, object]) -> None:
+    """Require bottom < top when both right-axis bounds are given."""
     top, bottom = values["macro_top"], values["macro_bottom"]
     if top is not None and bottom is not None and bottom >= top:
         raise ValueError(f"bottom limit ({bottom}) must be less than top limit ({top})")
+
+
+def check_macro_bound_units(payloads: Mapping[str, str], values: Mapping[str, object]) -> None:
+    """Require right-axis bounds as percentages under -r, and in dollars otherwise.
+
+    Run once the flags are known: the same text means different things in
+    the two measures, so it is rejected rather than reinterpreted.
+    """
+    for name in ("top", "bottom"):
+        if name not in payloads:
+            continue
+        spec = payloads[name].strip()
+        if values["relative"] and not is_percent_bound(spec):
+            raise ValueError(f"with -r the --{name} limit is a percentage of GDP, e.g. --{name}:150%")
+        if not values["relative"] and is_percent_bound(spec):
+            raise ValueError(f"--{name}:{spec} is a percentage, which needs -r (debt and interest as % of GDP)")
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +277,11 @@ class Option:
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     initial: str | None = None  # SWITCH: legacy first-letter alias (upper case)
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
-    # field value(s) back into text a parser accepts (VALUE only). Options with
-    # ``in_gui=False`` get no control: they choose the interface or run
-    # maintenance rather than shape the chart.
+    # field value(s) back into text a parser accepts, given the rest of the
+    # config (VALUE only). Options with ``in_gui=False`` get no control: they
+    # choose the interface or run maintenance rather than shape the chart.
     label: str = ""
-    format: Callable[[tuple], str] | None = None
+    format: Callable[[tuple, PlotConfig], str] | None = None
     in_gui: bool = True
     # GUI editor for a VALUE option: None = a plain text field; "date" = text
     # field plus calendar button; "size" = width and height boxes with an
@@ -254,10 +298,14 @@ GROUPS: dict[str, str] = {
         "curve positively shows *only* the named curves; ``--no-`` forms hide curves\n"
         "from the default set of all four:"
     ),
+    "units": "Measure for debt, GDP and interest (case-insensitive; only the first letter matters):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
     "yield": "Yield-axis limits (percent):",
-    "dollar": "Dollar-axis limits (suffixes k/m/b/t; unsuffixed values are billions):",
+    "dollar": (
+        "Right-axis limits (suffixes k/m/b/t; unsuffixed values are billions;\n"
+        "with -r, percentages such as 150%):"
+    ),
     "interface": "Interface (spelled in full; no abbreviation):",
     "maintenance": "Maintenance:",
 }
@@ -290,6 +338,13 @@ OPTIONS: tuple[Option, ...] = (
         "yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields",
         prefixes=("y",), label="Bond yields",
     ),
+    # Measure of the right-axis curves: argparse store_true flags with a
+    # first-letter alias, like the countries.
+    Option(
+        "relative", Kind.SWITCH, ("relative",), "units", "--R / -r / --relative",
+        "debt and interest as % of TTM GDP (log\npercent axis); GDP itself is not drawn",
+        flag="--R", flag_help="debt and interest as a percentage of GDP", initial="R", label="As % of GDP",
+    ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its
     # fields are known.
@@ -319,12 +374,12 @@ OPTIONS: tuple[Option, ...] = (
     ),
     Option(
         "top", Kind.VALUE, ("macro_top",), "dollar", "--top:VAL / --t:VAL", "upper bound",
-        prefixes=("t",), parse=partial(parse_dollar_bound, kind="top"), label="Top", format=format_dollar_bound,
+        prefixes=("t",), parse=partial(parse_macro_bound, kind="top"), label="Top", format=format_macro_bound,
     ),
     Option(
         "bottom", Kind.VALUE, ("macro_bottom",), "dollar", "--bottom:VAL / --b:VAL", "lower bound",
-        prefixes=("b",), parse=partial(parse_dollar_bound, kind="bottom"), check=check_dollar_bounds,
-        label="Bottom", format=format_dollar_bound,
+        prefixes=("b",), parse=partial(parse_macro_bound, kind="bottom"), check=check_macro_bounds,
+        label="Bottom", format=format_macro_bound,
     ),
     # Interface. EXACT, so "--g", "--gu" and "--guix" still mean the GDP curve.
     Option(
@@ -354,10 +409,11 @@ def options_in(group: str) -> list[Option]:
 
 
 # Groups whose options are chosen together: naming one curve on the command
-# line means "only the named curves", and naming one country "only the named
-# countries" (see ``config_from_choices``). So the GUI lets the command line
-# override its remembered choices a whole group at a time.
-GROUPS_CHOSEN_TOGETHER = ("curves", "country")
+# line means "only the named curves", naming one country "only the named
+# countries", and a measure is one choice however many switches offer it (see
+# ``config_from_choices``). So the GUI lets the command line override its
+# remembered choices a whole group at a time.
+GROUPS_CHOSEN_TOGETHER = ("curves", "country", "units")
 
 
 def by_name(name: str) -> Option:
@@ -393,6 +449,8 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
       every curve given explicitly, as the GUI does, this is simply "draw the
       ones switched on".)
     * Countries: no country chosen means both charts.
+    * Right-axis limits are percentages under -r and dollars otherwise
+      (``check_macro_bound_units``, once the flags are known).
     """
     values = dataclasses.asdict(PlotConfig())
     for option in options_of(Kind.VALUE):
@@ -417,6 +475,7 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     if not (values["show_cdn"] or values["show_us"]):
         values["show_cdn"] = values["show_us"] = True
 
+    check_macro_bound_units(payloads, values)
     return PlotConfig(**values)
 
 
@@ -441,7 +500,7 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
             at_moving_default = any(field in moving for field in option.fields) and field_values == tuple(
                 getattr(defaults, field) for field in option.fields
             )
-            payloads[option.name] = "" if at_moving_default else option.format(field_values)
+            payloads[option.name] = "" if at_moving_default else option.format(field_values, config)
         else:
             flags[option.name] = bool(field_values[0])
     return payloads, flags
@@ -470,6 +529,9 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
         tokens += [f"--no-{option.name}" for option in off]
     elif off:
         tokens += [f"--{option.name}" for option in on]
+
+    # The measure: its switch, spelled out (the first letter is what counts).
+    tokens += [f"--{option.name}" for option in options_in("units") if flags.get(option.name)]
 
     for option in options_of(Kind.VALUE):
         text = payloads.get(option.name, "").strip()

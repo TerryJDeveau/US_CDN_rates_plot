@@ -10,21 +10,25 @@ Controls
     help text and command-line spelling as a tooltip. A new option in the table
     appears here with no change to this module (``in_gui=False`` opts out). The
     choices become a ``PlotConfig`` through ``options.config_from_choices``, the
-    same code the command line uses, so the two cannot disagree.
+    same code the command line uses, so the two cannot disagree. Two controls
+    depend on the measure (-r): the GDP box is greyed out while GDP is only
+    the denominator, and changing the measure clears Top and Bottom, whose
+    units it changes (dollars or percent).
 
 Remembered settings
     The choices of the last successful drawing, the preview mode, the selected
     tab and the window size are saved to ``gui_state.json`` (see
     ``state_path``) after every drawing and on closing, and restored at the
     next start. Options given on the command line override the remembered ones
-    they name: a value option individually; the curves, or the countries, as a
-    group, because naming one curve on the command line means "only this one".
+    they name: a value option individually; the curves, the countries or the
+    measure each as a group, because naming one curve on the command line
+    means "only this one".
 
 Zoom and pan
     The mouse edits the same fields a user would type in, so the fields remain
     the single source of truth (and the command line, the remembered settings
     and "Save PNG" all follow). Left-drag a box to zoom to it: its width sets
-    Start/End, its height sets the yield Min/Max and the dollar Top/Bottom of
+    Start/End, its height sets the yield Min/Max and the right-axis Top/Bottom of
     whichever axes are drawn. Right- or middle-drag pans. The wheel zooms the
     dates about the pointer. "Back" undoes one zoom or pan; "Unzoom" returns to
     the view before the first one. Axis limits are shared options, so zooming
@@ -221,7 +225,7 @@ class ChartGeometry:
 
     ``box`` is (left, top, right, bottom) in image pixels, origin top-left.
     x limits are matplotlib date numbers. "left"/"right" are the two y axes:
-    the yield axis and its twin carrying the dollar series.
+    the yield axis and its twin carrying the macro series (dollars, or % of GDP).
     """
 
     box: tuple[float, float, float, float]
@@ -275,6 +279,11 @@ def _format_dollars(value: float) -> str:
     """Three significant figures with a k/m/b/t suffix: 1.25t, 380b."""
     rounded = float(f"{value:.3g}")
     return format_dollar_bound((rounded,))
+
+
+def _format_relative(value: float) -> str:
+    """A percentage of GDP (-r), three significant figures: 0.85%, 12.5%, 140%."""
+    return f"{float(f'{value:.3g}'):g}%"
 
 
 def _date_range_texts(start: pd.Timestamp, end: pd.Timestamp) -> dict[str, str]:
@@ -593,6 +602,7 @@ class RatesPlotApp:
         # Controls, keyed by option name.
         self.payload_vars: dict[str, tk.StringVar] = {}
         self.flag_vars: dict[str, tk.BooleanVar] = {}
+        self.flag_boxes: dict[str, ttk.Checkbutton] = {}
         self.value_labels: dict[str, ttk.Label] = {}
         self.size_editors: dict[str, _SizeEditor] = {}
 
@@ -697,6 +707,7 @@ class RatesPlotApp:
             frame, text=option.label, variable=variable, command=lambda name=option.name: self._flag_changed(name)
         )
         box.grid(row=row, column=0, columnspan=3, sticky="w")
+        self.flag_boxes[option.name] = box
         _Tooltip(box, _tooltip_text(option))
 
     def _add_value_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
@@ -835,6 +846,7 @@ class RatesPlotApp:
                     self.flag_vars[name].set(value)
         finally:
             self._loading = False
+        self._update_dependent_controls()
 
     def _snapshot(self) -> Choices:
         """Return every control's current value, blanks included."""
@@ -851,7 +863,25 @@ class RatesPlotApp:
             self.flag_vars[name].set(True)
             self.status.set("At least one country must stay selected.")
             return
+        if name in (option.name for option in options_in("units")):
+            # Top and Bottom are in the measure's units (dollars, or percent
+            # under -r), so values typed or zoomed for one measure are wrong
+            # for another: clear them without a redraw per field.
+            self._loading = True
+            try:
+                for bound in ("top", "bottom"):
+                    if bound in self.payload_vars:
+                        self.payload_vars[bound].set("")
+            finally:
+                self._loading = False
+        self._update_dependent_controls()
         self.request_redraw()
+
+    def _update_dependent_controls(self) -> None:
+        """Grey out the GDP check box under -r, where GDP is the denominator and is not drawn."""
+        relative = "relative" in self.flag_vars and self.flag_vars["relative"].get()
+        if "gdp" in self.flag_boxes:
+            self.flag_boxes["gdp"].state(["disabled"] if relative else ["!disabled"])
 
     def _text_changed(self) -> None:
         if self._loading:
@@ -1100,10 +1130,11 @@ class RatesPlotApp:
             high = min(99.99, geometry.value_at(top_y, "left"))
             if high - low >= 0.01:
                 updates.update({"min": _format_percent(low), "max": _format_percent(high)})
-        if config.has_dollar_series:
+        if config.has_macro_series:
             low, high = geometry.value_at(bottom_y, "right"), geometry.value_at(top_y, "right")
             if 0 < low < high:
-                updates.update({"bottom": _format_dollars(low), "top": _format_dollars(high)})
+                bound_text = _format_relative if config.relative else _format_dollars
+                updates.update({"bottom": bound_text(low), "top": bound_text(high)})
         return updates
 
     def _zoom_to_box(self, key: str, x0: float, y0: float, x1: float, y1: float) -> None:

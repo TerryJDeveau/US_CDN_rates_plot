@@ -17,7 +17,6 @@ from matplotlib.axes import Axes
 from .config import (
     AXIS_LABEL_PAD_PT,
     DATE_PAD_FRACTION,
-    DEFAULT_MACRO_YLIM,
     DEFAULT_YIELD_YLIM,
     LABEL_FS,
     MACRO_MIN_PAD_DECADES,
@@ -46,6 +45,15 @@ def format_currency(value: float, prefix: str = "$") -> str:
         if value >= scale:
             return f"{prefix}{value / scale:.3g}{suffix}"
     return f"{prefix}{value:.3g}"
+
+
+def format_percent(value: float) -> str:
+    """Format a percentage with up to three significant figures: ``0.25%``, ``1.5%``, ``120%``.
+
+    From 1000 up, whole numbers with thousands separators (``.3g`` would
+    switch to scientific notation there).
+    """
+    return f"{value:,.0f}%" if value >= 1000 else f"{value:.3g}%"
 
 
 class LogNiceLocator(ticker.Locator):
@@ -169,14 +177,20 @@ def configure_yield_axis(ax: Axes, *, font_scale: float, label: str = "Bond Yiel
     ax.tick_params(axis="y", which="both", labelsize=TICK_FS * font_scale)
 
 
-def configure_macro_axis(ax: Axes, metadata: CountryMetadata, *, font_scale: float) -> None:
-    """Configure the log-scaled dollar axis used for the macroeconomic series.
+def configure_macro_axis(ax: Axes, metadata: CountryMetadata, config: PlotConfig) -> None:
+    """Configure the log-scaled axis used for the macroeconomic series.
 
-    ``font_scale`` is ``PlotConfig.font_scale``. The tick locator is given the
-    *scaled* label size, because its spacing rules are counted in label heights.
+    It carries dollars, or with ``-r`` percentages of GDP; either way the
+    values span decades, so the same log scale and tick locator serve both,
+    and only the label and tick format differ. Fonts are scaled by
+    ``config.font_scale``; the tick locator is given the *scaled* label
+    size, because its spacing rules are counted in label heights.
     """
+    font_scale = config.font_scale
     tick_fs = TICK_FS * font_scale
-    ax.set_ylabel(metadata.currency_label, fontsize=LABEL_FS * font_scale, labelpad=AXIS_LABEL_PAD_PT * font_scale)
+    ax.set_ylabel(
+        metadata.macro_axis_label(config), fontsize=LABEL_FS * font_scale, labelpad=AXIS_LABEL_PAD_PT * font_scale
+    )
     ax.set_yscale("log")
     # Labelled major ticks are chosen for even spacing (see LogNiceLocator);
     # the remaining integer multiples carry the unlabelled minor grid. The
@@ -185,9 +199,12 @@ def configure_macro_axis(ax: Axes, metadata: CountryMetadata, *, font_scale: flo
     major = LogNiceLocator(tick_fs)
     ax.yaxis.set_major_locator(major)
     ax.yaxis.set_minor_locator(_ComplementLogLocator(major))
-    ax.yaxis.set_major_formatter(
-        ticker.FuncFormatter(lambda value, _pos: format_currency(value, metadata.currency_prefix))
-    )
+    if config.relative:
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda value, _pos: format_percent(value)))
+    else:
+        ax.yaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda value, _pos: format_currency(value, metadata.currency_prefix))
+        )
     ax.yaxis.set_minor_formatter(ticker.NullFormatter())
     ax.tick_params(axis="y", which="both", labelsize=tick_fs)
 
@@ -218,24 +235,28 @@ def set_yield_ylim(ax: Axes, config: PlotConfig) -> None:
 
 
 def set_macro_ylim(ax: Axes, config: PlotConfig) -> None:
-    """Apply explicit limits, or pad the data range logarithmically."""
+    """Apply explicit limits, or pad the data range logarithmically.
+
+    Fallbacks are in the units of the axis's measure (``config.default_macro_ylim``).
+    """
+    default_low, default_high = config.default_macro_ylim
     if config.has_explicit_macro_limits:
         # A single pinned bound keeps the default for the other end rather than
         # mixing user and data-driven values on one axis.
-        lower = config.macro_bottom if config.macro_bottom is not None else DEFAULT_MACRO_YLIM[0]
-        upper = config.macro_top if config.macro_top is not None else DEFAULT_MACRO_YLIM[1]
+        lower = config.macro_bottom if config.macro_bottom is not None else default_low
+        upper = config.macro_top if config.macro_top is not None else default_high
         ax.set_ylim(lower, upper)
         return
 
     ax.relim()
     if not ax.has_data():
-        ax.set_ylim(*DEFAULT_MACRO_YLIM)
+        ax.set_ylim(default_low, default_high)
         return
 
     data_ymin, data_ymax = ax.dataLim.intervaly
     if data_ymin <= 0 or data_ymax <= 0 or data_ymin >= data_ymax:
         # Non-positive values cannot be shown on a log axis.
-        ax.set_ylim(*DEFAULT_MACRO_YLIM)
+        ax.set_ylim(default_low, default_high)
         return
 
     log_low, log_high = np.log10(data_ymin), np.log10(data_ymax)
@@ -319,20 +340,20 @@ def apply_axes_formatting(
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
     ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22, linewidth=grid_width)
 
-    if config.include_yield and config.has_dollar_series:
+    if config.include_yield and config.has_macro_series:
         configure_yield_axis(ax_yield, font_scale=scale)
         set_yield_ylim(ax_yield, config)
-        configure_macro_axis(ax_macro, metadata, font_scale=scale)
+        configure_macro_axis(ax_macro, metadata, config)
         set_macro_ylim(ax_macro, config)
     elif config.include_yield:
         configure_yield_axis(ax_yield, font_scale=scale)
         set_yield_ylim(ax_yield, config)
         configure_yield_axis(ax_macro, font_scale=scale)
         ax_macro.set_ylim(ax_yield.get_ylim())
-    elif config.has_dollar_series:
-        configure_macro_axis(ax_macro, metadata, font_scale=scale)
+    elif config.has_macro_series:
+        configure_macro_axis(ax_macro, metadata, config)
         set_macro_ylim(ax_macro, config)
-        configure_macro_axis(ax_yield, metadata, font_scale=scale)
+        configure_macro_axis(ax_yield, metadata, config)
         ax_yield.set_ylim(ax_macro.get_ylim())
     else:
         # Nothing selected on either y-axis (e.g. ``--no-yield --no-debt

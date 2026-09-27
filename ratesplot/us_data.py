@@ -79,7 +79,7 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
             macro row is repeated at this date so the step curves extend to the
             right edge of the yield data instead of stopping a quarter early.
     """
-    if not config.has_dollar_series:
+    if not config.has_macro_series:
         return pd.DataFrame()
 
     print("Fetching FRED macro series …")
@@ -101,7 +101,7 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
         interest[US_INTEREST_COLUMN] = interest["Interest_SAAR"].rolling(4, min_periods=4).mean()
         frames.append(interest[[DATE_COLUMN, US_INTEREST_COLUMN]])
 
-    if config.include_gdp:
+    if config.needs_gdp:
         gdp = _fetch_fred_dollars(US_GDP_SERIES_ID, "GDP_SAAR", BILLION)
         gdp[GDP_COLUMN] = gdp["GDP_SAAR"].rolling(4, min_periods=4).mean()
         frames.append(gdp[[DATE_COLUMN, GDP_COLUMN]])

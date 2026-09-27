@@ -379,7 +379,7 @@ def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
 
 def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
     """Return trailing-twelve-month nominal GDP: the baked 1926-1994 history joined to the live table."""
-    if not config.include_gdp:
+    if not config.needs_gdp:
         return None
 
     history = embedded_frame(EMBEDDED_CDN_GDP_HISTORY, GDP_COLUMN)

@@ -1,7 +1,8 @@
 """Chart construction: line drawing, per-country plot assembly, and run drivers.
 
 Both country charts share one layout: yield curves on the left (linear %)
-axis, the three macro curves on a right (log $) twin axis, an auto-placed
+axis, the three macro curves on a right log twin axis (dollars, or with -r
+debt and interest as % of GDP; see ``measures``), an auto-placed
 legend, a title and a subtitle naming the dates the drawn data cover (which
 can be narrower than the axis). Only the yield-line style differs:
 the Canadian pre-2001 history is monthly and drawn as steps.
@@ -22,7 +23,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from .axes import apply_axes_formatting, format_currency
+from .axes import apply_axes_formatting, format_currency, format_percent
 from .cdn_data import (
     CANADIAN_SERIES_EARLIEST,
     align_cdn_macro,
@@ -45,6 +46,7 @@ from .config import (
 )
 from .frames import filter_to_date_range
 from .legend import finish_legend_and_title
+from .measures import express
 from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_yields
 
 YieldLineDrawer = Callable[[Axes, pd.DataFrame, PlotConfig], list[Line2D]]
@@ -66,15 +68,17 @@ def warn_series_coverage(start_date: pd.Timestamp, series_earliest: dict[str, pd
         print(f"    • {name} begins {earliest.date()}")
 
 
-def warn_dollar_limits_coverage(
+def warn_macro_limits_coverage(
     df_macro: pd.DataFrame, macro_columns: Iterable[str], config: PlotConfig
 ) -> None:
-    """Warn when explicit ``--top``/``--bottom`` limits hide all or part of a curve."""
+    """Warn when explicit ``--top``/``--bottom`` limits hide all or part of a right-axis curve."""
     if df_macro.empty or not config.has_explicit_macro_limits:
         return
 
     def limit_text(value: float | None) -> str:
-        return "None" if value is None else format_currency(value, "")
+        if value is None:
+            return "None"
+        return format_percent(value) if config.relative else format_currency(value, "")
 
     limits_text = f"--bottom:{limit_text(config.macro_bottom)}, --top:{limit_text(config.macro_top)}"
     bottom = config.macro_bottom if config.macro_bottom is not None else float("-inf")
@@ -86,9 +90,9 @@ def warn_dollar_limits_coverage(
             continue
         low, high = series.min(), series.max()
         if low > top or high < bottom:
-            print(f"  Warning: Dollar curve '{column}' cannot be shown at all within limits {limits_text}.")
+            print(f"  Warning: Right-axis curve '{column}' cannot be shown at all within limits {limits_text}.")
         elif low < bottom or high > top:
-            print(f"  Warning: Dollar curve '{column}' is only shown for part of its range due to limits {limits_text}.")
+            print(f"  Warning: Right-axis curve '{column}' is only shown for part of its range due to limits {limits_text}.")
 
 
 # ---------------------------------------------------------------------------
@@ -220,11 +224,11 @@ def draw_country(
             macro_columns_drawn.append(column)
 
     apply_axes_formatting(ax_yield, ax_macro, config, metadata)
-    warn_dollar_limits_coverage(macro_in_range, macro_columns_drawn, config)
+    warn_macro_limits_coverage(macro_in_range, macro_columns_drawn, config)
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
-    title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn)
+    title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn, config=config)
     finish_legend_and_title(
         ax_yield, [yield_lines, macro_lines], title, config, drawn_date_span((ax_yield, ax_macro))
     )
@@ -249,17 +253,17 @@ def plot_country(
 
 
 def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch and align all selected Canadian inputs; return ``(yields, macro)``."""
+    """Fetch and align all selected Canadian inputs, in the configured measure; return ``(yields, macro)``."""
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields = fetch_cdn_yields(config)
     macro = align_cdn_macro(
         yields, fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config), config
     )
-    return yields, macro
+    return yields, express(macro, config, CDN)
 
 
 def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch all selected U.S. inputs, trimmed to the end date; return ``(yields, macro)``."""
+    """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro)``."""
     warn_series_coverage(config.start, US_SERIES_EARLIEST)
     yields = fetch_us_yields(config)
     if not yields.empty:
@@ -269,7 +273,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     macro = fetch_us_macro(config, last_yield_date)
     if not macro.empty:
         macro = macro.loc[macro[DATE_COLUMN] <= config.end]
-    return yields, macro
+    return yields, express(macro, config, US)
 
 
 @dataclass(frozen=True)

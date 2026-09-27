@@ -33,9 +33,13 @@ def _today() -> pd.Timestamp:
 # Axis behaviour
 # ---------------------------------------------------------------------------
 
-# Fallback limits used when an axis has no data or the data span is degenerate.
+# Fallback limits used when an axis has no data or the data span is degenerate,
+# and for the other end when only one end of the right axis is pinned. The
+# right axis has one per measure: dollars, percent of GDP (-r), dollars per
+# person (-p).
 DEFAULT_YIELD_YLIM = (-0.3, 7.5)
 DEFAULT_MACRO_YLIM = (10_000_000_000, 100_000_000_000_000)
+DEFAULT_RELATIVE_YLIM = (0.1, 1_000.0)
 
 # Yield axis (linear): padding is a fraction of the *displayed* span, clamped
 # to an absolute minimum so a flat series still gets visible breathing room.
@@ -196,6 +200,20 @@ MACRO_PLOT_STYLES = {
     "interest": {"color": "darkred", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "--"},
 }
 
+# Wording for -r (debt and interest as a percentage of GDP): the right axis
+# label, and what is added to the legend labels and to the title's macro phrase.
+RELATIVE_AXIS_LABEL = "Percent of TTM GDP (Log Scale)"
+RELATIVE_LABEL_SUFFIX = " / TTM GDP"
+RELATIVE_TITLE_SUFFIX = " as % of TTM GDP"
+
+
+def _with_suffix(label: str, suffix: str) -> str:
+    """Add ``suffix`` to a legend label, before a closing parenthetical such as "(pre-1933)"."""
+    if suffix and label.endswith(")") and " (" in label:
+        head, _, tail = label.rpartition(" (")
+        return f"{head}{suffix} ({tail}"
+    return label + suffix
+
 
 @dataclass(frozen=True)
 class CountryMetadata:
@@ -203,6 +221,7 @@ class CountryMetadata:
 
     ``*_label`` strings appear in the legend; ``*_title`` strings are the
     phrases assembled into the chart title for whichever series were drawn.
+    Under -r both are qualified (see ``RELATIVE_*``).
     """
 
     key: str
@@ -224,24 +243,36 @@ class CountryMetadata:
     federal_debt_label: str = ""
     federal_debt_title: str = ""
 
+    def macro_axis_label(self, config: PlotConfig) -> str:
+        """Return the right (macro) axis label for the measure ``config`` asks for."""
+        return RELATIVE_AXIS_LABEL if config.relative else self.currency_label
+
     def macro_specs(self, config: PlotConfig) -> tuple[tuple[str, bool, str, str], ...]:
-        """Return ``(style_key, enabled, column, label)`` for each macro curve, in legend order."""
+        """Return ``(style_key, enabled, column, label)`` for each macro curve, in legend order.
+
+        Under -r GDP is the denominator and is not drawn itself.
+        """
+        suffix = RELATIVE_LABEL_SUFFIX if config.relative else ""
         specs = [
             ("debt", config.include_debt, self.debt_column, self.debt_label),
-            ("gdp", config.include_gdp, self.gdp_column, self.gdp_label),
+            ("gdp", config.draws_gdp, self.gdp_column, self.gdp_label),
             ("interest", config.include_interest, self.interest_column, self.interest_label),
         ]
         if self.federal_debt_column is not None:
             # Chosen with the debt curve; listed straight after it.
             specs.insert(1, ("federal_debt", config.include_debt, self.federal_debt_column, self.federal_debt_label))
-        return tuple(specs)
+        return tuple((key, enabled, column, _with_suffix(label, suffix)) for key, enabled, column, label in specs)
 
-    def title_for(self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str]) -> str:
+    def title_for(self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str], config: PlotConfig) -> str:
         """Compose the chart title from the series that were actually drawn.
 
         Parts are joined with commas and a final ampersand, e.g.
         ``"U.S. Treasury Yields, Aggregate US Public Debt & TTM GDP"``.
         Federal debt alone is named only when the aggregate is not drawn.
+        Under -r the macro phrase is qualified and set off from the yields by
+        a semicolon, since the qualifier does not apply to them:
+        ``"CDN Benchmark Yields; Aggregate CDN Public Debt & Interest Outlays
+        as % of TTM GDP"``.
         """
         drawn = set(macro_keys_drawn)
         if "debt" in drawn:
@@ -252,14 +283,22 @@ class CountryMetadata:
             "gdp": self.gdp_title,
             "interest": self.interest_title,
         }
-        parts = ([self.yield_title] if yields_drawn else []) + [
-            macro_titles[key] for key in macro_titles if key in drawn
-        ]
+        macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
+        yield_parts = [self.yield_title] if yields_drawn else []
+        if config.relative and macro_parts:
+            macro_phrase = _join_title_parts(macro_parts) + RELATIVE_TITLE_SUFFIX
+            return "; ".join(yield_parts + [macro_phrase])
+        parts = yield_parts + macro_parts
         if not parts:
             return f"{self.country_name}: no series selected"
-        if len(parts) == 1:
-            return parts[0]
-        return f"{', '.join(parts[:-1])} & {parts[-1]}"
+        return _join_title_parts(parts)
+
+
+def _join_title_parts(parts: list[str]) -> str:
+    """Join title phrases with commas and a final ampersand: "A, B & C"."""
+    if len(parts) == 1:
+        return parts[0]
+    return f"{', '.join(parts[:-1])} & {parts[-1]}"
 
 
 CDN = CountryMetadata(
@@ -319,6 +358,9 @@ class PlotConfig:
     include_interest: bool = True
     show_cdn: bool = True
     show_us: bool = True
+    # -r: debt and interest as a percentage of TTM GDP, on a log percent axis;
+    # GDP itself is not drawn.
+    relative: bool = False
     bake_archives: bool = False
     # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
     gui: bool = True
@@ -355,11 +397,26 @@ class PlotConfig:
         return max(1.0, self.font_scale)
 
     @property
-    def has_dollar_series(self) -> bool:
-        """True when at least one curve on the log-dollar axis is selected."""
-        return self.include_debt or self.include_gdp or self.include_interest
+    def draws_gdp(self) -> bool:
+        """True when the GDP curve is drawn: selected, and not the -r denominator."""
+        return self.include_gdp and not self.relative
+
+    @property
+    def needs_gdp(self) -> bool:
+        """True when GDP must be fetched: to draw it, or to divide debt or interest by it (-r)."""
+        return self.include_gdp or (self.relative and (self.include_debt or self.include_interest))
+
+    @property
+    def has_macro_series(self) -> bool:
+        """True when at least one curve on the right (log) axis is drawn."""
+        return self.include_debt or self.draws_gdp or self.include_interest
 
     @property
     def has_explicit_macro_limits(self) -> bool:
-        """True when the user pinned either end of the dollar axis."""
+        """True when the user pinned either end of the right axis."""
         return self.macro_bottom is not None or self.macro_top is not None
+
+    @property
+    def default_macro_ylim(self) -> tuple[float, float]:
+        """Return the right axis's fallback limits, in the units of its measure."""
+        return DEFAULT_RELATIVE_YLIM if self.relative else DEFAULT_MACRO_YLIM

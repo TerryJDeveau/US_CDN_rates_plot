@@ -75,6 +75,13 @@ CASES: list[list[str]] = [
     # A realistic combination.
     ["-c", "--gdp", "--debt", "-s:1990", "--e:2026-09-01", "--d:1100", "--min:1", "--max:5", "--t:5t", "--b:10b"],
     ["-u", "--no-interest", "--s:1980", "--e:1995", "--D:1400x1000"],
+    # Appended cases (new options). Earlier records compare against the cases above.
+    # -r: debt and interest as % of GDP; first letter, like the countries.
+    ["-r"], ["--r"], ["--R"], ["--relative"], ["Relative"], ["--rel"], ["--no-relative"],
+    ["-r", "--no-gdp"], ["-r", "--gdp"], ["-r", "-c", "--debt", "-s:1926"],
+    # Right-axis limits: percentages with -r, dollars without.
+    ["-r", "--top:150%"], ["-r", "--top:150"], ["-r", "--b:5%", "--t:200%"], ["-r", "--b:200%", "--t:5%"],
+    ["--top:150%"], ["-r", "--t:x%"], ["-r", "--t:0%"], ["-r", "--t: 80 %"],
 ]
 
 
