@@ -348,6 +348,18 @@ def options_of(kind: Kind) -> list[Option]:
     return [option for option in OPTIONS if option.kind is kind]
 
 
+def options_in(group: str) -> list[Option]:
+    """Return the options of one help group (a key of ``GROUPS``), in table order."""
+    return [option for option in OPTIONS if option.group == group]
+
+
+# Groups whose options are chosen together: naming one curve on the command
+# line means "only the named curves", and naming one country "only the named
+# countries" (see ``config_from_choices``). So the GUI lets the command line
+# override its remembered choices a whole group at a time.
+GROUPS_CHOSEN_TOGETHER = ("curves", "country")
+
+
 def by_name(name: str) -> Option:
     """Return the option called ``name``."""
     for option in OPTIONS:
@@ -444,7 +456,7 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     defaults, _ = choices_from_config(PlotConfig())
     tokens: list[str] = []
 
-    countries = [option for option in options_of(Kind.SWITCH) if option.in_gui]
+    countries = [option for option in options_in("country") if option.in_gui]
     chosen = [option for option in countries if flags.get(option.name)]
     if 0 < len(chosen) < len(countries):
         tokens += [option.flag for option in chosen]

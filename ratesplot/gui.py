@@ -75,6 +75,7 @@ from . import http
 from .config import PlotConfig
 from .options import (
     GROUPS,
+    GROUPS_CHOSEN_TOGETHER,
     OPTIONS,
     Kind,
     Option,
@@ -84,6 +85,7 @@ from .options import (
     config_from_choices,
     format_dollar_bound,
     group_title,
+    options_in,
     parse_date_spec,
 )
 from .plotting import COUNTRIES, Country, build_figure
@@ -185,13 +187,15 @@ def starting_choices(
                 payloads[name] = text
         # Curves, and countries, are overridden as a group: on the command line
         # "--gdp" means "GDP only", which the resolved config already reflects.
-        for kind in (Kind.TOGGLE, Kind.SWITCH):
-            group = [option.name for option in OPTIONS if option.kind is kind and option.name in flags]
+        for group_name in GROUPS_CHOSEN_TOGETHER:
+            group = [option.name for option in options_in(group_name) if option.name in flags]
             if any(name in cli_flags for name in group):
                 for name in group:
                     flags[name] = cli_config_flags[name]
         for option in OPTIONS:
-            if option.kind is Kind.EXACT and option.name in flags and option.name in cli_flags:
+            if option.group in GROUPS_CHOSEN_TOGETHER or option.kind is Kind.VALUE:
+                continue
+            if option.name in flags and option.name in cli_flags:
                 flags[option.name] = cli_flags[option.name]
         return payloads, flags
 
@@ -842,7 +846,7 @@ class RatesPlotApp:
     def _flag_changed(self, name: str) -> None:
         # The command-line rule "no country means both" would make unticking
         # the last country draw both, which would look like a bug here.
-        countries = [option.name for option in OPTIONS if option.kind is Kind.SWITCH and option.in_gui]
+        countries = [option.name for option in options_in("country") if option.in_gui]
         if name in countries and not any(self.flag_vars[country].get() for country in countries):
             self.flag_vars[name].set(True)
             self.status.set("At least one country must stay selected.")
