@@ -235,6 +235,10 @@ RELATIVE_AXIS_LABEL = "Percent of TTM GDP (Log Scale)"
 RELATIVE_LABEL_SUFFIX = " / TTM GDP"
 RELATIVE_TITLE_SUFFIX = " as % of TTM GDP"
 PER_CAPITA_SUFFIX = " per Capita"
+# Ends the title when debt or interest is drawn for more than one level of
+# government; the legend names the levels (Terry, 2026-09-27: the title need
+# not repeat the legend where that makes it awkward).
+LEVELS_TITLE_SUFFIX = " by Level of Government"
 
 
 def _measure_suffixes(config: PlotConfig) -> tuple[str, str]:
@@ -369,34 +373,37 @@ class CountryMetadata:
             "gdp": self.gdp_title,
             "interest": self.interest_title,
         }
-        # Component lines ("debt_f", "interest_p" …) are named once per kind,
-        # "Federal/Provincial CDN Public Debt"; with both kinds split by the
-        # same levels, once for both, after GDP:
-        # "TTM GDP & Federal/Provincial CDN Public Debt and Interest Outlays".
-        # (U.S. debt has fewer levels than U.S. interest, so --debt:fsm names
-        # each kind's levels separately.)
+        # Component lines ("debt_f", "interest_p" …). A single level is named,
+        # "Federal CDN Public Debt"; with more, the legend names them and the
+        # title ends "… by Level of Government" (after the -r / -p qualifier,
+        # set off by a comma). Debt and interest split alike are named once,
+        # after GDP: "TTM GDP & CDN Public Debt and Interest Outlays by Level
+        # of Government", "Federal CDN Public Debt and Interest Outlays".
         levels = {
             kind: [letter for letter in COMPONENT_LETTERS if f"{kind}_{letter}" in drawn] for kind in ("debt", "interest")
         }
-        names = {kind: "/".join(self.level_name(letter) for letter in letters) for kind, letters in levels.items()}
-        if levels["debt"] and levels["debt"] == levels["interest"]:
-            both = self.component_debt_title.format(names["debt"]) + " and " + self.component_interest_title.format("").strip()
+        split = [kind for kind in ("debt", "interest") if levels[kind]]
+        by_level = any(len(levels[kind]) > 1 for kind in split)
+        names = {kind: "" if by_level else self.level_name(levels[kind][0]) for kind in split}
+        templates = {"debt": self.component_debt_title, "interest": self.component_interest_title}
+        if len(split) == 2 and names["debt"] == names["interest"]:
+            both = templates["debt"].format(names["debt"]).strip() + " and " + templates["interest"].format("").strip()
             macro_parts = ([self.gdp_title] if "gdp" in drawn else []) + [both]
         else:
-            for kind, template in (("debt", self.component_debt_title), ("interest", self.component_interest_title)):
-                if levels[kind]:
-                    drawn.add(kind)
-                    macro_titles[kind] = template.format(names[kind])
+            for kind in split:
+                drawn.add(kind)
+                macro_titles[kind] = templates[kind].format(names[kind]).strip()
             macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
+        levels_suffix = LEVELS_TITLE_SUFFIX if by_level else ""
         yield_parts = [self.yield_title] if yields_drawn else []
         title_suffix = _measure_suffixes(config)[1]
         if title_suffix and macro_parts:
-            macro_phrase = _join_title_parts(macro_parts) + title_suffix
+            macro_phrase = _join_title_parts(macro_parts) + title_suffix + ("," if levels_suffix else "") + levels_suffix
             return "; ".join(yield_parts + [macro_phrase])
         parts = yield_parts + macro_parts
         if not parts:
             return f"{self.country_name}: no series selected"
-        return _join_title_parts(parts)
+        return _join_title_parts(parts) + levels_suffix
 
 
 def _join_title_parts(parts: list[str]) -> str:
