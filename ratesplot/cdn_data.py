@@ -496,8 +496,12 @@ def _gfs_levels(table: pd.DataFrame, items: tuple[str, ...], column: str) -> dic
     return _with_non_federal(levels, column)
 
 
-def fetch_cdn_components(config: PlotConfig, letters: tuple[str, ...]) -> pd.DataFrame | None:
-    """Return debt and/or interest for each level in ``letters``, one ``component_column`` each.
+def fetch_cdn_components(
+    config: PlotConfig, debt_letters: tuple[str, ...], interest_letters: tuple[str, ...]
+) -> pd.DataFrame | None:
+    """Return debt for each level in ``debt_letters`` and interest for each in ``interest_letters``.
+
+    One ``component_column`` per line, for the curves ``config`` selects.
 
     Each level is chained like its aggregate, oldest first, "n" being
     provincial + local within each source before the joins:
@@ -513,7 +517,9 @@ def fetch_cdn_components(config: PlotConfig, letters: tuple[str, ...]) -> pd.Dat
     nets out what one government owes another, so the levels need not add
     up to it. Returns None when neither curve is selected.
     """
-    if not letters or not (config.include_debt or config.include_interest):
+    debt_letters = debt_letters if config.include_debt else ()
+    interest_letters = interest_letters if config.include_interest else ()
+    if not debt_letters and not interest_letters:
         return None
     try:
         table = statcan_zip_table(STATCAN_CDN_INTEREST_TABLE)
@@ -522,17 +528,17 @@ def fetch_cdn_components(config: PlotConfig, letters: tuple[str, ...]) -> pd.Dat
         table = None
 
     columns: list[pd.Series] = []
-    if config.include_debt:
+    if debt_letters:
         early = _embedded_levels(EMBEDDED_CDN_EARLY_DEBT_HISTORY_BY_LEVEL, CDN_DEBT_COLUMN)
         archive = _embedded_levels(EMBEDDED_CDN_DEBT_HISTORY_BY_LEVEL, CDN_DEBT_COLUMN)
         live = _gfs_levels(table, _GFS_DEBT_ITEMS, CDN_DEBT_COLUMN) if table is not None else {}
-        for letter in letters:
+        for letter in debt_letters:
             chained = _chain(
                 (early.get(letter), archive.get(letter), live.get(letter)), CDN_DEBT_COLUMN, annual_historical=True
             )
             if chained is not None:
                 columns.append(chained[CDN_DEBT_COLUMN].rename(component_column("debt", letter)))
-    if config.include_interest:
+    if interest_letters:
         early = _embedded_levels(EMBEDDED_CDN_EARLY_INTEREST_HISTORY_BY_LEVEL, CDN_INTEREST_COLUMN)
         archive = _embedded_levels(EMBEDDED_CDN_INTEREST_HISTORY_BY_LEVEL, CDN_INTEREST_COLUMN)
         live: dict[str, pd.DataFrame | None] = {}
@@ -540,7 +546,7 @@ def fetch_cdn_components(config: PlotConfig, letters: tuple[str, ...]) -> pd.Dat
             # The GFS table reports actual quarterly flows, so TTM is a 4-quarter sum.
             quarterly = _gfs_levels(table, ("Interest",), CDN_INTEREST_COLUMN)
             live = {key: frame[CDN_INTEREST_COLUMN].rolling(4).sum().to_frame() for key, frame in quarterly.items() if frame is not None}
-        for letter in letters:
+        for letter in interest_letters:
             chained = _chain(
                 (early.get(letter), archive.get(letter), live.get(letter)), CDN_INTEREST_COLUMN, annual_historical=False
             )

@@ -261,7 +261,8 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     yields = fetch_cdn_yields(config)
     if config.components:
         # Debt and interest by level of government replace the aggregate lines.
-        series = (fetch_cdn_components(config, CDN.levels_drawn(config)), fetch_cdn_gdp(config))
+        levels = CDN.levels_drawn(config, "debt"), CDN.levels_drawn(config, "interest")
+        series = (fetch_cdn_components(config, *levels), fetch_cdn_gdp(config))
     else:
         series = (fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config))
     macro = align_cdn_macro(yields, series, config)
@@ -272,11 +273,11 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
 def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro)``."""
     warn_series_coverage(config.start, US_SERIES_EARLIEST)
-    unavailable = [letter for letter in config.components if letter not in US.levels_available]
-    if unavailable and (config.include_debt or config.include_interest):
+    unavailable = [letter for letter in config.components if letter not in US.debt_levels]
+    if unavailable and config.include_debt:
         print(
-            f"  Warning: U.S. {' and '.join(US.level_name(letter).lower() for letter in unavailable)} figures exist "
-            f"only combined; drawn as {US.level_name('n')}."
+            f"  Warning: U.S. {' and '.join(US.level_name(letter).lower() for letter in unavailable)} debt is "
+            f"published only combined; drawn as {US.level_name('n')}."
         )
     yields = fetch_us_yields(config)
     if not yields.empty:

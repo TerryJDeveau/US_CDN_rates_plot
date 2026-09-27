@@ -283,12 +283,14 @@ class CountryMetadata:
     federal_debt_label: str = ""
     federal_debt_title: str = ""
     # Components (--debt:LETTERS): the name of each level, which levels the
-    # country's sources provide separately, and the wording around a name
-    # ("{}" is replaced by it, or in titles by the names joined with "/").
+    # country's sources provide separately for debt and for interest, and the
+    # wording around a name ("{}" is replaced by it, or in titles by the names
+    # joined with "/").
     level_names: tuple[tuple[str, str], ...] = (
         ("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial"), ("m", "Municipal"),
     )
-    levels_available: str = "fnpm"
+    debt_levels: str = "fnpm"
+    interest_levels: str = "fnpm"
     component_debt_label: str = "{} Public Debt"
     component_interest_label: str = "{} TTM Interest Payable"
     component_debt_title: str = "{} Public Debt"
@@ -298,14 +300,15 @@ class CountryMetadata:
         """Return the name of level ``letter`` ("f" -> "Federal")."""
         return dict(self.level_names)[letter]
 
-    def levels_drawn(self, config: PlotConfig) -> tuple[str, ...]:
-        """Return the component letters to draw, in ``COMPONENT_LETTERS`` order.
+    def levels_drawn(self, config: PlotConfig, kind: str) -> tuple[str, ...]:
+        """Return the ``kind`` ("debt" or "interest") component letters to draw, in ``COMPONENT_LETTERS`` order.
 
-        A level the country's sources do not provide separately (U.S. state or
-        local alone) is drawn as the non-federal total it is part of; the data
-        layer says so in a warning.
+        A level the country's sources do not provide separately for that kind
+        (U.S. state or local debt alone) is drawn as the non-federal total it
+        is part of; ``plotting.prepare_us`` says so in a warning.
         """
-        wanted = {letter if letter in self.levels_available else "n" for letter in config.components}
+        available = self.debt_levels if kind == "debt" else self.interest_levels
+        wanted = {letter if letter in available else "n" for letter in config.components}
         return tuple(letter for letter in COMPONENT_LETTERS if letter in wanted)
 
     def macro_axis_label(self, config: PlotConfig) -> str:
@@ -324,17 +327,16 @@ class CountryMetadata:
         """
         suffix = _measure_suffixes(config)[0]
         if config.components:
-            levels = self.levels_drawn(config)
             specs = [
                 (f"debt_{letter}", config.include_debt, component_column("debt", letter),
                  self.component_debt_label.format(self.level_name(letter)))
-                for letter in levels
+                for letter in self.levels_drawn(config, "debt")
             ]
             specs.append(("gdp", config.draws_gdp, self.gdp_column, self.gdp_label))
             specs += [
                 (f"interest_{letter}", config.include_interest, component_column("interest", letter),
                  self.component_interest_label.format(self.level_name(letter)))
-                for letter in levels
+                for letter in self.levels_drawn(config, "interest")
             ]
             return tuple((key, enabled, column, _with_suffix(label, suffix)) for key, enabled, column, label in specs)
         specs = [
@@ -368,9 +370,11 @@ class CountryMetadata:
             "interest": self.interest_title,
         }
         # Component lines ("debt_f", "interest_p" …) are named once per kind,
-        # "Federal/Provincial CDN Public Debt"; with both kinds split (always
-        # by the same levels), once for both, after GDP:
+        # "Federal/Provincial CDN Public Debt"; with both kinds split by the
+        # same levels, once for both, after GDP:
         # "TTM GDP & Federal/Provincial CDN Public Debt and Interest Outlays".
+        # (U.S. debt has fewer levels than U.S. interest, so --debt:fsm names
+        # each kind's levels separately.)
         levels = {
             kind: [letter for letter in COMPONENT_LETTERS if f"{kind}_{letter}" in drawn] for kind in ("debt", "interest")
         }
@@ -433,10 +437,11 @@ US = CountryMetadata(
     debt_title="Aggregate US Public Debt",
     interest_column=US_INTEREST_COLUMN,
     interest_label="TTM Interest Payable",
-    # FRED has federal and state-and-local debt and interest, but not state and
-    # local apart: "p" and "m" are drawn as the combined "n".
+    # FRED has federal and state-and-local debt, but not state and local debt
+    # apart: debt "p" and "m" are drawn as the combined "n". Interest has all
+    # four levels (state and local apart only annually; see us_data).
     level_names=(("f", "Federal"), ("n", "State & Local"), ("p", "State"), ("m", "Local")),
-    levels_available="fn",
+    debt_levels="fn",
     component_debt_label="{} US Public Debt",
     component_debt_title="{} US Public Debt",
 )

@@ -2,7 +2,8 @@
 
 All U.S. inputs come from FRED CSV downloads. Yields are daily; the macro
 series are quarterly and are forward-filled onto the daily yield dates by
-``plotting`` after fetching.
+``plotting`` after fetching. (State and local interest apart are annual; they
+split the quarterly state-and-local total, see ``_split_state_and_local``.)
 """
 
 from __future__ import annotations
@@ -56,6 +57,10 @@ US_STATE_LOCAL_DEBT_SERIES_ID = "SLGSDODNS"  # state & local debt securities, $ 
 US_INTEREST_SERIES_ID = "A180RC1Q027SBEA"
 US_FEDERAL_INTEREST_SERIES_ID = "A091RC1Q027SBEA"
 US_STATE_LOCAL_INTEREST_SERIES_ID = "B111RC1Q027SBEA"
+# State and local interest apart (NIPA tables 3.20 and 3.21, the "p" and "m"
+# lines) are annual only, from 1959, $ billions; see _split_state_and_local.
+US_STATE_INTEREST_SERIES_ID = "W756RC1A027NBEA"
+US_LOCAL_INTEREST_SERIES_ID = "W856RC1A027NBEA"
 US_GDP_SERIES_ID = "GDP"                    # nominal GDP, SAAR $ billions
 US_POPULATION_SERIES_ID = "B230RC0Q173SBEA"  # population (mid-period), thousands, quarterly from 1947
 
@@ -102,30 +107,74 @@ def _fetch_fred_dollars(series_id: str, column: str, multiplier: int) -> pd.Data
     return frame[[DATE_COLUMN, column]]
 
 
-def _fetch_ttm_interest(series_id: str, column: str) -> pd.DataFrame:
-    """Fetch one quarterly SAAR interest series and return ``[DATE, column]`` as TTM dollars.
+def _fetch_billions(series_id: str) -> pd.Series:
+    """Fetch one FRED series in $ billions and return it in dollars, indexed by date."""
+    frame = fetch_fred_csv(series_id)
+    dates = pd.DatetimeIndex(frame[DATE_COLUMN], name=DATE_COLUMN)
+    return pd.Series(frame[series_id].to_numpy(dtype=float) * BILLION, index=dates, name=series_id)
+
+
+def _ttm_interest(saar: pd.Series, column: str) -> pd.DataFrame:
+    """Return quarterly SAAR interest (dollars, date-indexed) as a TTM ``[DATE, column]`` frame.
 
     SAAR is already annualised, so the TTM level is the 4-quarter mean.
     """
-    frame = _fetch_fred_dollars(series_id, column, BILLION)
-    frame[column] = frame[column].rolling(4, min_periods=4).mean()
-    return frame
+    return saar.rolling(4, min_periods=4).mean().rename(column).reset_index()
 
 
-def _fetch_us_interest_levels(letters: tuple[str, ...]) -> list[pd.DataFrame]:
+def _split_state_and_local(state_and_local: pd.Series) -> tuple[pd.Series, pd.Series, int]:
+    """Split quarterly state-and-local interest (SAAR) into ``(state, local, last_year)``.
+
+    BEA publishes state and local interest apart only annually (from 1959),
+    and the two add up to the annual mean of the quarterly total. Every
+    quarter of a year is split by that year's state share, so the TTM at each
+    fourth quarter is exactly the published annual figure, while the quarters
+    keep the movements of the total. Quarters after ``last_year``, the last
+    annual figures, use its share; quarters before 1959 are missing.
+    """
+    state = _fetch_billions(US_STATE_INTEREST_SERIES_ID)
+    local = _fetch_billions(US_LOCAL_INTEREST_SERIES_ID)
+    share = (state / (state + local)).dropna()
+    share.index = share.index.year
+    last_year = int(share.index.max())
+    years = state_and_local.index.year
+    state_share = pd.Series(years.where(years <= last_year, last_year), index=state_and_local.index).map(share)
+    return state_and_local * state_share, state_and_local * (1.0 - state_share), last_year
+
+
+def _fetch_us_interest_levels(letters: tuple[str, ...], config: PlotConfig) -> list[pd.DataFrame]:
     """Return one TTM ``[DATE, component_column("interest", letter)]`` frame per level in ``letters``.
 
-    Federal interest is required, as the aggregate is; state and local is a
-    refinement, so its failure is a warning.
+    Federal interest is required, as the aggregate is; the other levels are
+    a refinement, so their failure is a warning.
     """
     frames = []
     if "f" in letters:
-        frames.append(_fetch_ttm_interest(US_FEDERAL_INTEREST_SERIES_ID, component_column("interest", "f")))
-    if "n" in letters:
+        frames.append(_ttm_interest(_fetch_billions(US_FEDERAL_INTEREST_SERIES_ID), component_column("interest", "f")))
+    if not set(letters) & set("npm"):
+        return frames
+    try:
+        state_and_local = _fetch_billions(US_STATE_LOCAL_INTEREST_SERIES_ID)
+    except Exception as exc:
+        print(f"  Warning: state and local interest ({US_STATE_LOCAL_INTEREST_SERIES_ID}) unavailable ({exc}).")
+        return frames
+    quarterly = {"n": state_and_local}
+    if set(letters) & set("pm"):
         try:
-            frames.append(_fetch_ttm_interest(US_STATE_LOCAL_INTEREST_SERIES_ID, component_column("interest", "n")))
+            quarterly["p"], quarterly["m"], last_year = _split_state_and_local(state_and_local)
+            if config.end.year > last_year:
+                print(
+                    f"  Warning: U.S. state and local interest are published apart only annually, to {last_year}; "
+                    f"later quarters split the combined figure by {last_year}'s shares."
+                )
         except Exception as exc:
-            print(f"  Warning: state and local interest ({US_STATE_LOCAL_INTEREST_SERIES_ID}) unavailable ({exc}).")
+            print(
+                f"  Warning: state and local interest apart ({US_STATE_INTEREST_SERIES_ID}, "
+                f"{US_LOCAL_INTEREST_SERIES_ID}) unavailable ({exc})."
+            )
+    for letter in letters:
+        if letter in quarterly:
+            frames.append(_ttm_interest(quarterly[letter], component_column("interest", letter)))
     return frames
 
 
@@ -158,9 +207,9 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
 
     if config.include_interest:
         if split:
-            frames += _fetch_us_interest_levels(US.levels_drawn(config))
+            frames += _fetch_us_interest_levels(US.levels_drawn(config, "interest"), config)
         else:
-            frames.append(_fetch_ttm_interest(US_INTEREST_SERIES_ID, US_INTEREST_COLUMN))
+            frames.append(_ttm_interest(_fetch_billions(US_INTEREST_SERIES_ID), US_INTEREST_COLUMN))
 
     if config.needs_gdp:
         gdp = _fetch_fred_dollars(US_GDP_SERIES_ID, "GDP_SAAR", BILLION)
