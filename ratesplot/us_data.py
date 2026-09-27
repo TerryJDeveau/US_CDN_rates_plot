@@ -14,6 +14,8 @@ from .config import (
     DATE_COLUMN,
     GDP_COLUMN,
     MILLION,
+    POPULATION_COLUMN,
+    THOUSAND,
     US_DEBT_COLUMN,
     US_INTEREST_COLUMN,
     PlotConfig,
@@ -44,6 +46,7 @@ US_DEBT_SERIES_ID = "GFDEBTN"               # federal debt, total public, $ mill
 US_STATE_LOCAL_DEBT_SERIES_ID = "SLGSDODNS"  # state & local debt securities, $ millions
 US_INTEREST_SERIES_ID = "A091RC1Q027SBEA"   # federal interest payments, SAAR $ billions
 US_GDP_SERIES_ID = "GDP"                    # nominal GDP, SAAR $ billions
+US_POPULATION_SERIES_ID = "B230RC0Q173SBEA"  # population (mid-period), thousands, quarterly from 1947
 
 
 def fetch_us_yields(config: PlotConfig) -> pd.DataFrame:
@@ -62,6 +65,23 @@ def fetch_us_yields(config: PlotConfig) -> pd.DataFrame:
     ]
     data = pd.concat(frames, axis=1).sort_index().ffill().reset_index()
     return data.loc[data[DATE_COLUMN] >= config.start]
+
+
+def fetch_us_population() -> pd.Series | None:
+    """Return the U.S. population (persons, quarterly, from 1947) for -p, or None if FRED fails.
+
+    BEA's mid-period population, the one it divides by for per-capita GDP.
+    It starts with the GDP and interest series (1947), so nothing earlier is
+    needed; debt starts later (1966).
+    """
+    try:
+        frame = fetch_fred_csv(US_POPULATION_SERIES_ID)
+    except Exception as exc:
+        print(f"  Warning: U.S. population ({US_POPULATION_SERIES_ID}) unavailable ({exc}).")
+        return None
+    dates = pd.DatetimeIndex(frame[DATE_COLUMN], name=DATE_COLUMN)
+    people = pd.Series(frame[US_POPULATION_SERIES_ID].to_numpy(dtype=float) * THOUSAND, index=dates, name=POPULATION_COLUMN)
+    return people.dropna()
 
 
 def _fetch_fred_dollars(series_id: str, column: str, multiplier: int) -> pd.DataFrame:

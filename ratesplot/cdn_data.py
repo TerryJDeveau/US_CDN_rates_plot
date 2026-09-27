@@ -38,6 +38,7 @@ from .cdn_archive_data import (
     EMBEDDED_CDN_FEDERAL_DEBT_HISTORY,
     EMBEDDED_CDN_GDP_HISTORY,
     EMBEDDED_CDN_INTEREST_HISTORY,
+    EMBEDDED_CDN_POPULATION_HISTORY,
 )
 from .cdn_hist_yields import build_cdn_hist_yields
 from .config import (
@@ -54,10 +55,12 @@ from .config import (
     GDP_COLUMN,
     HTTP_POST_TIMEOUT_SECONDS,
     MILLION,
+    POPULATION_COLUMN,
     STATCAN_CDN_DEBT_FALLBACK_VECTOR,
     STATCAN_CDN_DEBT_TABLE,
     STATCAN_CDN_GDP_TABLE,
     STATCAN_CDN_INTEREST_TABLE,
+    STATCAN_CDN_POPULATION_TABLE,
     STATCAN_TABLE_URL,
     STATCAN_TIMEOUT_SECONDS,
     STATCAN_WDS_URL,
@@ -438,6 +441,35 @@ def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
         CDN_INTEREST_COLUMN,
         annual_historical=False,
     )
+
+
+def fetch_cdn_population() -> pd.Series | None:
+    """Return the population of Canada for -p: baked annual estimates until the live quarterly table begins.
+
+    The estimates (as at 1 June, 1867-1977) and the live table (quarterly
+    from 1946, first of the quarter) differ by about 0.2 % where both exist,
+    mostly the month between their reference dates, too little to need a
+    join: the baked years simply precede the live ones. Persons.
+    """
+    history = embedded_frame(EMBEDDED_CDN_POPULATION_HISTORY, POPULATION_COLUMN)
+    try:
+        table = statcan_zip_table(STATCAN_CDN_POPULATION_TABLE)
+        selected = table.loc[table["GEO"].eq("Canada"), ["REF_DATE", "VALUE", "SCALAR_FACTOR"]]
+        if set(selected["SCALAR_FACTOR"].astype(str).str.strip()) != {"units"} or selected["REF_DATE"].duplicated().any():
+            raise ValueError("expected one row per quarter, in persons")
+        dates = pd.DatetimeIndex(pd.to_datetime(selected["REF_DATE"]), name=DATE_COLUMN)
+        live = pd.Series(pd.to_numeric(selected["VALUE"], errors="coerce").to_numpy(), index=dates).sort_index().dropna()
+    except Exception as exc:
+        print(f"  Warning: StatCan population table failed ({exc}); using the baked estimates only (to 1977).")
+        live = None
+
+    parts: list[pd.Series] = []
+    if history is not None:
+        early = history[POPULATION_COLUMN]
+        parts.append(early if live is None or live.empty else early.loc[early.index < live.index.min()])
+    if live is not None:
+        parts.append(live)
+    return pd.concat(parts).sort_index().rename(POPULATION_COLUMN) if parts else None
 
 
 def align_cdn_macro(

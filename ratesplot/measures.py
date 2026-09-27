@@ -1,4 +1,4 @@
-"""How the right-axis (macro) curves are measured: in dollars, or as a percentage of GDP (-r).
+"""How the right-axis (macro) curves are measured: in dollars, as a percentage of GDP (-r), or per person (-p).
 
 The data layers always produce dollar amounts, with each series forward-filled
 onto the chart's dates. ``express`` converts that prepared frame (a ``DATE``
@@ -13,13 +13,20 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import CountryMetadata, PlotConfig
+from .config import DATE_COLUMN, CountryMetadata, PlotConfig
 
 
-def express(macro: pd.DataFrame, config: PlotConfig, metadata: CountryMetadata) -> pd.DataFrame:
-    """Return ``macro`` in the measure ``config`` asks for (unchanged for plain dollars)."""
+def express(
+    macro: pd.DataFrame, config: PlotConfig, metadata: CountryMetadata, population: pd.Series | None = None
+) -> pd.DataFrame:
+    """Return ``macro`` in the measure ``config`` asks for (unchanged for plain dollars).
+
+    ``population`` (date-indexed, persons) is needed only for -p.
+    """
     if config.relative:
         return as_percent_of_gdp(macro, metadata)
+    if config.per_capita:
+        return per_person(macro, metadata, population)
     return macro
 
 
@@ -67,3 +74,45 @@ def ratio_at_observations(numerator: pd.Series, denominator: pd.Series) -> pd.Se
     """
     observed = numerator.notna() & numerator.ne(numerator.shift())
     return (numerator / denominator).where(observed).ffill().where(numerator.notna())
+
+
+def per_person(macro: pd.DataFrame, metadata: CountryMetadata, population: pd.Series | None) -> pd.DataFrame:
+    """Divide GDP, debt and interest by the population, in dollars per person.
+
+    Each ratio is taken when its series is observed (``ratio_at_observations``),
+    with the population interpolated to that date (``population_on``), so the
+    curves keep their steps rather than drifting between observations as the
+    population grows.
+    """
+    candidates = (metadata.debt_column, metadata.federal_debt_column, metadata.gdp_column, metadata.interest_column)
+    columns = [column for column in candidates if column is not None and column in macro.columns]
+    if macro.empty or not columns:
+        return macro
+    result = macro.copy()
+    if population is None or not population.notna().any():
+        print("  Warning: population is unavailable, so the curves cannot be shown per person.")
+        for column in columns:
+            result[column] = np.nan
+        return result
+
+    people = population_on(result[DATE_COLUMN], population)
+    for column in columns:
+        result[column] = ratio_at_observations(result[column], people.where(people > 0))
+    return result
+
+
+def population_on(dates: pd.Series, population: pd.Series) -> pd.Series:
+    """Return the population on each of ``dates`` (indexed like ``dates``).
+
+    Log-linear between estimates (population grows roughly geometrically,
+    and before 1946 the Canadian estimates are a year apart); the last
+    estimate is held after it; missing before the first.
+    """
+    known = population.dropna().sort_index()
+    when = pd.DatetimeIndex(pd.to_datetime(dates)).asi8
+    known_when = pd.DatetimeIndex(known.index).asi8
+    # np.interp holds the end values beyond the known range; before the first
+    # estimate there is no population, so those dates are blanked.
+    values = np.exp(np.interp(when, known_when, np.log(known.to_numpy(dtype=float))))
+    values[when < known_when[0]] = np.nan
+    return pd.Series(values, index=dates.index)

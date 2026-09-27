@@ -13,7 +13,7 @@ cdn_archive_data  baked historical CDN rows: debt, GDP, interest, population, yi
 cdn_hist_yields   transcribed Bank of Canada historical yield tables (1919-2000)
 bake              --bake-archives implementation
 us_data           FRED fetch for U.S. yields and macro series
-measures          the right-axis measure: dollars, or % of GDP (-r)
+measures          the right-axis measure: dollars, % of GDP (-r) or per person (-p)
 plotting          line drawing, draw_country, build_figure (no pyplot), COUNTRIES, run_cdn / run_us
 options           the option table, value parsers/formatters, choices <-> PlotConfig, --help text
 gui               the interactive window (default; --no-gui for plain matplotlib windows)

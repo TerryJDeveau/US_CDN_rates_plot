@@ -1,8 +1,8 @@
 """Chart construction: line drawing, per-country plot assembly, and run drivers.
 
 Both country charts share one layout: yield curves on the left (linear %)
-axis, the three macro curves on a right log twin axis (dollars, or with -r
-debt and interest as % of GDP; see ``measures``), an auto-placed
+axis, the three macro curves on a right log twin axis (dollars; with -r debt
+and interest as % of GDP; with -p dollars per person; see ``measures``), an auto-placed
 legend, a title and a subtitle naming the dates the drawn data cover (which
 can be narrower than the axis). Only the yield-line style differs:
 the Canadian pre-2001 history is monthly and drawn as steps.
@@ -30,6 +30,7 @@ from .cdn_data import (
     fetch_cdn_debt,
     fetch_cdn_gdp,
     fetch_cdn_interest,
+    fetch_cdn_population,
     fetch_cdn_yields,
 )
 from .config import (
@@ -47,7 +48,7 @@ from .config import (
 from .frames import filter_to_date_range
 from .legend import finish_legend_and_title
 from .measures import express
-from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_yields
+from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_population, fetch_us_yields
 
 YieldLineDrawer = Callable[[Axes, pd.DataFrame, PlotConfig], list[Line2D]]
 
@@ -259,7 +260,8 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     macro = align_cdn_macro(
         yields, fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config), config
     )
-    return yields, express(macro, config, CDN)
+    population = fetch_cdn_population() if config.per_capita else None
+    return yields, express(macro, config, CDN, population)
 
 
 def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -273,7 +275,8 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     macro = fetch_us_macro(config, last_yield_date)
     if not macro.empty:
         macro = macro.loc[macro[DATE_COLUMN] <= config.end]
-    return yields, express(macro, config, US)
+    population = fetch_us_population() if config.per_capita else None
+    return yields, express(macro, config, US, population)
 
 
 @dataclass(frozen=True)

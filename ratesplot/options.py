@@ -232,6 +232,12 @@ def check_macro_bounds(values: Mapping[str, object]) -> None:
         raise ValueError(f"bottom limit ({bottom}) must be less than top limit ({top})")
 
 
+def check_single_measure(values: Mapping[str, object]) -> None:
+    """Reject -r with -p: a curve is either a share of GDP or an amount per person."""
+    if values["relative"] and values["per_capita"]:
+        raise ValueError("-r (% of GDP) and -p (per capita) cannot be combined; choose one")
+
+
 def check_macro_bound_units(payloads: Mapping[str, str], values: Mapping[str, object]) -> None:
     """Require right-axis bounds as percentages under -r, and in dollars otherwise.
 
@@ -345,6 +351,11 @@ OPTIONS: tuple[Option, ...] = (
         "debt and interest as % of TTM GDP (log\npercent axis); GDP itself is not drawn",
         flag="--R", flag_help="debt and interest as a percentage of GDP", initial="R", label="As % of GDP",
     ),
+    Option(
+        "per-capita", Kind.SWITCH, ("per_capita",), "units", "--P / -p / --per-capita",
+        "GDP, debt and interest per person (log\ndollar axis); not with -r",
+        flag="--P", flag_help="GDP, debt and interest per person", initial="P", label="Per capita",
+    ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its
     # fields are known.
@@ -449,6 +460,7 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
       every curve given explicitly, as the GUI does, this is simply "draw the
       ones switched on".)
     * Countries: no country chosen means both charts.
+    * Measure: -r and -p exclude each other (``check_single_measure``).
     * Right-axis limits are percentages under -r and dollars otherwise
       (``check_macro_bound_units``, once the flags are known).
     """
@@ -475,6 +487,7 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     if not (values["show_cdn"] or values["show_us"]):
         values["show_cdn"] = values["show_us"] = True
 
+    check_single_measure(values)
     check_macro_bound_units(payloads, values)
     return PlotConfig(**values)
 

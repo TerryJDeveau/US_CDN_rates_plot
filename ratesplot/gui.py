@@ -10,10 +10,11 @@ Controls
     help text and command-line spelling as a tooltip. A new option in the table
     appears here with no change to this module (``in_gui=False`` opts out). The
     choices become a ``PlotConfig`` through ``options.config_from_choices``, the
-    same code the command line uses, so the two cannot disagree. Two controls
-    depend on the measure (-r): the GDP box is greyed out while GDP is only
-    the denominator, and changing the measure clears Top and Bottom, whose
-    units it changes (dollars or percent).
+    same code the command line uses, so the two cannot disagree. The measure
+    switches (-r, -p) exclude each other: ticking one unticks the other.
+    Changing the measure clears Top and Bottom, whose units it changes
+    (dollars, percent, dollars per person), and under -r the GDP box is
+    greyed out, GDP being only the denominator.
 
 Remembered settings
     The choices of the last successful drawing, the preview mode, the selected
@@ -201,6 +202,17 @@ def starting_choices(
                 continue
             if option.name in flags and option.name in cli_flags:
                 flags[option.name] = cli_flags[option.name]
+        # Remembered Top/Bottom are in the remembered measure's units (dollars,
+        # percent, dollars per person). If the command line chose a different
+        # measure they no longer apply, unless it gave them too; the other
+        # remembered settings are kept.
+        if use_state:
+            remembered = state.get("flags", {})
+            measure = [option.name for option in options_in("units") if option.name in flags]
+            if any(flags[name] != bool(remembered.get(name, False)) for name in measure):
+                for bound in ("top", "bottom"):
+                    if bound in payloads and bound not in cli_payloads:
+                        payloads[bound] = ""
         return payloads, flags
 
     choices = combine(use_state=bool(state))
@@ -863,7 +875,13 @@ class RatesPlotApp:
             self.flag_vars[name].set(True)
             self.status.set("At least one country must stay selected.")
             return
-        if name in (option.name for option in options_in("units")):
+        units = [option.name for option in options_in("units") if option.name in self.flag_vars]
+        if name in units:
+            # One measure at a time: ticking one unticks the others.
+            if self.flag_vars[name].get():
+                for other in units:
+                    if other != name:
+                        self.flag_vars[other].set(False)
             # Top and Bottom are in the measure's units (dollars, or percent
             # under -r), so values typed or zoomed for one measure are wrong
             # for another: clear them without a redraw per field.

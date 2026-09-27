@@ -82,6 +82,9 @@ CASES: list[list[str]] = [
     # Right-axis limits: percentages with -r, dollars without.
     ["-r", "--top:150%"], ["-r", "--top:150"], ["-r", "--b:5%", "--t:200%"], ["-r", "--b:200%", "--t:5%"],
     ["--top:150%"], ["-r", "--t:x%"], ["-r", "--t:0%"], ["-r", "--t: 80 %"],
+    # -p: per capita; first letter; not with -r.
+    ["-p"], ["--p"], ["--P"], ["--per-capita"], ["--percapita"], ["Per"], ["--no-per-capita"],
+    ["-p", "-r"], ["-r", "-p"], ["-p", "--top:100k", "--b:100"], ["-p", "--top:50%"], ["-p", "-c", "-s:1867"],
 ]
 
 

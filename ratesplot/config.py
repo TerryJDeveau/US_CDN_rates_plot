@@ -40,6 +40,7 @@ def _today() -> pd.Timestamp:
 DEFAULT_YIELD_YLIM = (-0.3, 7.5)
 DEFAULT_MACRO_YLIM = (10_000_000_000, 100_000_000_000_000)
 DEFAULT_RELATIVE_YLIM = (0.1, 1_000.0)
+DEFAULT_PER_CAPITA_YLIM = (1.0, 1_000_000.0)
 
 # Yield axis (linear): padding is a fraction of the *displayed* span, clamped
 # to an absolute minimum so a flat series still gets visible breathing room.
@@ -163,7 +164,8 @@ ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED CANADIAN ARCHIVE DATA"
 ARCHIVE_END_MARKER = "# END AUTO-GENERATED CANADIAN ARCHIVE DATA"
 
 # Unit multipliers. StatCan tables and FRED's GFDEBTN/SLGSDODNS report millions;
-# FRED's GDP and interest series report billions.
+# FRED's GDP and interest series report billions; its population, thousands.
+THOUSAND = 1_000
 MILLION = 1_000_000
 BILLION = 1_000_000_000
 
@@ -200,11 +202,22 @@ MACRO_PLOT_STYLES = {
     "interest": {"color": "darkred", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "--"},
 }
 
-# Wording for -r (debt and interest as a percentage of GDP): the right axis
-# label, and what is added to the legend labels and to the title's macro phrase.
+# Wording for -r (debt and interest as a percentage of GDP) and -p (per
+# person): the right axis label, and what is added to the legend labels and
+# to the title's macro phrase. The -p axis label is per country (its currency).
 RELATIVE_AXIS_LABEL = "Percent of TTM GDP (Log Scale)"
 RELATIVE_LABEL_SUFFIX = " / TTM GDP"
 RELATIVE_TITLE_SUFFIX = " as % of TTM GDP"
+PER_CAPITA_SUFFIX = " per Capita"
+
+
+def _measure_suffixes(config: PlotConfig) -> tuple[str, str]:
+    """Return ``(legend_suffix, title_suffix)`` for the measure ``config`` asks for ("" for dollars)."""
+    if config.relative:
+        return RELATIVE_LABEL_SUFFIX, RELATIVE_TITLE_SUFFIX
+    if config.per_capita:
+        return PER_CAPITA_SUFFIX, PER_CAPITA_SUFFIX
+    return "", ""
 
 
 def _with_suffix(label: str, suffix: str) -> str:
@@ -221,13 +234,14 @@ class CountryMetadata:
 
     ``*_label`` strings appear in the legend; ``*_title`` strings are the
     phrases assembled into the chart title for whichever series were drawn.
-    Under -r both are qualified (see ``RELATIVE_*``).
+    Under -r and -p both are qualified (see ``_measure_suffixes``).
     """
 
     key: str
     country_name: str
     currency_prefix: str
     currency_label: str
+    per_capita_label: str
     yield_title: str
     debt_column: str
     debt_label: str
@@ -245,14 +259,16 @@ class CountryMetadata:
 
     def macro_axis_label(self, config: PlotConfig) -> str:
         """Return the right (macro) axis label for the measure ``config`` asks for."""
-        return RELATIVE_AXIS_LABEL if config.relative else self.currency_label
+        if config.relative:
+            return RELATIVE_AXIS_LABEL
+        return self.per_capita_label if config.per_capita else self.currency_label
 
     def macro_specs(self, config: PlotConfig) -> tuple[tuple[str, bool, str, str], ...]:
         """Return ``(style_key, enabled, column, label)`` for each macro curve, in legend order.
 
         Under -r GDP is the denominator and is not drawn itself.
         """
-        suffix = RELATIVE_LABEL_SUFFIX if config.relative else ""
+        suffix = _measure_suffixes(config)[0]
         specs = [
             ("debt", config.include_debt, self.debt_column, self.debt_label),
             ("gdp", config.draws_gdp, self.gdp_column, self.gdp_label),
@@ -269,8 +285,8 @@ class CountryMetadata:
         Parts are joined with commas and a final ampersand, e.g.
         ``"U.S. Treasury Yields, Aggregate US Public Debt & TTM GDP"``.
         Federal debt alone is named only when the aggregate is not drawn.
-        Under -r the macro phrase is qualified and set off from the yields by
-        a semicolon, since the qualifier does not apply to them:
+        Under -r and -p the macro phrase is qualified and set off from the
+        yields by a semicolon, since the qualifier does not apply to them:
         ``"CDN Benchmark Yields; Aggregate CDN Public Debt & Interest Outlays
         as % of TTM GDP"``.
         """
@@ -285,8 +301,9 @@ class CountryMetadata:
         }
         macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
         yield_parts = [self.yield_title] if yields_drawn else []
-        if config.relative and macro_parts:
-            macro_phrase = _join_title_parts(macro_parts) + RELATIVE_TITLE_SUFFIX
+        title_suffix = _measure_suffixes(config)[1]
+        if title_suffix and macro_parts:
+            macro_phrase = _join_title_parts(macro_parts) + title_suffix
             return "; ".join(yield_parts + [macro_phrase])
         parts = yield_parts + macro_parts
         if not parts:
@@ -306,6 +323,7 @@ CDN = CountryMetadata(
     country_name="Canada",
     currency_prefix="C$",
     currency_label="Nominal Units (CAD – Log Scale)",
+    per_capita_label="Nominal Units per Capita (CAD – Log Scale)",
     yield_title="CDN Benchmark Yields",
     debt_column=CDN_DEBT_COLUMN,
     debt_label="Aggregate CDN Public Debt",
@@ -322,6 +340,7 @@ US = CountryMetadata(
     country_name="United States",
     currency_prefix="$",
     currency_label="Nominal Units (USD – Log Scale)",
+    per_capita_label="Nominal Units per Capita (USD – Log Scale)",
     yield_title="U.S. Treasury Yields",
     debt_column=US_DEBT_COLUMN,
     debt_label="Aggregate US Public Debt",
@@ -361,6 +380,9 @@ class PlotConfig:
     # -r: debt and interest as a percentage of TTM GDP, on a log percent axis;
     # GDP itself is not drawn.
     relative: bool = False
+    # -p: GDP, debt and interest per person, still on a log dollar axis. At
+    # most one of relative / per_capita is set (options.config_from_choices).
+    per_capita: bool = False
     bake_archives: bool = False
     # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
     gui: bool = True
@@ -419,4 +441,6 @@ class PlotConfig:
     @property
     def default_macro_ylim(self) -> tuple[float, float]:
         """Return the right axis's fallback limits, in the units of its measure."""
-        return DEFAULT_RELATIVE_YLIM if self.relative else DEFAULT_MACRO_YLIM
+        if self.relative:
+            return DEFAULT_RELATIVE_YLIM
+        return DEFAULT_PER_CAPITA_YLIM if self.per_capita else DEFAULT_MACRO_YLIM
