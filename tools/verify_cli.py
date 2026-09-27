@@ -20,8 +20,9 @@ different days still compare.
 
 The case list is deliberately heavy on odd spellings. The legacy parser
 matches on leading letters, so ``--dimensions`` without a colon is the *debt*
-curve and ``Canada`` needs no dashes, while ``--bake-archives`` must be spelled
-in full. Those behaviours are part of what must not change by accident.
+curve and ``Canada`` needs no dashes. Those behaviours are part of what must
+not change by accident. (The ``--bake-archives`` cases stay: since the bake
+moved to ``tools/bake_archives.py`` they record that the option is gone.)
 """
 
 from __future__ import annotations

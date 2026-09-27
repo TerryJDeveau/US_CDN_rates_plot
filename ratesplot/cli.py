@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .bake import bake_canadian_archives
 from .config import PlotConfig
 from .options import Kind, Option, config_from_choices, help_epilog, options_of
 from .plotting import run_cdn, run_us
@@ -132,16 +131,12 @@ def parse_args(argv: list[str] | None = None) -> PlotConfig:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Parse the command line, then open the GUI, bake, or draw the charts in matplotlib windows."""
+    """Parse the command line, then open the GUI or draw the charts in matplotlib windows."""
     payloads, flags, parser = parse_choices(argv)
     try:
         config = config_from_choices(payloads, flags)
     except ValueError as exc:
         parser.error(str(exc))
-
-    if config.bake_archives:
-        bake_canadian_archives()
-        return
 
     if config.gui:
         # Imported here so --no-gui runs (and the harnesses) never load tkinter.

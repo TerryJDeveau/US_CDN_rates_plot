@@ -1,8 +1,11 @@
-"""``--bake-archives``: download terminated StatCan tables and embed the rows.
+"""The bake: download terminated StatCan tables and embed the rows.
 
-The archived tables never change, so their relevant rows are written once into
+Run by ``tools/bake_archives.py``, a maintenance step rather than an option of
+the program (it was ``--bake-archives`` until 2026-09-27). The archived tables
+never change, so their relevant rows are written once into
 ``ratesplot/cdn_archive_data.py`` as Python literals. Normal runs then read
-that module instead of downloading a dozen multi-megabyte files.
+that module instead of downloading a dozen multi-megabyte files. Bake again
+only when an extraction changes or a source is added.
 
 Two layers of history are baked, each joined to the next at run time (see
 ``cdn_data``), never here, so the module holds the sources' own values:

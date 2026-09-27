@@ -121,9 +121,9 @@ STATCAN_CDN_GDP_TABLE = "36100104"        # GDP at market prices, SAAR, quarterl
 STATCAN_CDN_INTEREST_TABLE = "10100015"   # consolidated government interest, quarterly
 STATCAN_CDN_DEBT_FALLBACK_VECTOR = "v111463452"  # WDS vector behind the debt table
 
-# Archived (terminated) StatCan tables. They no longer change, so
-# ``--bake-archives`` downloads them once and writes the required rows into
-# ``ratesplot/cdn_archive_data.py``. URLs are kept for auditability.
+# Archived (terminated) StatCan tables. They no longer change, so the bake
+# (``tools/bake_archives.py``) downloads them once and writes the required rows
+# into ``ratesplot/cdn_archive_data.py``. URLs are kept for auditability.
 ARCHIVED_CDN_INTEREST_TABLE = "36100245"
 ARCHIVED_CDN_FEDERAL_DEBT_TABLE = "36100533"
 ARCHIVED_CDN_PROV_LOCAL_DEBT_TABLE = "36100534"
@@ -135,7 +135,7 @@ ARCHIVED_CDN_PROV_LOCAL_DEBT_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CD
 ARCHIVED_CDN_PROVINCIAL_DEBT_TABLE = "36100535"
 ARCHIVED_CDN_LOCAL_DEBT_TABLE = "36100536"
 
-# Older history, also baked by ``--bake-archives`` (see ``ratesplot.bake``).
+# Older history, also baked (see ``ratesplot.bake``).
 # National accounts on the 1968 SNA basis, the source of GDP and government
 # interest before 1961: annual from 1926, quarterly (SAAR) from 1947 for GDP
 # and from 1950 for interest (the quarterly table is blank before that).
@@ -491,7 +491,6 @@ class PlotConfig:
     # -p: GDP, debt and interest per person, still on a log dollar axis. At
     # most one of relative / per_capita is set (options.config_from_choices).
     per_capita: bool = False
-    bake_archives: bool = False
     # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
     gui: bool = True
 

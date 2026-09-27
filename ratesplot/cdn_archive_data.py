@@ -6,7 +6,7 @@ interest from 1926, debt from 1933 (federal alone from 1867), population from
 begin. Each list's comment names its source. ``cdn_data`` joins them.
 
 The block between the BEGIN/END markers is regenerated in place by
-``--bake-archives`` (see :mod:`ratesplot.bake`). Do not hand-edit it.
+``tools/bake_archives.py`` (see :mod:`ratesplot.bake`). Do not hand-edit it.
 """
 
 # BEGIN AUTO-GENERATED CANADIAN ARCHIVE DATA

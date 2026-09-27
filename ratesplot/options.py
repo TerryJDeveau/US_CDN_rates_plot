@@ -311,7 +311,7 @@ class Option:
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
     # field value(s) back into text a parser accepts, given the rest of the
     # config (VALUE only). Options with ``in_gui=False`` get no control: they
-    # choose the interface or run maintenance rather than shape the chart.
+    # choose the interface rather than shape the chart.
     label: str = ""
     format: Callable[[tuple, PlotConfig], str] | None = None
     in_gui: bool = True
@@ -339,7 +339,6 @@ GROUPS: dict[str, str] = {
         "with -r, percentages such as 150%):"
     ),
     "interface": "Interface (spelled in full; no abbreviation):",
-    "maintenance": "Maintenance:",
 }
 
 OPTIONS: tuple[Option, ...] = (
@@ -441,14 +440,9 @@ OPTIONS: tuple[Option, ...] = (
         "interactive window (default); --no-gui\ndraws plain matplotlib windows instead",
         in_gui=False,
     ),
-    # Maintenance. EXACT, so it must be spelled in full: as an argparse switch,
-    # "--b" (a bottom bound missing its ":VAL") silently rewrote the archive
-    # data module. Kept for a possible repurposed use.
-    Option(
-        "bake-archives", Kind.EXACT, ("bake_archives",), "maintenance", "--bake-archives",
-        "refresh ratesplot/cdn_archive_data.py from\nthe archived StatCan tables and Historical\nStatistics of Canada, then exit",
-        in_gui=False,
-    ),
+    # Baking the historical data into the code is not an option of the program:
+    # it is a maintenance step run from tools/bake_archives.py when an
+    # extraction changes (Terry, 2026-09-27).
 )
 
 

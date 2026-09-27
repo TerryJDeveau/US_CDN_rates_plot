@@ -9,9 +9,9 @@ axes              y-axis configuration, limit padding, currency and percent form
 legend            legend auto-placement, title/subtitle/layout finishing
 cdn_data          Bank of Canada / Statistics Canada fetch, splice and align
 cdn_archive_data  baked historical CDN rows: debt, GDP, interest, population, yield
-                  stand-ins (rewritten by --bake-archives)
+                  stand-ins (rewritten by tools/bake_archives.py)
 cdn_hist_yields   transcribed Bank of Canada historical yield tables (1919-2000)
-bake              --bake-archives implementation
+bake              the bake of the historical data (run by tools/bake_archives.py)
 us_data           FRED fetch for U.S. yields and macro series
 measures          the right-axis measure: dollars, % of GDP (-r) or per person (-p)
 plotting          line drawing, draw_country, build_figure (no pyplot), COUNTRIES, run_cdn / run_us

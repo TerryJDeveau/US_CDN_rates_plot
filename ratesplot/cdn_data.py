@@ -202,7 +202,7 @@ def _statcan_quarterly(table: pd.DataFrame, mask: pd.Series, column: str) -> pd.
 def embedded_frame(rows: list[tuple[str, float]], column: str) -> pd.DataFrame | None:
     """Return a baked list as a date-indexed frame, or ``None`` when it is empty.
 
-    A list is empty only if ``--bake-archives`` has never filled it; callers
+    A list is empty only if the bake has never filled it; callers
     then fall back to the remaining sources.
     """
     return rows_to_frame(rows, column) if rows else None
