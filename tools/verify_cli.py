@@ -118,8 +118,10 @@ def main(argv: list[str]) -> int:
     if args.compare is None:
         return 0
 
-    previous = args.compare.read_text(encoding="utf-8").split("\n\n### ")
-    current = args.outfile.read_text(encoding="utf-8").split("\n\n### ")
+    # Split into cases; the file's final newline belongs to no case, so a case
+    # that was last in the earlier record still matches when more follow it.
+    previous = args.compare.read_text(encoding="utf-8").rstrip("\n").split("\n\n### ")
+    current = args.outfile.read_text(encoding="utf-8").rstrip("\n").split("\n\n### ")
     if len(current) < len(previous):
         print(f"case count shrank: {len(previous)} before, {len(current)} now")
         return 1
