@@ -30,6 +30,8 @@ import numpy as np
 import pandas as pd
 
 from .cdn_archive_data import (
+    EMBEDDED_CDN_2Y_STAND_IN,
+    EMBEDDED_CDN_5Y_STAND_IN,
     EMBEDDED_CDN_DEBT_HISTORY,
     EMBEDDED_CDN_EARLY_DEBT_HISTORY,
     EMBEDDED_CDN_EARLY_INTEREST_HISTORY,
@@ -75,13 +77,15 @@ BOC_BENCHMARK_COLUMNS = {
     "BD.CDN.LONG.DQ.YLD": "30-Year",
 }
 BOC_3M_TBILL_SERIES = "V80691303"
+# Baked term-band yields standing in for a benchmark before it begins.
+_YIELD_STAND_INS = {"2-Year": EMBEDDED_CDN_2Y_STAND_IN, "5-Year": EMBEDDED_CDN_5Y_STAND_IN}
 FRED_CDN_GDP_SERIES = "NGDPSAXDCCAQ"  # fallback if the StatCan GDP table fails
 
 # First observation of each Canadian input, used to warn when ``--start`` is earlier.
 CANADIAN_SERIES_EARLIEST = {
     "3-Month Yield (Bank of Canada historical table)": pd.Timestamp("1934-03-01"),
-    "2-Year Yield (Bank of Canada historical table)": pd.Timestamp("1982-06-01"),
-    "5-Year Yield (Bank of Canada historical table)": pd.Timestamp("1980-11-01"),
+    "2-Year Yield (1-3 year average before 1982-06)": pd.Timestamp(EMBEDDED_CDN_2Y_STAND_IN[0][0]),
+    "5-Year Yield (3-5 year average before 1980-11)": pd.Timestamp(EMBEDDED_CDN_5Y_STAND_IN[0][0]),
     "10-Year Yield (Bank of Canada historical table)": pd.Timestamp("1951-01-01"),
     "30-Year Yield / Over 10 Years (Bank of Canada historical table)": pd.Timestamp("1919-01-01"),
     # The macro series begin where their oldest baked source does.
@@ -284,11 +288,36 @@ def _splice_or_fallback(
 # ---------------------------------------------------------------------------
 
 
+def with_yield_stand_ins(historical: pd.DataFrame) -> pd.DataFrame:
+    """Return ``historical`` with the 2- and 5-year columns extended back by their stand-ins.
+
+    The Bank of Canada's 2- and 5-year benchmarks begin in 1982-06 and
+    1980-11. Before that its average yields for the 1-3 and 3-5 year bands
+    are used, the same kind of stand-in as the 5-10 and over-10 year bands
+    that already supply the 10- and 30-year history. Over 1982-2000 the 1-3
+    year band averages 0.08 points above the 2-year benchmark and the 3-5
+    year band 0.00 points above the 5-year. Only months before a benchmark's
+    first value are filled.
+    """
+    result = historical.copy()
+    for column, rows in _YIELD_STAND_INS.items():
+        stand_in = embedded_frame(rows, column)
+        if stand_in is None or column not in result.columns:
+            continue
+        first_benchmark = result[column].first_valid_index()
+        early = stand_in[column]
+        if first_benchmark is not None:
+            early = early.loc[early.index < first_benchmark]
+        result[column] = result[column].combine_first(early)
+    return result
+
+
 def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
     """Return Canadian benchmark yields: transcribed history through 2000, live after.
 
-    The result is date-indexed with the ``YIELD_COLUMNS`` that are available,
-    trimmed to the configured window.
+    The 2- and 5-year history is extended back by stand-ins (see
+    ``with_yield_stand_ins``). The result is date-indexed with the
+    ``YIELD_COLUMNS`` that are available, trimmed to the configured window.
     """
     if not config.include_yield:
         return pd.DataFrame()
@@ -305,7 +334,7 @@ def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
     # Short forward-fill bridges holidays and single missing prints only.
     yields = yields[available].dropna(how="all").ffill(limit=3)
 
-    historical = build_cdn_hist_yields()
+    historical = with_yield_stand_ins(build_cdn_hist_yields())
     live_part = yields[yields.index > historical.index.max()]
     all_yields = pd.concat([historical, live_part]).sort_index().ffill(limit=3)
     return all_yields.loc[config.start : config.end]
