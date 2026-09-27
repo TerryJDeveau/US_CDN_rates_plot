@@ -68,12 +68,18 @@ class LogNiceLocator(ticker.Locator):
        each only if it stays at least ``_MIN_SPACING`` label heights from the
        ticks already accepted;
     3. finer coefficients (steps of 0.5, then 0.2, 0.1, 0.05, 0.02, 0.01) are
-       added only where they split a gap wider than ``_MAX_GAP`` label
-       heights, again respecting the minimum spacing.
+       added only where they fill a void, again respecting the minimum
+       spacing. A void is a stretch of axis more than ``_MAX_GAP / 2`` label
+       heights from any label: between two labels that means a gap of
+       ``_MAX_GAP``, but beyond the outermost label it means an end gap of
+       only half that, since there the end of the axis is the far point.
 
     So a five-decade span gets 1/2/5 per decade; a two-decade span gains
     3, 4, 7 and 1.5; a span of half a decade gains 1.2, 1.5, 2.5 … and a
     very narrow span gets two-significant-figure values such as 1.4, 1.6.
+    The end rule is what labels a percent axis above 100 % (-r): the next
+    integer, 200 %, is usually out of view, and the 6-8 label heights left
+    above 100 % used to stay bare until 150 % was allowed there.
     """
 
     _INTEGER_ORDER = (2, 5, 3, 7, 4, 6, 8, 9)
@@ -81,6 +87,8 @@ class LogNiceLocator(ticker.Locator):
     # Spacing thresholds in multiples of the tick-label height.
     _MIN_SPACING = 2.5
     _MAX_GAP = 8.0
+    # A fractional (void-filling) tick keeps at least this far from either end of the axis.
+    _EDGE_CLEARANCE = 1.0
 
     def __init__(self, label_fontsize: float) -> None:
         super().__init__()
@@ -101,6 +109,7 @@ class LogNiceLocator(ticker.Locator):
         px_per_decade = self._axis_length_px() / math.log10(vmax / vmin)
         min_spacing = self._MIN_SPACING * label_px
         max_gap = self._MAX_GAP * label_px
+        edge_clearance = self._EDGE_CLEARANCE * label_px
         exponents = range(math.floor(math.log10(vmin)), math.ceil(math.log10(vmax)) + 1)
 
         def in_view(values: Iterable[float]) -> list[float]:
@@ -120,10 +129,16 @@ class LogNiceLocator(ticker.Locator):
             if above is not None and px_between(value, above) < min_spacing:
                 return
             if require_wide_gap:
-                # Fractional labels only fill voids; the gap they split runs to
-                # the view edge when there is no accepted tick on that side.
+                # Fractional labels only fill voids. The gap they split runs to
+                # the view edge when there is no accepted tick on that side;
+                # such an end gap is a void at half the width (see docstring).
                 gap = px_between(below if below is not None else vmin, above if above is not None else vmax)
-                if gap < max_gap:
+                is_end_gap = below is None or above is None
+                if gap < (max_gap / 2 if is_end_gap else max_gap):
+                    return
+                # Nor on the frame itself: a label there half overhangs the end
+                # of the axis and marks nothing the frame does not.
+                if min(px_between(vmin, value), px_between(value, vmax)) < edge_clearance:
                     return
             accepted.insert(index, value)
 
