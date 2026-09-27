@@ -304,7 +304,7 @@ GROUPS: dict[str, str] = {
         "curve positively shows *only* the named curves; ``--no-`` forms hide curves\n"
         "from the default set of all four:"
     ),
-    "units": "Measure for debt, GDP and interest (case-insensitive; only the first letter matters):",
+    "units": "Measure of debt, GDP and interest (case-insensitive; first letter only):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
     "yield": "Yield-axis limits (percent):",
@@ -403,7 +403,7 @@ OPTIONS: tuple[Option, ...] = (
     # data module. Kept for a possible repurposed use.
     Option(
         "bake-archives", Kind.EXACT, ("bake_archives",), "maintenance", "--bake-archives",
-        "refresh ratesplot/cdn_archive_data.py from\nthe archived StatCan tables, then exit",
+        "refresh ratesplot/cdn_archive_data.py from\nthe archived StatCan tables and Historical\nStatistics of Canada, then exit",
         in_gui=False,
     ),
 )
