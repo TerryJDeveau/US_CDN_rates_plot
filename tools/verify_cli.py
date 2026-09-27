@@ -85,6 +85,8 @@ CASES: list[list[str]] = [
     # -p: per capita; first letter; not with -r.
     ["-p"], ["--p"], ["--P"], ["--per-capita"], ["--percapita"], ["Per"], ["--no-per-capita"],
     ["-p", "-r"], ["-r", "-p"], ["-p", "--top:100k", "--b:100"], ["-p", "--top:50%"], ["-p", "-c", "-s:1867"],
+    # Canvas size needs at least "dim" since 2026-09-27: "--d:" is left for the debt sub-options.
+    ["--dim:1100"], ["--DIM:1100X1000"], ["--dims:x900"], ["-dim:800x800"], ["--dimension:1400"], ["--di:1100"],
 ]
 
 

@@ -360,8 +360,8 @@ OPTIONS: tuple[Option, ...] = (
     # first when several values are bad; each ``check`` runs once both of its
     # fields are known.
     Option(
-        "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --d:W / --d:xH",
-        f"(minimum {MIN_CANVAS_PX} px each way)", prefixes=("d",), parse=parse_dimensions_spec,
+        "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --dim:W / --dim:xH",
+        f"(minimum {MIN_CANVAS_PX} px each way)", prefixes=("dim",), parse=parse_dimensions_spec,
         label="Size", format=format_dimensions, editor="size",
     ),
     Option(
