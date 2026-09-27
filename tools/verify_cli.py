@@ -2,9 +2,9 @@
 """Record how the command line parses, so a parser change can be proved behaviour-neutral.
 
 Each case in ``CASES`` is passed to ``ratesplot.cli.parse_args``. What gets
-recorded is the resulting ``PlotConfig`` (every field), or else the exit code
-and the text written to stdout/stderr (``--help``, argparse errors). No data is
-downloaded and no chart is drawn.
+recorded is the resulting ``PlotConfig`` (the fields that differ from the
+defaults), or else the exit code and the text written to stdout/stderr
+(``--help``, argparse errors). No data is downloaded and no chart is drawn.
 
 Usage (from the project root)::
 
@@ -15,7 +15,7 @@ Usage (from the project root)::
 With ``--compare`` each case is reported only if it differs; the exit code is
 1 if any case differs. Cases added at the end of ``CASES`` since the earlier
 record (for a new option) are counted as NEW, not as differences. The
-default end date (today) is written as ``TODAY`` so records made on
+default end date (today) is a default like any other, so records made on
 different days still compare.
 
 The case list is deliberately heavy on odd spellings. The legacy parser
@@ -33,12 +33,12 @@ import io
 import sys
 from pathlib import Path
 
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from ratesplot.cli import parse_args  # noqa: E402
+from ratesplot.config import PlotConfig  # noqa: E402
 
 CASES: list[list[str]] = [
     [],
@@ -81,20 +81,22 @@ CASES: list[list[str]] = [
 def record(case: list[str]) -> str:
     """Return a one-block text description of what parsing ``case`` produced."""
     out, err = io.StringIO(), io.StringIO()
-    today = pd.Timestamp.today().normalize()
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             config = parse_args(case)
     except SystemExit as exc:
         result = f"exit {exc.code}"
     else:
+        # Only fields that differ from PlotConfig's defaults are recorded, so a
+        # new option (a new field at its default) leaves earlier records as
+        # they were. The moving default end date (today) is a default too.
+        defaults = PlotConfig()
         fields = []
         for field in dataclasses.fields(config):
             value = getattr(config, field.name)
-            if field.name == "end" and value == today:
-                value = "TODAY"
-            fields.append(f"{field.name}={value!r}")
-        result = "config " + ", ".join(fields)
+            if value != getattr(defaults, field.name):
+                fields.append(f"{field.name}={value!r}")
+        result = "config " + (", ".join(fields) or "(all defaults)")
     lines = [f"### {case!r}", result]
     if out.getvalue():
         lines.append("stdout:\n" + out.getvalue().rstrip())
