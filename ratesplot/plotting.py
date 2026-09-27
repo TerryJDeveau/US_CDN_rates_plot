@@ -2,7 +2,8 @@
 
 Both country charts share one layout: yield curves on the left (linear %)
 axis, the three macro curves on a right log twin axis (dollars; with -r debt
-and interest as % of GDP; with -p dollars per person; see ``measures``), an auto-placed
+and interest as % of GDP; with -p dollars per person; see ``measures``; with
+--debt:LETTERS one debt and one interest line per level of government), an auto-placed
 legend, a title and a subtitle naming the dates the drawn data cover (which
 can be narrower than the axis). Only the yield-line style differs:
 the Canadian pre-2001 history is monthly and drawn as steps.
@@ -27,6 +28,7 @@ from .axes import apply_axes_formatting, format_currency, format_percent
 from .cdn_data import (
     CANADIAN_SERIES_EARLIEST,
     align_cdn_macro,
+    fetch_cdn_components,
     fetch_cdn_debt,
     fetch_cdn_gdp,
     fetch_cdn_interest,
@@ -257,9 +259,12 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch and align all selected Canadian inputs, in the configured measure; return ``(yields, macro)``."""
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields = fetch_cdn_yields(config)
-    macro = align_cdn_macro(
-        yields, fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config), config
-    )
+    if config.components:
+        # Debt and interest by level of government replace the aggregate lines.
+        series = (fetch_cdn_components(config, CDN.levels_drawn(config)), fetch_cdn_gdp(config))
+    else:
+        series = (fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config))
+    macro = align_cdn_macro(yields, series, config)
     population = fetch_cdn_population() if config.per_capita else None
     return yields, express(macro, config, CDN, population)
 
@@ -267,6 +272,12 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
 def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro)``."""
     warn_series_coverage(config.start, US_SERIES_EARLIEST)
+    unavailable = [letter for letter in config.components if letter not in US.levels_available]
+    if unavailable and (config.include_debt or config.include_interest):
+        print(
+            f"  Warning: U.S. {' and '.join(US.level_name(letter).lower() for letter in unavailable)} figures exist "
+            f"only combined; drawn as {US.level_name('n')}."
+        )
     yields = fetch_us_yields(config)
     if not yields.empty:
         yields = yields.loc[yields[DATE_COLUMN] <= config.end]

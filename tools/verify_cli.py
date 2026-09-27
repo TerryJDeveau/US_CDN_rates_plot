@@ -87,6 +87,10 @@ CASES: list[list[str]] = [
     ["-p", "-r"], ["-r", "-p"], ["-p", "--top:100k", "--b:100"], ["-p", "--top:50%"], ["-p", "-c", "-s:1867"],
     # Canvas size needs at least "dim" since 2026-09-27: "--d:" is left for the debt sub-options.
     ["--dim:1100"], ["--DIM:1100X1000"], ["--dims:x900"], ["-dim:800x800"], ["--dimension:1400"], ["--di:1100"],
+    # Debt and interest by level: letters f n p/s m in any order; the option names its curve.
+    ["--d:fp"], ["--debt:PF"], ["--debt:s"], ["--d:ps"], ["--d:fnpsm"], ["--d:ff"], ["-i:m"], ["--interest:nm", "--gdp"],
+    ["--d:fp", "--i:pf"], ["--d:fp", "--i:m"], ["--d:fp", "--no-debt", "--interest"], ["--d:"], ["--d:fx"], ["--d:1100"],
+    ["--d:fp", "-r"], ["--d:fp", "-p", "-u"], ["--dept:f"],
 ]
 
 

@@ -19,6 +19,7 @@ from .config import (
     US_DEBT_COLUMN,
     US_INTEREST_COLUMN,
     PlotConfig,
+    component_column,
 )
 from .http import fetch_fred_csv
 
@@ -45,6 +46,9 @@ US_YIELD_SERIES = {
 US_DEBT_SERIES_ID = "GFDEBTN"               # federal debt, total public, $ millions
 US_STATE_LOCAL_DEBT_SERIES_ID = "SLGSDODNS"  # state & local debt securities, $ millions
 US_INTEREST_SERIES_ID = "A091RC1Q027SBEA"   # federal interest payments, SAAR $ billions
+# State and local interest payments (to persons and business), SAAR $ billions:
+# the "n" (non-federal) interest component, --interest:n.
+US_STATE_LOCAL_INTEREST_SERIES_ID = "Y705RC1Q027SBEA"
 US_GDP_SERIES_ID = "GDP"                    # nominal GDP, SAAR $ billions
 US_POPULATION_SERIES_ID = "B230RC0Q173SBEA"  # population (mid-period), thousands, quarterly from 1947
 
@@ -105,6 +109,8 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
     print("Fetching FRED macro series …")
     frames: list[pd.DataFrame] = []
 
+    split = bool(config.components)  # draw federal and non-federal lines instead of the aggregates
+    state_local_debt_known = True
     if config.include_debt:
         federal = _fetch_fred_dollars(US_DEBT_SERIES_ID, "Fed_Debt", MILLION)
         frames.append(federal)
@@ -114,12 +120,21 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
             # State/local debt is a refinement; without it the chart still shows federal debt.
             print(f"  Warning: state/local debt unavailable ({exc}); using federal debt only.")
             frames.append(pd.DataFrame({DATE_COLUMN: federal[DATE_COLUMN], "State_Local_Debt": 0.0}))
+            state_local_debt_known = False
 
     if config.include_interest:
         interest = _fetch_fred_dollars(US_INTEREST_SERIES_ID, "Interest_SAAR", BILLION)
         # SAAR is already annualised, so the TTM level is the 4-quarter mean.
         interest[US_INTEREST_COLUMN] = interest["Interest_SAAR"].rolling(4, min_periods=4).mean()
         frames.append(interest[[DATE_COLUMN, US_INTEREST_COLUMN]])
+        if split:
+            try:
+                state_local = _fetch_fred_dollars(US_STATE_LOCAL_INTEREST_SERIES_ID, "SL_Interest_SAAR", BILLION)
+                column = component_column("interest", "n")
+                state_local[column] = state_local["SL_Interest_SAAR"].rolling(4, min_periods=4).mean()
+                frames.append(state_local[[DATE_COLUMN, column]])
+            except Exception as exc:
+                print(f"  Warning: state and local interest ({US_STATE_LOCAL_INTEREST_SERIES_ID}) unavailable ({exc}).")
 
     if config.needs_gdp:
         gdp = _fetch_fred_dollars(US_GDP_SERIES_ID, "GDP_SAAR", BILLION)
@@ -136,17 +151,27 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
         # Debt is a stock: carry the last known level forward. Missing
         # state/local observations contribute zero rather than dropping the row.
         data["Fed_Debt"] = data["Fed_Debt"].ffill()
-        data["State_Local_Debt"] = data["State_Local_Debt"].ffill().fillna(0)
+        state_local = data["State_Local_Debt"].ffill()
+        data["State_Local_Debt"] = state_local.fillna(0)
         data[US_DEBT_COLUMN] = data["Fed_Debt"] + data["State_Local_Debt"]
+        if split:
+            data[component_column("debt", "f")] = data["Fed_Debt"]
+            # As a line of its own, unknown state/local debt is missing, not zero.
+            data[component_column("debt", "n")] = state_local if state_local_debt_known else float("nan")
 
-    for column in (GDP_COLUMN, US_INTEREST_COLUMN):
+    for column in (GDP_COLUMN, US_INTEREST_COLUMN, component_column("interest", "n")):
         if column in data:
             data[column] = data[column].ffill()
+    if split and US_INTEREST_COLUMN in data:
+        data[component_column("interest", "f")] = data[US_INTEREST_COLUMN]
 
     # Trim to the window and drop rows where no selected series has a value yet
     # (e.g. the first three quarters before a TTM rolling window is complete).
     data = data.loc[data[DATE_COLUMN] >= config.start].copy()
-    macro_columns = [c for c in (US_DEBT_COLUMN, GDP_COLUMN, US_INTEREST_COLUMN) if c in data.columns]
+    candidates = [US_DEBT_COLUMN, GDP_COLUMN, US_INTEREST_COLUMN] + [
+        component_column(kind, letter) for kind in ("debt", "interest") for letter in "fn"
+    ]
+    macro_columns = [c for c in candidates if c in data.columns]
     data = data.dropna(subset=macro_columns, how="all")
 
     if last_yield_date is not None and not data.empty and last_yield_date > data[DATE_COLUMN].max():

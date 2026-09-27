@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import DATE_COLUMN, CountryMetadata, PlotConfig
+from .config import COMPONENT_LETTERS, DATE_COLUMN, CountryMetadata, PlotConfig, component_column
 
 
 def express(
@@ -30,9 +30,11 @@ def express(
     return macro
 
 
-def _numerator_columns(macro: pd.DataFrame, metadata: CountryMetadata) -> list[str]:
-    """The debt and interest columns present in ``macro`` (GDP is the -r denominator)."""
-    candidates = (metadata.debt_column, metadata.federal_debt_column, metadata.interest_column)
+def _debt_and_interest_columns(macro: pd.DataFrame, metadata: CountryMetadata) -> list[str]:
+    """The debt and interest columns present in ``macro``: the aggregates, federal debt alone, and each level."""
+    candidates = [metadata.debt_column, metadata.federal_debt_column, metadata.interest_column] + [
+        component_column(kind, letter) for kind in ("debt", "interest") for letter in COMPONENT_LETTERS
+    ]
     return [column for column in candidates if column is not None and column in macro.columns]
 
 
@@ -43,7 +45,7 @@ def as_percent_of_gdp(macro: pd.DataFrame, metadata: CountryMetadata) -> pd.Data
     from 1867 shows only from 1926) the ratio is missing too. The GDP column
     itself is left as it was; it is not drawn.
     """
-    columns = _numerator_columns(macro, metadata)
+    columns = _debt_and_interest_columns(macro, metadata)
     if macro.empty or not columns:
         return macro
     result = macro.copy()
@@ -84,8 +86,9 @@ def per_person(macro: pd.DataFrame, metadata: CountryMetadata, population: pd.Se
     curves keep their steps rather than drifting between observations as the
     population grows.
     """
-    candidates = (metadata.debt_column, metadata.federal_debt_column, metadata.gdp_column, metadata.interest_column)
-    columns = [column for column in candidates if column is not None and column in macro.columns]
+    columns = _debt_and_interest_columns(macro, metadata)
+    if metadata.gdp_column in macro.columns:
+        columns.append(metadata.gdp_column)
     if macro.empty or not columns:
         return macro
     result = macro.copy()

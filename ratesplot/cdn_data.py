@@ -17,6 +17,10 @@ with ``_splice_archived_series`` (the newer source is never modified):
 Before 1933 only federal debt is recorded. It is kept as its own series
 (``CDN_FEDERAL_DEBT_COLUMN``), drawn as a separate curve, rather than joined
 to the aggregate, of which it is only about half.
+
+With levels of government chosen (``--debt:LETTERS``), ``fetch_cdn_components``
+replaces the aggregate debt and interest: each level is chained the same way
+from its own history (see there).
 """
 
 from __future__ import annotations
@@ -33,11 +37,15 @@ from .cdn_archive_data import (
     EMBEDDED_CDN_2Y_STAND_IN,
     EMBEDDED_CDN_5Y_STAND_IN,
     EMBEDDED_CDN_DEBT_HISTORY,
+    EMBEDDED_CDN_DEBT_HISTORY_BY_LEVEL,
     EMBEDDED_CDN_EARLY_DEBT_HISTORY,
+    EMBEDDED_CDN_EARLY_DEBT_HISTORY_BY_LEVEL,
     EMBEDDED_CDN_EARLY_INTEREST_HISTORY,
+    EMBEDDED_CDN_EARLY_INTEREST_HISTORY_BY_LEVEL,
     EMBEDDED_CDN_FEDERAL_DEBT_HISTORY,
     EMBEDDED_CDN_GDP_HISTORY,
     EMBEDDED_CDN_INTEREST_HISTORY,
+    EMBEDDED_CDN_INTEREST_HISTORY_BY_LEVEL,
     EMBEDDED_CDN_POPULATION_HISTORY,
 )
 from .cdn_hist_yields import build_cdn_hist_yields
@@ -66,6 +74,7 @@ from .config import (
     STATCAN_WDS_URL,
     YIELD_COLUMNS,
     PlotConfig,
+    component_column,
 )
 from .frames import normalize_date_column, rows_to_frame
 from .http import canadian_get, fetch_fred_csv, parse_boc_csv
@@ -443,6 +452,103 @@ def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Components: debt and interest by level of government (--debt:LETTERS)
+# ---------------------------------------------------------------------------
+
+# Levels in the live GFS table 10-10-0015 (its fifth sector, the CPP and QPP,
+# is not a level of government and is left out, as from "n").
+_GFS_SECTORS = {"f": "Federal government", "p": "Provincial and territorial government", "m": "Local government"}
+_GFS_ITEM_COLUMN = "Statement of government operations and balance sheet"
+# A level's gross debt: all its liabilities except equity, the GFS definition
+# that the aggregate (36-10-0467 "Debt") also follows.
+_GFS_DEBT_ITEMS = (
+    "Special drawing rights (SDRs), liabilities",
+    "Currency and deposits, liabilities",
+    "Debt securities, liabilities",
+    "Loans, liabilities",
+    "Insurance and pension schemes, liabilities",
+    "Other accounts payable, liabilities",
+)
+
+
+def _with_non_federal(levels: dict[str, pd.DataFrame | None], column: str) -> dict[str, pd.DataFrame | None]:
+    """Add "n" (non-federal) = provincial + local, on the dates both exist."""
+    provincial, local = levels.get("p"), levels.get("m")
+    non_federal = None
+    if provincial is not None and local is not None:
+        non_federal = (provincial[column] + local[column]).dropna().rename(column).to_frame()
+    return {**levels, "n": non_federal}
+
+
+def _embedded_levels(by_level: dict[str, list[tuple[str, float]]], column: str) -> dict[str, pd.DataFrame | None]:
+    """Return a baked by-level dictionary as frames keyed "f", "p", "m", plus "n"."""
+    return _with_non_federal({key: embedded_frame(rows, column) for key, rows in by_level.items()}, column)
+
+
+def _gfs_levels(table: pd.DataFrame, items: tuple[str, ...], column: str) -> dict[str, pd.DataFrame | None]:
+    """Return each level's quarterly sum of ``items`` from the GFS table, in dollars, plus "n"."""
+    levels: dict[str, pd.DataFrame | None] = {}
+    for key, sector in _GFS_SECTORS.items():
+        in_sector = table["Government sectors"].eq(sector)
+        parts = [_statcan_quarterly(table, in_sector & table[_GFS_ITEM_COLUMN].eq(item), column)[column] for item in items]
+        levels[key] = sum(parts[1:], parts[0]).rename(column).to_frame()
+    return _with_non_federal(levels, column)
+
+
+def fetch_cdn_components(config: PlotConfig, letters: tuple[str, ...]) -> pd.DataFrame | None:
+    """Return debt and/or interest for each level in ``letters``, one ``component_column`` each.
+
+    Each level is chained like its aggregate, oldest first, "n" being
+    provincial + local within each source before the joins:
+
+    * debt: *Historical Statistics of Canada* (federal from 1867, provincial
+      and local from 1933), the 1961-1994 balance sheets, then the live GFS
+      table 10-10-0015 (from 1990), where a level's debt is all its
+      liabilities except equity;
+    * interest: the 1968-SNA accounts (from 1926), the 1961-1994 sector
+      accounts, then the live GFS interest (quarterly flows, TTM = four-quarter sum).
+
+    The levels are each government's own figures. The consolidated aggregate
+    nets out what one government owes another, so the levels need not add
+    up to it. Returns None when neither curve is selected.
+    """
+    if not letters or not (config.include_debt or config.include_interest):
+        return None
+    try:
+        table = statcan_zip_table(STATCAN_CDN_INTEREST_TABLE)
+    except Exception as exc:
+        print(f"  Warning: StatCan GFS table failed ({exc}); levels of government shown only to 1994.")
+        table = None
+
+    columns: list[pd.Series] = []
+    if config.include_debt:
+        early = _embedded_levels(EMBEDDED_CDN_EARLY_DEBT_HISTORY_BY_LEVEL, CDN_DEBT_COLUMN)
+        archive = _embedded_levels(EMBEDDED_CDN_DEBT_HISTORY_BY_LEVEL, CDN_DEBT_COLUMN)
+        live = _gfs_levels(table, _GFS_DEBT_ITEMS, CDN_DEBT_COLUMN) if table is not None else {}
+        for letter in letters:
+            chained = _chain(
+                (early.get(letter), archive.get(letter), live.get(letter)), CDN_DEBT_COLUMN, annual_historical=True
+            )
+            if chained is not None:
+                columns.append(chained[CDN_DEBT_COLUMN].rename(component_column("debt", letter)))
+    if config.include_interest:
+        early = _embedded_levels(EMBEDDED_CDN_EARLY_INTEREST_HISTORY_BY_LEVEL, CDN_INTEREST_COLUMN)
+        archive = _embedded_levels(EMBEDDED_CDN_INTEREST_HISTORY_BY_LEVEL, CDN_INTEREST_COLUMN)
+        live: dict[str, pd.DataFrame | None] = {}
+        if table is not None:
+            # The GFS table reports actual quarterly flows, so TTM is a 4-quarter sum.
+            quarterly = _gfs_levels(table, ("Interest",), CDN_INTEREST_COLUMN)
+            live = {key: frame[CDN_INTEREST_COLUMN].rolling(4).sum().to_frame() for key, frame in quarterly.items() if frame is not None}
+        for letter in letters:
+            chained = _chain(
+                (early.get(letter), archive.get(letter), live.get(letter)), CDN_INTEREST_COLUMN, annual_historical=False
+            )
+            if chained is not None:
+                columns.append(chained[CDN_INTEREST_COLUMN].rename(component_column("interest", letter)))
+    return pd.concat(columns, axis=1).sort_index() if columns else None
+
+
 def fetch_cdn_population() -> pd.Series | None:
     """Return the population of Canada for -p: baked annual estimates until the live quarterly table begins.
 
@@ -473,13 +579,9 @@ def fetch_cdn_population() -> pd.Series | None:
 
 
 def align_cdn_macro(
-    yields_all: pd.DataFrame,
-    debt_q: pd.DataFrame | None,
-    gdp_q: pd.DataFrame | None,
-    interest_q: pd.DataFrame | None,
-    config: PlotConfig,
+    yields_all: pd.DataFrame, series: Iterable[pd.DataFrame | None], config: PlotConfig
 ) -> pd.DataFrame:
-    """Forward-fill the quarterly macro series onto the yield observation dates.
+    """Forward-fill the macro series (frames of one or more columns; None = absent) onto the yield dates.
 
     Returns a frame with a ``DATE`` column plus one column per available series.
     When yields are deselected a daily calendar over the window is used instead.
@@ -497,7 +599,7 @@ def align_cdn_macro(
         plot_index = pd.date_range(config.start, config.end, freq="D")
     else:
         plot_index = pd.DatetimeIndex(yields_all.index)
-    parts = [part for part in (debt_q, gdp_q, interest_q) if part is not None]
+    parts = [part for part in series if part is not None]
     if not parts:
         return pd.DataFrame({DATE_COLUMN: plot_index})
 

@@ -42,7 +42,7 @@ from typing import Callable, Mapping
 
 import pandas as pd
 
-from .config import MIN_CANVAS_PX, PlotConfig
+from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, MIN_CANVAS_PX, PlotConfig
 
 _DOLLAR_SUFFIX_MULTIPLIERS = {"t": 1e12, "b": 1e9, "m": 1e6, "k": 1e3}
 _DEFAULT_DOLLAR_MULTIPLIER = 1e9
@@ -232,6 +232,32 @@ def check_macro_bounds(values: Mapping[str, object]) -> None:
         raise ValueError(f"bottom limit ({bottom}) must be less than top limit ({top})")
 
 
+def parse_components(spec: str, *, kind: str) -> str:
+    """Parse ``--debt:``/``--interest:`` sub-option letters into ``COMPONENT_LETTERS`` order.
+
+    Any of f, n, p, m in any order and combination; "s" (state) means "p";
+    repeats are harmless. ``kind`` names the option in messages.
+    """
+    value = spec.strip().lower()
+    if not value:
+        raise ValueError(f"empty --{kind} sub-options: use letters from f, n, p (or s), m")
+    unknown = sorted(set(value) - set(COMPONENT_LETTERS) - set(COMPONENT_SYNONYMS))
+    if unknown:
+        # A size written the old way ("--d:1100", "--d:x600") gets pointed at --dim.
+        hint = "; the canvas size is --dim:WxH" if kind == "debt" and re.match(r"x?\d", value) else ""
+        raise ValueError(
+            f"invalid --{kind} sub-option {spec!r}: use letters f federal, n non-federal, "
+            f"p or s provincial/state, m municipal{hint}"
+        )
+    letters = {COMPONENT_SYNONYMS.get(letter, letter) for letter in value}
+    return "".join(letter for letter in COMPONENT_LETTERS if letter in letters)
+
+
+def format_components(values: tuple, _config: PlotConfig) -> str:
+    """Format the component letters (already in canonical order); blank for the aggregates."""
+    return values[0]
+
+
 def check_single_measure(values: Mapping[str, object]) -> None:
     """Reject -r with -p: a curve is either a share of GDP or an amount per person."""
     if values["relative"] and values["per_capita"]:
@@ -364,6 +390,23 @@ OPTIONS: tuple[Option, ...] = (
         f"(minimum {MIN_CANVAS_PX} px each way)", prefixes=("dim",), parse=parse_dimensions_spec,
         label="Size", format=format_dimensions, editor="size",
     ),
+    # Curve sub-options: debt and interest by level of government. Keys are
+    # matched by leading letters in table order, so these must come after
+    # "dimensions" ("dim…" is the size, any other "d…:" is debt). They set one
+    # field; see ``config_from_choices`` for how they name their curves. The
+    # window has one control for both.
+    Option(
+        "debt-parts", Kind.VALUE, ("components",), "curves", "--debt:LETTERS / --d:LETTERS",
+        "debt and interest by level instead of\nin total: f federal, n non-federal,\n"
+        "p or s provincial/state, m municipal",
+        prefixes=("d",), parse=partial(parse_components, kind="debt"),
+        label="By level", format=format_components, editor="levels",
+    ),
+    Option(
+        "interest-parts", Kind.VALUE, ("components",), "curves", "--interest:LETTERS / --i:LETTERS",
+        "the same letters; given on both --debt\nand --interest they must agree",
+        prefixes=("i",), parse=partial(parse_components, kind="interest"), in_gui=False,
+    ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE", "first date (default 1966-01-01)",
         prefixes=("s",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
@@ -443,6 +486,9 @@ def group_title(group: str) -> str:
 # ---------------------------------------------------------------------------
 # Choices <-> PlotConfig (shared by the command line and the GUI)
 # ---------------------------------------------------------------------------
+
+# The curve sub-options and the curve each belongs to (and is written as).
+_PART_OPTIONS = {"debt-parts": "debt", "interest-parts": "interest"}
 # "Choices" are what a user expressed, keyed by option name:
 #   payloads: VALUE option -> its text (absent = not given, so the default)
 #   flags:    EXACT / TOGGLE / SWITCH option -> True or False (absent = not given)
@@ -460,6 +506,10 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
       every curve given explicitly, as the GUI does, this is simply "draw the
       ones switched on".)
     * Countries: no country chosen means both charts.
+    * Curve sub-options: --debt:LETTERS and --interest:LETTERS set the same
+      levels, so given on both they must agree. Each also names its curve,
+      as --debt and --interest do, unless that curve's flag was given
+      explicitly (the window gives every flag, so there it names nothing).
     * Measure: -r and -p exclude each other (``check_single_measure``).
     * Right-axis limits are percentages under -r and dollars otherwise
       (``check_macro_bound_units``, once the flags are known).
@@ -471,6 +521,14 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
             values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
         if option.check is not None:
             option.check(values)
+
+    given_parts = {curve: by_name(name).parse(payloads[name]) for name, curve in _PART_OPTIONS.items() if name in payloads}
+    if len(set(given_parts.values())) > 1:
+        raise ValueError(
+            f"--debt:{given_parts['debt']} and --interest:{given_parts['interest']} choose different levels; "
+            "give the letters once, or the same on both"
+        )
+    flags = {**{curve: True for curve in given_parts}, **flags}
 
     for option in options_of(Kind.EXACT):
         if option.name in flags:
@@ -535,10 +593,15 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
 
     # Curves: name the ones on, or negate the ones off, whichever is shorter
     # (both mean the same under the curve rule; all off needs every "--no-").
+    # With levels chosen every curve is written out, because --debt:LETTERS
+    # would otherwise name debt and hide the curves left unnamed.
     curves = options_of(Kind.TOGGLE)
     on = [option for option in curves if flags.get(option.name, True)]
     off = [option for option in curves if option not in on]
-    if off and (not on or len(off) <= len(on)):
+    with_levels = any(payloads.get(name, "").strip() for name in _PART_OPTIONS)
+    if with_levels:
+        tokens += [f"--{option.name}" if option in on else f"--no-{option.name}" for option in curves]
+    elif off and (not on or len(off) <= len(on)):
         tokens += [f"--no-{option.name}" for option in off]
     elif off:
         tokens += [f"--{option.name}" for option in on]
@@ -546,10 +609,13 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     # The measure: its switch, spelled out (the first letter is what counts).
     tokens += [f"--{option.name}" for option in options_in("units") if flags.get(option.name)]
 
+    # The levels are written on a curve that is shown: --debt:fp, or
+    # --interest:fp when debt is off (both mean the same).
+    level_key = "interest" if not flags.get("debt", True) and flags.get("interest", True) else "debt"
     for option in options_of(Kind.VALUE):
         text = payloads.get(option.name, "").strip()
         if text and text != defaults.get(option.name):
-            tokens.append(f"--{option.name}:{text}")
+            tokens.append(f"--{level_key if option.name in _PART_OPTIONS else option.name}:{text}")
     return tokens
 
 
@@ -558,7 +624,7 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
 # ---------------------------------------------------------------------------
 
 _HELP_INDENT = "    "
-_HELP_COLUMN = 34  # width of the spellings column
+_HELP_COLUMN = 36  # width of the spellings column (fits "--interest:LETTERS / --i:LETTERS")
 _HELP_MIN_GAP = 3  # a spelling longer than the column still gets this many spaces
 
 

@@ -6,7 +6,9 @@ Controls
     Generated from ``options.OPTIONS``: a check box for every on/off option, a
     text field for every VALUE option (``editor="date"`` adds a calendar
     button; ``editor="size"`` gives width and height boxes with an
-    aspect-ratio lock), grouped as in ``--help``, each with the option's
+    aspect-ratio lock; ``editor="levels"`` gives one check box per level of
+    government, the single "By level" control for ``--debt:`` and
+    ``--interest:``), grouped as in ``--help``, each with the option's
     help text and command-line spelling as a tooltip. A new option in the table
     appears here with no change to this module (``in_gui=False`` opts out). The
     choices become a ``PlotConfig`` through ``options.config_from_choices``, the
@@ -77,7 +79,7 @@ from matplotlib.figure import Figure
 from PIL import Image, ImageTk
 
 from . import http
-from .config import PlotConfig
+from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, PlotConfig
 from .options import (
     GROUPS,
     GROUPS_CHOSEN_TOGETHER,
@@ -120,6 +122,8 @@ _SCREEN_FRACTION = 0.9
 _PNG_METADATA = {"Software": None}
 _ERROR_FOREGROUND = "#b00020"
 _TAB_TITLES = {"cdn": "Canada", "us": "United States"}
+# The "By level" check boxes: letter and caption (one control for both countries).
+_LEVEL_BOXES = (("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial / state"), ("m", "Municipal / local"))
 _STATE_VERSION = 1
 _GEOMETRY_PATTERN = re.compile(r"^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$")
 _ZOOM_HINT = "Drag: zoom to box · right/middle-drag: pan · wheel: zoom dates"
@@ -190,11 +194,16 @@ def starting_choices(
         for name, text in cli_payloads.items():
             if name in payloads:
                 payloads[name] = text
+        # The levels (--debt:LETTERS, --interest:LETTERS) have one control, the
+        # debt one; and giving them names their curves, as --debt would.
+        levels_given = any(name in cli_payloads for name in ("debt-parts", "interest-parts"))
+        if levels_given:
+            payloads["debt-parts"] = cli_config_payloads["debt-parts"]
         # Curves, and countries, are overridden as a group: on the command line
         # "--gdp" means "GDP only", which the resolved config already reflects.
         for group_name in GROUPS_CHOSEN_TOGETHER:
             group = [option.name for option in options_in(group_name) if option.name in flags]
-            if any(name in cli_flags for name in group):
+            if any(name in cli_flags for name in group) or (group_name == "curves" and levels_given):
                 for name in group:
                     flags[name] = cli_config_flags[name]
         for option in OPTIONS:
@@ -489,6 +498,45 @@ class DatePicker:
         self.on_pick()
 
 
+class _LevelsEditor:
+    """Keeps one check box per level of government and the option's letters (e.g. ``"fp"``) in step.
+
+    See ``RatesPlotApp._add_levels_control``. The letters variable stays the
+    single source of truth (for drawing, the command line, Back and the
+    remembered settings); the boxes are a view of it. ``syncing`` stops the
+    two sides' updates from triggering each other.
+    """
+
+    def __init__(self, payload: tk.StringVar, on_change) -> None:
+        self.payload = payload
+        self.on_change = on_change
+        self.boxes = {letter: tk.BooleanVar(value=False) for letter in COMPONENT_LETTERS}
+        self.syncing = False
+        self.payload.trace_add("write", lambda *_args: self._payload_changed())
+
+    def box_changed(self) -> None:
+        if self.syncing:
+            return
+        self.syncing = True
+        try:
+            self.payload.set("".join(letter for letter in COMPONENT_LETTERS if self.boxes[letter].get()))
+        finally:
+            self.syncing = False
+        self.on_change()
+
+    def _payload_changed(self) -> None:
+        """Show letters set from elsewhere (loading, Back, Reset) in the boxes."""
+        if self.syncing:
+            return
+        letters = {COMPONENT_SYNONYMS.get(letter, letter) for letter in self.payload.get().strip().lower()}
+        self.syncing = True
+        try:
+            for letter, box in self.boxes.items():
+                box.set(letter in letters)
+        finally:
+            self.syncing = False
+
+
 class _SizeEditor:
     """Keeps two boxes (width, height) and one ``WxH`` text variable in step.
 
@@ -617,6 +665,7 @@ class RatesPlotApp:
         self.flag_boxes: dict[str, ttk.Checkbutton] = {}
         self.value_labels: dict[str, ttk.Label] = {}
         self.size_editors: dict[str, _SizeEditor] = {}
+        self.level_editors: dict[str, _LevelsEditor] = {}
 
         # Per-country preview state, keyed by Country.key.
         self.tabs: dict[str, ttk.Frame] = {}
@@ -707,6 +756,8 @@ class RatesPlotApp:
             for row, option in enumerate(members):
                 if option.kind is Kind.VALUE and option.editor == "size":
                     self._add_size_control(frame, row, option)
+                elif option.kind is Kind.VALUE and option.editor == "levels":
+                    self._add_levels_control(frame, row, option)
                 elif option.kind is Kind.VALUE:
                     self._add_value_control(frame, row, option)
                 else:
@@ -741,6 +792,28 @@ class RatesPlotApp:
             )
             button.grid(row=row, column=2, padx=(2, 0), pady=1)
             _Tooltip(button, "Pick a date from a calendar")
+
+    def _add_levels_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+        """One check box per level of government, writing the option's letters ("fp" …).
+
+        Ticking none gives the aggregate lines. The one control serves debt and
+        interest alike (``--debt:`` and ``--interest:`` take the same letters).
+        """
+        payload = tk.StringVar()
+        self.payload_vars[option.name] = payload
+        label = ttk.Label(frame, text=option.label)
+        label.grid(row=row, column=0, sticky="nw", padx=(0, 6), pady=(3, 1))
+        self.value_labels[option.name] = label
+        editor = _LevelsEditor(payload, on_change=self.request_redraw)
+        self.level_editors[option.name] = editor
+        box = ttk.Frame(frame)
+        box.grid(row=row, column=1, columnspan=2, sticky="w", pady=1)
+        tip = _tooltip_text(option) + "\nNone ticked = debt and interest in total."
+        for index, (letter, text) in enumerate(_LEVEL_BOXES):
+            check = ttk.Checkbutton(box, text=text, variable=editor.boxes[letter], command=editor.box_changed)
+            check.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 8))
+            _Tooltip(check, tip)
+        _Tooltip(label, tip)
 
     def _add_size_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
         """Width and height boxes, "x" between them, and a "Preserve aspect ratio" lock.

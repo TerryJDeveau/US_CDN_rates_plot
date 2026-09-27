@@ -72,6 +72,14 @@ CASES: dict[str, list[str]] = {
     "u_p": ["-u", "-p"],
     "c_p1867": ["-c", "-p", "-s:1867"],
     "c_p_lim": ["-c", "-p", "--t:200k", "--b:1k", "-s:1990"],
+    # Debt and interest by level of government (--debt:LETTERS / --interest:LETTERS).
+    "c_lv_fn": ["-c", "--d:fn", "-i"],
+    "c_lv_fpm1926": ["-c", "--debt:fpm", "--interest", "-s:1926"],
+    "c_lv_all1990": ["-c", "--d:fnpm", "--gdp", "--i", "--yield", "-s:1990"],
+    "c_lv_r": ["-c", "-r", "--d:fpm", "-i"],
+    "c_lv_p1867": ["-c", "-p", "--d:f", "-s:1867"],
+    "u_lv_fn": ["-u", "--d:fn", "-i"],
+    "u_lv_psm": ["-u", "--i:psm", "-d"],
 }
 
 

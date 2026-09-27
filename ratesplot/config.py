@@ -206,6 +206,28 @@ MACRO_PLOT_STYLES = {
     "interest": {"color": "darkred", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "--"},
 }
 
+# Components of debt and interest (--debt:LETTERS / --interest:LETTERS): f
+# federal, n non-federal (provincial + local), p provincial or state (s is
+# accepted for it), m municipal (local). Drawing order, and one colour each;
+# debt lines are solid and interest lines dashed, as for the aggregates. The
+# colours are darker than the thin yield lines' and avoid GDP's green.
+COMPONENT_LETTERS = ("f", "n", "p", "m")
+COMPONENT_SYNONYMS = {"s": "p"}
+COMPONENT_COLORS = {"f": "#1f3a93", "n": "#8b4513", "p": "#d35400", "m": "#008080"}
+MACRO_PLOT_STYLES.update(
+    {
+        f"{kind}_{letter}": {"color": color, "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": linestyle}
+        for kind, linestyle in (("debt", "-"), ("interest", "--"))
+        for letter, color in COMPONENT_COLORS.items()
+    }
+)
+
+
+def component_column(kind: str, letter: str) -> str:
+    """Return the column holding one level's ``kind`` ("debt" or "interest"), e.g. ``"Debt [f] ($)"``."""
+    return f"{kind.capitalize()} [{letter}] ($)"
+
+
 # Wording for -r (debt and interest as a percentage of GDP) and -p (per
 # person): the right axis label, and what is added to the legend labels and
 # to the title's macro phrase. The -p axis label is per country (its currency).
@@ -260,6 +282,31 @@ class CountryMetadata:
     federal_debt_column: str | None = None
     federal_debt_label: str = ""
     federal_debt_title: str = ""
+    # Components (--debt:LETTERS): the name of each level, which levels the
+    # country's sources provide separately, and the wording around a name
+    # ("{}" is replaced by it, or in titles by the names joined with "/").
+    level_names: tuple[tuple[str, str], ...] = (
+        ("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial"), ("m", "Municipal"),
+    )
+    levels_available: str = "fnpm"
+    component_debt_label: str = "{} Public Debt"
+    component_interest_label: str = "{} TTM Interest Payable"
+    component_debt_title: str = "{} Public Debt"
+    component_interest_title: str = "{} Interest Outlays"
+
+    def level_name(self, letter: str) -> str:
+        """Return the name of level ``letter`` ("f" -> "Federal")."""
+        return dict(self.level_names)[letter]
+
+    def levels_drawn(self, config: PlotConfig) -> tuple[str, ...]:
+        """Return the component letters to draw, in ``COMPONENT_LETTERS`` order.
+
+        A level the country's sources do not provide separately (U.S. state or
+        local alone) is drawn as the non-federal total it is part of; the data
+        layer says so in a warning.
+        """
+        wanted = {letter if letter in self.levels_available else "n" for letter in config.components}
+        return tuple(letter for letter in COMPONENT_LETTERS if letter in wanted)
 
     def macro_axis_label(self, config: PlotConfig) -> str:
         """Return the right (macro) axis label for the measure ``config`` asks for."""
@@ -270,9 +317,26 @@ class CountryMetadata:
     def macro_specs(self, config: PlotConfig) -> tuple[tuple[str, bool, str, str], ...]:
         """Return ``(style_key, enabled, column, label)`` for each macro curve, in legend order.
 
-        Under -r GDP is the denominator and is not drawn itself.
+        Under -r GDP is the denominator and is not drawn itself. With
+        components chosen, each of debt and interest is one line per level
+        instead of the aggregate (and the federal-only debt before 1933 is
+        simply the start of the federal line).
         """
         suffix = _measure_suffixes(config)[0]
+        if config.components:
+            levels = self.levels_drawn(config)
+            specs = [
+                (f"debt_{letter}", config.include_debt, component_column("debt", letter),
+                 self.component_debt_label.format(self.level_name(letter)))
+                for letter in levels
+            ]
+            specs.append(("gdp", config.draws_gdp, self.gdp_column, self.gdp_label))
+            specs += [
+                (f"interest_{letter}", config.include_interest, component_column("interest", letter),
+                 self.component_interest_label.format(self.level_name(letter)))
+                for letter in levels
+            ]
+            return tuple((key, enabled, column, _with_suffix(label, suffix)) for key, enabled, column, label in specs)
         specs = [
             ("debt", config.include_debt, self.debt_column, self.debt_label),
             ("gdp", config.draws_gdp, self.gdp_column, self.gdp_label),
@@ -303,7 +367,23 @@ class CountryMetadata:
             "gdp": self.gdp_title,
             "interest": self.interest_title,
         }
-        macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
+        # Component lines ("debt_f", "interest_p" …) are named once per kind,
+        # "Federal/Provincial CDN Public Debt"; with both kinds split (always
+        # by the same levels), once for both, after GDP:
+        # "TTM GDP & Federal/Provincial CDN Public Debt and Interest Outlays".
+        levels = {
+            kind: [letter for letter in COMPONENT_LETTERS if f"{kind}_{letter}" in drawn] for kind in ("debt", "interest")
+        }
+        names = {kind: "/".join(self.level_name(letter) for letter in letters) for kind, letters in levels.items()}
+        if levels["debt"] and levels["debt"] == levels["interest"]:
+            both = self.component_debt_title.format(names["debt"]) + " and " + self.component_interest_title.format("").strip()
+            macro_parts = ([self.gdp_title] if "gdp" in drawn else []) + [both]
+        else:
+            for kind, template in (("debt", self.component_debt_title), ("interest", self.component_interest_title)):
+                if levels[kind]:
+                    drawn.add(kind)
+                    macro_titles[kind] = template.format(names[kind])
+            macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
         yield_parts = [self.yield_title] if yields_drawn else []
         title_suffix = _measure_suffixes(config)[1]
         if title_suffix and macro_parts:
@@ -337,6 +417,8 @@ CDN = CountryMetadata(
     federal_debt_column=CDN_FEDERAL_DEBT_COLUMN,
     federal_debt_label="Federal CDN Public Debt (pre-1933)",
     federal_debt_title="Federal CDN Public Debt",
+    component_debt_label="{} CDN Public Debt",
+    component_debt_title="{} CDN Public Debt",
 )
 
 US = CountryMetadata(
@@ -351,6 +433,12 @@ US = CountryMetadata(
     debt_title="Aggregate US Public Debt",
     interest_column=US_INTEREST_COLUMN,
     interest_label="TTM Interest Payable",
+    # FRED has federal and state-and-local debt and interest, but not state and
+    # local apart: "p" and "m" are drawn as the combined "n".
+    level_names=(("f", "Federal"), ("n", "State & Local"), ("p", "State"), ("m", "Local")),
+    levels_available="fn",
+    component_debt_label="{} US Public Debt",
+    component_debt_title="{} US Public Debt",
 )
 
 
@@ -381,6 +469,10 @@ class PlotConfig:
     include_interest: bool = True
     show_cdn: bool = True
     show_us: bool = True
+    # --debt:LETTERS / --interest:LETTERS: the levels of government to split
+    # debt and interest into, as letters from COMPONENT_LETTERS in that order
+    # ("" = the aggregate lines).
+    components: str = ""
     # -r: debt and interest as a percentage of TTM GDP, on a log percent axis;
     # GDP itself is not drawn.
     relative: bool = False
