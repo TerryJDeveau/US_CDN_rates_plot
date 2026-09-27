@@ -129,6 +129,30 @@ ARCHIVED_CDN_INTEREST_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CDN_INTER
 ARCHIVED_CDN_FEDERAL_DEBT_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CDN_FEDERAL_DEBT_TABLE)
 ARCHIVED_CDN_PROV_LOCAL_DEBT_URL = STATCAN_TABLE_URL.format(table_id=ARCHIVED_CDN_PROV_LOCAL_DEBT_TABLE)
 
+# Older history, also baked by ``--bake-archives`` (see ``ratesplot.bake``).
+# National accounts on the 1968 SNA basis, the source of GDP and government
+# interest before 1961: annual from 1926, quarterly (SAAR) from 1947 for GDP
+# and from 1950 for interest (the quarterly table is blank before that).
+HISTORICAL_CDN_GDP_ANNUAL_TABLE = "36100150"
+HISTORICAL_CDN_GDP_QUARTERLY_TABLE = "36100137"
+HISTORICAL_CDN_INTEREST_ANNUAL_TABLE = "36100177"
+HISTORICAL_CDN_INTEREST_QUARTERLY_TABLE = "36100142"
+# Historical Statistics of Canada (StatCan 11-516-X), section H: federal debt
+# from 1867, provincial and local debt from 1933 (1933, 1937, 1939, 1941,
+# 1943, then yearly from 1945). Plain CSV files, not StatCan tables.
+HSC_SECTION_H_URL = "https://www150.statcan.gc.ca/n1/pub/11-516-x/sectionh/{series}-eng.csv"
+HSC_FEDERAL_DEBT_SERIES = "H35_51"
+HSC_PROVINCIAL_DEBT_SERIES = "H382_397"
+HSC_LOCAL_DEBT_SERIES = "H398_403"
+# Bank of Canada financial market statistics (monthly, last Wednesday). Its
+# average yields for the 1-3 and 3-5 year bands stand in for the 2- and 5-year
+# benchmarks before those begin (1982-06 and 1980-11), as the 5-10 year and
+# over-10 year bands already do for the 10- and 30-year history.
+BOC_FINANCIAL_MARKET_TABLE = "10100122"
+# Population: annual estimates from 1867 (baked), quarterly from 1946 (live).
+HISTORICAL_CDN_POPULATION_TABLE = "17100063"
+STATCAN_CDN_POPULATION_TABLE = "17100009"
+
 # Archive splice tuning: the median live/archived ratio is estimated over their
 # overlap up to this year, and the last ``ARCHIVE_SPLICE_YEARS`` of the archive
 # are ramped geometrically toward that ratio.
@@ -151,6 +175,10 @@ YIELD_COLUMNS = ("3-Month", "2-Year", "5-Year", "10-Year", "30-Year")
 
 GDP_COLUMN = "TTM Nominal GDP ($)"
 CDN_DEBT_COLUMN = "Total Canadian Debt ($)"
+# Before 1933 only federal debt is recorded; it is a separate curve, not part of
+# the aggregate, because it is only about half of it (53 % in 1933).
+CDN_FEDERAL_DEBT_COLUMN = "Federal Canadian Debt ($)"
+POPULATION_COLUMN = "Population"
 CDN_INTEREST_COLUMN = "TTM Interest Payable ($)"
 US_DEBT_COLUMN = "Total Aggregate Debt ($)"
 US_INTEREST_COLUMN = "TTM Interest Payments ($)"
