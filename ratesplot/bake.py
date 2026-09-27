@@ -29,8 +29,10 @@ import py_compile
 import re
 import tempfile
 import textwrap
+import zipfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .cdn_data import statcan_zip_table, statcan_zip_table_with_metadata
@@ -50,6 +52,9 @@ from .config import (
     CDN_DEBT_COLUMN,
     CDN_FEDERAL_DEBT_COLUMN,
     CDN_INTEREST_COLUMN,
+    CENSUS_HIST_FIN_URL,
+    CENSUS_OLD_ESTIMATES_URL,
+    CENSUS_TABLES_URL,
     DATE_COLUMN,
     GDP_COLUMN,
     HISTORICAL_CDN_GDP_ANNUAL_TABLE,
@@ -64,8 +69,11 @@ from .config import (
     MILLION,
     POPULATION_COLUMN,
     STATCAN_TABLE_URL,
+    THOUSAND,
+    US_ARCHIVE_BEGIN_MARKER,
+    US_ARCHIVE_END_MARKER,
 )
-from .http import canadian_get
+from .http import canadian_get, get_if_published
 
 # Balance-sheet members that constitute marketable debt securities.
 DEBT_SECURITY_CATEGORIES = ("Short-term paper", "Bonds")
@@ -545,6 +553,25 @@ def _write_validated(source_path: Path, source_text: str) -> None:
             temp_path.unlink(missing_ok=True)
 
 
+def _replace_generated_block(source_path: Path, begin_marker: str, end_marker: str, block: str) -> None:
+    """Put ``block`` (markers included) in place of the generated block of ``source_path``.
+
+    The rest of the module (its docstring) is kept; a module without the
+    markers gets the block appended. Written by ``_write_validated``.
+    """
+    source_text = source_path.read_text(encoding="utf-8")
+    # Anchor both markers as complete lines so only the generated block is replaced.
+    block_pattern = re.compile(
+        rf"(?ms)^[ \t]*{re.escape(begin_marker)}[ \t]*\r?\n.*?^[ \t]*{re.escape(end_marker)}[ \t]*$"
+    )
+    if block_pattern.search(source_text):
+        # A callable replacement avoids re.sub interpreting backslashes in the data.
+        source_text = block_pattern.sub(lambda _match: block, source_text, count=1)
+    else:
+        source_text = source_text.rstrip() + "\n\n" + block + "\n"
+    _write_validated(source_path, source_text)
+
+
 def _hsc_url(series: str) -> str:
     return HSC_SECTION_H_URL.format(series=series)
 
@@ -801,19 +828,7 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
         + "\n".join(lists)
         + f"{ARCHIVE_END_MARKER}"
     )
-
-    source_text = source_path.read_text(encoding="utf-8")
-    # Anchor both markers as complete lines so only the generated block is replaced.
-    block_pattern = re.compile(
-        rf"(?ms)^[ \t]*{re.escape(ARCHIVE_BEGIN_MARKER)}[ \t]*\r?\n.*?^[ \t]*{re.escape(ARCHIVE_END_MARKER)}[ \t]*$"
-    )
-    if block_pattern.search(source_text):
-        # A callable replacement avoids re.sub interpreting backslashes in the data.
-        source_text = block_pattern.sub(lambda _match: block, source_text, count=1)
-    else:
-        source_text = source_text.rstrip() + "\n\n" + block + "\n"
-
-    _write_validated(source_path, source_text)
+    _replace_generated_block(source_path, ARCHIVE_BEGIN_MARKER, ARCHIVE_END_MARKER, block)
 
     print(f"Embedded archived Canadian data into {source_path}")
     summary = [
@@ -835,3 +850,261 @@ def bake_canadian_archives(source_path: Path | None = None) -> None:
         summary += [(f"{name} [{key}]", frame) for key, frame in by_level.items()]
     for label, frame in summary:
         print(f"  {label + ':':32} {len(frame):4,} rows, {frame.index.min():%Y-%m-%d} to {frame.index.max():%Y-%m-%d}")
+
+
+# ---------------------------------------------------------------------------
+# U.S. state and local debt apart (Census Bureau)
+# ---------------------------------------------------------------------------
+
+# The historical database: one table per level of government, one row per
+# finance item, one column per fiscal year ("STA-2008", "Loc-2008",
+# "S&L-2008"), $ thousands; negative values flag figures not published.
+_HIST_FIN_TABLES = {"p": "4_State Governments", "m": "5_Local Governments", "sl": "3_State & Local Government Total"}
+_HIST_FIN_TOTAL_DEBT = "C1203"  # "Total Debt Outstanding" at the end of the fiscal year
+_HIST_FIN_LAST_YEAR = 2008
+# The yearly estimates, fixed-width: state code (columns 1-2; "00" is the
+# whole country), level (3: "1" state and local, "2" state, "3" local), item
+# (5-7), amount in $ thousands (9-20). Total debt outstanding is long-term
+# debt for private purposes (44T, folded into 49U from 2022), other long-term
+# debt (49U) and short-term debt at the year end (64V): the historical
+# database's C1203 is this sum (2005-2008 agree to 0.7 %, the state share to
+# 0.13 points). Before 2005 the estimates files are not on this basis, so the
+# historical database is used through 2008.
+_CENSUS_LEVEL_CODES = {"sl": "1", "p": "2", "m": "3"}
+_CENSUS_DEBT_ITEMS = ("44T", "49U", "64V")
+# The Census year is the fiscal year ending by 30 June (as most states' do),
+# so each year's figures are stamped then.
+_CENSUS_FISCAL_YEAR_END = (6, 30)
+# State + local may differ from the published total by rounding only.
+_CENSUS_SUM_TOLERANCE = 1e-4
+
+
+def _census_fiscal_year_end(year: int) -> pd.Timestamp:
+    month, day = _CENSUS_FISCAL_YEAR_END
+    return pd.Timestamp(year=year, month=month, day=day)
+
+
+def _check_levels_add_up(levels: dict[str, pd.Series], what: str) -> None:
+    """Raise unless state + local equals the state-and-local total in every year both are given."""
+    total = levels["sl"]
+    gap = ((levels["p"] + levels["m"] - total).abs() / total).dropna()
+    if gap.empty or gap.max() > _CENSUS_SUM_TOLERANCE:
+        raise RuntimeError(f"{what}: state + local differs from the total by up to {gap.max():.4%}; data module not modified.")
+
+
+def _extract_census_hist_fin(mdb_path: Path) -> dict[str, pd.Series]:
+    """Return total debt outstanding by fiscal year (dollars) for "p" state, "m" local and "sl" both.
+
+    Reads the Census historical database, an Access file, through the
+    Microsoft Access ODBC driver (installed with Microsoft Office);
+    ``pyodbc`` is needed only for this bake.
+    """
+    try:
+        import pyodbc
+    except ImportError as exc:
+        raise RuntimeError(
+            "The U.S. bake needs pyodbc (pip install pyodbc) and the Microsoft Access ODBC driver."
+        ) from exc
+    connection = pyodbc.connect(f"Driver={{Microsoft Access Driver (*.mdb, *.accdb)}};Dbq={mdb_path};")
+    levels: dict[str, pd.Series] = {}
+    try:
+        for key, table in _HIST_FIN_TABLES.items():
+            cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM [{table}] WHERE [SAS Var] = ?", _HIST_FIN_TOTAL_DEBT)
+            columns = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            if len(rows) != 1:
+                raise RuntimeError(f"Census {table}: {len(rows)} rows for {_HIST_FIN_TOTAL_DEBT}, expected 1")
+            record = dict(zip(columns, rows[0]))
+            if str(record["Name"]).strip() != "Total Debt Outstanding" or str(record["State Code"]).strip() != "00":
+                raise RuntimeError(f"Census {table}: {_HIST_FIN_TOTAL_DEBT} is {record['Name']!r}, not the national total debt")
+            by_year = {
+                int(column[-4:]): float(record[column]) * THOUSAND
+                for column in columns
+                if re.fullmatch(r"[A-Za-z&]+-\d{4}", column) and record[column] is not None and record[column] >= 0
+            }
+            levels[key] = pd.Series(by_year).sort_index()
+    finally:
+        connection.close()
+    _check_levels_add_up(levels, "Census historical database")
+    return levels
+
+
+def _parse_census_estimates(text: str, year: int) -> dict[str, float]:
+    """Return the country's total debt outstanding (dollars) at each level from one year's estimates."""
+    totals = {key: 0.0 for key in _CENSUS_LEVEL_CODES}
+    seen: set[tuple[str, str]] = set()
+    codes = {code: key for key, code in _CENSUS_LEVEL_CODES.items()}
+    for line in text.splitlines():
+        if len(line) < 20 or line[0:2] != "00" or line[2] not in codes or line[4:7] not in _CENSUS_DEBT_ITEMS:
+            continue
+        key = codes[line[2]]
+        totals[key] += int(line[8:20]) * THOUSAND
+        seen.add((key, line[4:7]))
+    missing = [key for key in totals if (key, "49U") not in seen]
+    if missing:
+        raise RuntimeError(f"Census {year} estimates: no long-term debt (49U) for {missing}")
+    return totals
+
+
+def _census_estimates_text(year: int) -> str | None:
+    """Download one fiscal year's estimates by state and type of government; None if not published."""
+    short = f"{year % 100:02d}"
+    if year <= 2010:
+        candidates = [f"{CENSUS_OLD_ESTIMATES_URL}{short}statetypepu.zip", f"{CENSUS_OLD_ESTIMATES_URL}{short}statetypepu.txt"]
+    else:
+        # The ZIP's name and folder vary by year, so it is found in the listing.
+        candidates = []
+        for folder in (f"{CENSUS_TABLES_URL}{year}/", f"{CENSUS_TABLES_URL}{year}/summary-tables/"):
+            listing = get_if_published(folder)
+            found = re.search(r'href="([^"]*Individual_Unit_[Ff]iles?\.zip)"', listing.text) if listing else None
+            if found:
+                candidates.append(folder + found.group(1))
+                break
+    for url in candidates:
+        response = get_if_published(url)
+        if response is None:
+            continue
+        content = response.content
+        if content[:2] == b"PK":
+            archive = zipfile.ZipFile(io.BytesIO(content))
+            names = [name for name in archive.namelist() if re.search(r"statetype\w*pu\w*\.txt$", name, re.IGNORECASE)]
+            if len(names) != 1:
+                raise RuntimeError(f"Census {year}: {url} holds {len(names)} state-by-type estimates files, expected 1")
+            content = archive.read(names[0])
+        return content.decode("latin-1")
+    return None
+
+
+def _census_summary_table(year: int) -> pd.DataFrame | None:
+    """Download one fiscal year's summary Table 1 (state and local finances by level); None if absent.
+
+    Needed only for the years without an estimates file (2011 is ``.xls``,
+    which pandas reads with ``xlrd``; 2016 is ``.xlsx``).
+    """
+    for folder in (f"{CENSUS_TABLES_URL}{year}/summary-tables/", f"{CENSUS_TABLES_URL}{year}/"):
+        listing = get_if_published(folder)
+        found = re.search(rf'href="({year % 100:02d}slsstab1a\.xlsx?)"', listing.text) if listing else None
+        if found:
+            response = get_if_published(folder + found.group(1))
+            if response is not None:
+                return pd.read_excel(io.BytesIO(response.content), header=None)
+    return None
+
+
+def _parse_census_summary_table(table: pd.DataFrame, year: int) -> dict[str, float]:
+    """Return the country's total debt outstanding (dollars) at each level from a summary Table 1.
+
+    The layout shifts between years, so the table is read by its labels: the
+    "Description" header, the level names under it ("State & local",
+    "State", "Local"), the "amount" columns (the others are coefficients of
+    variation) and the "Debt outstanding" row. The United States block comes
+    first, before the states'. Amounts are $ thousands.
+    """
+    cells = table.astype(str).apply(lambda column: column.str.strip())
+    header = [(row, column) for row, column in zip(*np.nonzero(cells.eq("Description").to_numpy()))]
+    if not header:
+        raise RuntimeError(f"Census {year} summary table: no Description header")
+    header_row, label_column = header[0]
+    levels_row, units_row = cells.iloc[header_row + 1], cells.iloc[header_row + 3]
+    columns: dict[str, int] = {}
+    for key, name in (("sl", "State & local"), ("p", "State"), ("m", "Local")):
+        for column in range(label_column + 1, label_column + 7):
+            if levels_row.iloc[column] == name and units_row.iloc[column].lower().startswith("amount"):
+                columns[key] = column
+                break
+        else:
+            raise RuntimeError(f"Census {year} summary table: no United States {name} amount column")
+    debt_rows = cells.index[cells.iloc[:, label_column].str.lower().eq("debt outstanding")]
+    if len(debt_rows) != 1:
+        raise RuntimeError(f"Census {year} summary table: {len(debt_rows)} 'Debt outstanding' rows, expected 1")
+    row = table.loc[debt_rows[0]]
+    return {key: float(row.iloc[column]) * THOUSAND for key, column in columns.items()}
+
+
+def bake_us_archives(source_path: Path | None = None) -> None:
+    """Download the Census counts of state and of local government debt and embed them.
+
+    Writes into ``ratesplot/us_archive_data.py`` unless ``source_path`` is
+    given. The Federal Reserve's quarterly state-and-local debt (FRED
+    SLGSDODNS) is not split by level; ``us_data`` splits it by these yearly
+    shares. Every fiscal year from 1902 (annual from 1952) to the latest the
+    Census has published. The years without an estimates file (2011, 2016)
+    are read from that year's summary Table 1 instead; a year with neither
+    is left out, and ``us_data`` interpolates across it. Needs ``pyodbc``
+    with the Microsoft Access ODBC driver, and ``xlrd`` for 2011's table.
+    """
+    source_path = source_path or Path(__file__).resolve().with_name("us_archive_data.py")
+
+    print("Downloading the Census historical government finance database …")
+    archive = zipfile.ZipFile(io.BytesIO(canadian_get(CENSUS_HIST_FIN_URL).content))
+    with tempfile.TemporaryDirectory() as folder:
+        mdb_path = Path(archive.extract("Hist_Fin.mdb", folder))
+        history = _extract_census_hist_fin(mdb_path)
+    levels = {key: series.loc[series.index <= _HIST_FIN_LAST_YEAR] for key, series in history.items()}
+
+    later: dict[int, dict[str, float]] = {}
+    from_summary_tables: list[int] = []
+    unpublished: list[int] = []
+    for year in range(_HIST_FIN_LAST_YEAR + 1, dt.date.today().year + 1):
+        print(f"Downloading the Census estimates for fiscal {year} …")
+        text = _census_estimates_text(year)
+        if text is not None:
+            later[year] = _parse_census_estimates(text, year)
+            continue
+        table = _census_summary_table(year)
+        if table is not None:
+            later[year] = _parse_census_summary_table(table, year)
+            from_summary_tables.append(year)
+        else:
+            unpublished.append(year)
+    if not later:
+        raise RuntimeError("No Census estimates after 2008 were found; data module not modified.")
+    for key in levels:
+        levels[key] = pd.concat([levels[key], pd.Series({year: totals[key] for year, totals in later.items()})])
+    _check_levels_add_up(levels, "Census estimates")
+
+    frames = {
+        key: pd.DataFrame(
+            {"value": levels[key].to_numpy()},
+            index=pd.DatetimeIndex([_census_fiscal_year_end(year) for year in levels[key].index], name=DATE_COLUMN),
+        )
+        for key in ("p", "m")
+    }
+    first, last = min(levels["p"].index), max(levels["p"].index)
+    missing = [year for year in unpublished if year < last]
+    block = (
+        f"{US_ARCHIVE_BEGIN_MARKER}\n"
+        f"# Generated from Census Bureau files on {dt.date.today():%Y-%m-%d}.\n"
+        f"# Historical observations in the source's own terms; us_data applies them\n"
+        f"# to the Federal Reserve's quarterly state-and-local debt at run time.\n\n"
+        + _embedded_level_dict(
+            "EMBEDDED_US_DEBT_BY_LEVEL",
+            f"State (\"p\") and local (\"m\") governments' total debt outstanding at the end of\n"
+            f"each fiscal year (stamped 30 June), dollars, {first}-{last}. Census Bureau: the\n"
+            f"historical database of national totals, item {_HIST_FIN_TOTAL_DEBT}, through {_HIST_FIN_LAST_YEAR}\n"
+            f"(selected years before 1952):\n{CENSUS_HIST_FIN_URL}\n"
+            f"then each year's estimates by state and type of government, items\n"
+            f"{' + '.join(_CENSUS_DEBT_ITEMS)} for the whole country:\n{CENSUS_OLD_ESTIMATES_URL}\n{CENSUS_TABLES_URL}"
+            + (
+                f"\n(fiscal {', '.join(map(str, from_summary_tables))}: the summary Table 1, \"Debt outstanding\")"
+                if from_summary_tables
+                else ""
+            )
+            + (f"\nNo figures for fiscal {', '.join(map(str, missing))}." if missing else ""),
+            frames,
+            "value",
+        )
+        + f"{US_ARCHIVE_END_MARKER}"
+    )
+    _replace_generated_block(source_path, US_ARCHIVE_BEGIN_MARKER, US_ARCHIVE_END_MARKER, block)
+
+    print(f"Embedded Census state and local debt into {source_path}")
+    share = levels["p"] / (levels["p"] + levels["m"])
+    for key, name in (("p", "State"), ("m", "Local")):
+        print(f"  {name + ' debt:':32} {len(levels[key]):4,} years, {first} to {last}")
+    print(f"  State share of the two:          {share.iloc[0]:.1%} in {first}, {share.loc[1966]:.1%} in 1966, {share.iloc[-1]:.1%} in {last}")
+    if from_summary_tables:
+        print(f"  From the summary tables:         fiscal {', '.join(map(str, from_summary_tables))}")
+    if unpublished:
+        print(f"  Not published:                   fiscal {', '.join(map(str, unpublished))}")

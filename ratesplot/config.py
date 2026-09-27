@@ -167,6 +167,17 @@ ARCHIVE_SPLICE_YEARS = 5
 ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED CANADIAN ARCHIVE DATA"
 ARCHIVE_END_MARKER = "# END AUTO-GENERATED CANADIAN ARCHIVE DATA"
 
+# U.S. state and local government debt apart (Census Bureau), baked into
+# ``ratesplot/us_archive_data.py``: the historical database of national totals
+# (fiscal years 1902-2008, an Access file), then each later year's estimates
+# by state and type of government (fixed-width text; 2009-2010 on the old
+# site, later years inside each year's "Individual Unit File" ZIP).
+CENSUS_HIST_FIN_URL = "https://www2.census.gov/programs-surveys/gov-finances/datasets/historical/hist_fin.zip"
+CENSUS_OLD_ESTIMATES_URL = "https://www2.census.gov/govs/estimate/"
+CENSUS_TABLES_URL = "https://www2.census.gov/programs-surveys/gov-finances/tables/"
+US_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED U.S. ARCHIVE DATA"
+US_ARCHIVE_END_MARKER = "# END AUTO-GENERATED U.S. ARCHIVE DATA"
+
 # Unit multipliers. StatCan tables and FRED's GFDEBTN/SLGSDODNS report millions;
 # FRED's GDP and interest series report billions; its population, thousands.
 THOUSAND = 1_000

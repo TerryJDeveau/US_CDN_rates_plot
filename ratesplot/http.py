@@ -120,6 +120,28 @@ def canadian_get(
     )
 
 
+def get_if_published(
+    url: str, *, max_retries: int = DEFAULT_GET_RETRIES, timeout: int = HTTP_TIMEOUT_SECONDS
+) -> requests.Response | None:
+    """GET a file that may not exist, such as a Census year not yet published; None on 404.
+
+    Connection failures and timeouts are retried as in ``canadian_get``; a
+    missing file is not (it will not appear on retry), and any other HTTP
+    error is raised. Used by the bake, so not cached.
+    """
+
+    def attempt() -> requests.Response | None:
+        response = CANADIAN_SESSION.get(url, timeout=timeout)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response
+
+    return _with_retries(
+        "Request", attempt, max_retries=max_retries, retry_on=(requests.ConnectionError, requests.Timeout)
+    )
+
+
 def fetch_fred_csv(series_id: str, *, max_retries: int = DEFAULT_FRED_RETRIES) -> pd.DataFrame:
     """Download one FRED series as a two-column ``DATE`` / ``series_id`` frame.
 
