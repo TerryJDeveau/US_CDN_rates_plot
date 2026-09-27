@@ -11,6 +11,7 @@ import pandas as pd
 
 from .config import (
     BILLION,
+    COMPONENT_LETTERS,
     DATE_COLUMN,
     GDP_COLUMN,
     MILLION,
@@ -18,6 +19,7 @@ from .config import (
     THOUSAND,
     US_DEBT_COLUMN,
     US_INTEREST_COLUMN,
+    US,
     PlotConfig,
     component_column,
 )
@@ -31,7 +33,7 @@ US_SERIES_EARLIEST = {
     "10-Year Yield (DGS10)": pd.Timestamp("1962-01-02"),
     "30-Year Yield (DGS30)": pd.Timestamp("1977-02-15"),
     "Federal debt (GFDEBTN)": pd.Timestamp("1966-01-01"),
-    "GDP / Interest (GDP, A091RC1…)": pd.Timestamp("1947-01-01"),
+    "GDP / Interest (GDP, A180RC1…)": pd.Timestamp("1947-01-01"),
 }
 
 # Chart column -> FRED constant-maturity Treasury yield series.
@@ -45,10 +47,15 @@ US_YIELD_SERIES = {
 
 US_DEBT_SERIES_ID = "GFDEBTN"               # federal debt, total public, $ millions
 US_STATE_LOCAL_DEBT_SERIES_ID = "SLGSDODNS"  # state & local debt securities, $ millions
-US_INTEREST_SERIES_ID = "A091RC1Q027SBEA"   # federal interest payments, SAAR $ billions
-# State and local interest payments (to persons and business), SAAR $ billions:
-# the "n" (non-federal) interest component, --interest:n.
-US_STATE_LOCAL_INTEREST_SERIES_ID = "Y705RC1Q027SBEA"
+# Interest payments, SAAR $ billions, quarterly from 1947. The aggregate is all
+# levels of government, as the Canadian one is. BEA's general-government
+# interest (NIPA table 3.1) is exactly federal (3.2) plus state and local
+# (3.3), which are the "f" and "n" lines of --interest:LETTERS. The
+# state-and-local series is the total; Y705RC1 leaves out the interest paid
+# abroad (about 1 % of it since 2008).
+US_INTEREST_SERIES_ID = "A180RC1Q027SBEA"
+US_FEDERAL_INTEREST_SERIES_ID = "A091RC1Q027SBEA"
+US_STATE_LOCAL_INTEREST_SERIES_ID = "B111RC1Q027SBEA"
 US_GDP_SERIES_ID = "GDP"                    # nominal GDP, SAAR $ billions
 US_POPULATION_SERIES_ID = "B230RC0Q173SBEA"  # population (mid-period), thousands, quarterly from 1947
 
@@ -95,6 +102,33 @@ def _fetch_fred_dollars(series_id: str, column: str, multiplier: int) -> pd.Data
     return frame[[DATE_COLUMN, column]]
 
 
+def _fetch_ttm_interest(series_id: str, column: str) -> pd.DataFrame:
+    """Fetch one quarterly SAAR interest series and return ``[DATE, column]`` as TTM dollars.
+
+    SAAR is already annualised, so the TTM level is the 4-quarter mean.
+    """
+    frame = _fetch_fred_dollars(series_id, column, BILLION)
+    frame[column] = frame[column].rolling(4, min_periods=4).mean()
+    return frame
+
+
+def _fetch_us_interest_levels(letters: tuple[str, ...]) -> list[pd.DataFrame]:
+    """Return one TTM ``[DATE, component_column("interest", letter)]`` frame per level in ``letters``.
+
+    Federal interest is required, as the aggregate is; state and local is a
+    refinement, so its failure is a warning.
+    """
+    frames = []
+    if "f" in letters:
+        frames.append(_fetch_ttm_interest(US_FEDERAL_INTEREST_SERIES_ID, component_column("interest", "f")))
+    if "n" in letters:
+        try:
+            frames.append(_fetch_ttm_interest(US_STATE_LOCAL_INTEREST_SERIES_ID, component_column("interest", "n")))
+        except Exception as exc:
+            print(f"  Warning: state and local interest ({US_STATE_LOCAL_INTEREST_SERIES_ID}) unavailable ({exc}).")
+    return frames
+
+
 def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> pd.DataFrame:
     """Fetch the selected U.S. macro series and align them on one ``DATE`` column.
 
@@ -123,18 +157,10 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
             state_local_debt_known = False
 
     if config.include_interest:
-        interest = _fetch_fred_dollars(US_INTEREST_SERIES_ID, "Interest_SAAR", BILLION)
-        # SAAR is already annualised, so the TTM level is the 4-quarter mean.
-        interest[US_INTEREST_COLUMN] = interest["Interest_SAAR"].rolling(4, min_periods=4).mean()
-        frames.append(interest[[DATE_COLUMN, US_INTEREST_COLUMN]])
         if split:
-            try:
-                state_local = _fetch_fred_dollars(US_STATE_LOCAL_INTEREST_SERIES_ID, "SL_Interest_SAAR", BILLION)
-                column = component_column("interest", "n")
-                state_local[column] = state_local["SL_Interest_SAAR"].rolling(4, min_periods=4).mean()
-                frames.append(state_local[[DATE_COLUMN, column]])
-            except Exception as exc:
-                print(f"  Warning: state and local interest ({US_STATE_LOCAL_INTEREST_SERIES_ID}) unavailable ({exc}).")
+            frames += _fetch_us_interest_levels(US.levels_drawn(config))
+        else:
+            frames.append(_fetch_ttm_interest(US_INTEREST_SERIES_ID, US_INTEREST_COLUMN))
 
     if config.needs_gdp:
         gdp = _fetch_fred_dollars(US_GDP_SERIES_ID, "GDP_SAAR", BILLION)
@@ -159,17 +185,16 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
             # As a line of its own, unknown state/local debt is missing, not zero.
             data[component_column("debt", "n")] = state_local if state_local_debt_known else float("nan")
 
-    for column in (GDP_COLUMN, US_INTEREST_COLUMN, component_column("interest", "n")):
+    interest_levels = [component_column("interest", letter) for letter in COMPONENT_LETTERS]
+    for column in [GDP_COLUMN, US_INTEREST_COLUMN, *interest_levels]:
         if column in data:
             data[column] = data[column].ffill()
-    if split and US_INTEREST_COLUMN in data:
-        data[component_column("interest", "f")] = data[US_INTEREST_COLUMN]
 
     # Trim to the window and drop rows where no selected series has a value yet
     # (e.g. the first three quarters before a TTM rolling window is complete).
     data = data.loc[data[DATE_COLUMN] >= config.start].copy()
     candidates = [US_DEBT_COLUMN, GDP_COLUMN, US_INTEREST_COLUMN] + [
-        component_column(kind, letter) for kind in ("debt", "interest") for letter in "fn"
+        component_column(kind, letter) for kind in ("debt", "interest") for letter in COMPONENT_LETTERS
     ]
     macro_columns = [c for c in candidates if c in data.columns]
     data = data.dropna(subset=macro_columns, how="all")
