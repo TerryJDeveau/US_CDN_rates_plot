@@ -110,9 +110,6 @@ CANADIAN_SESSION.headers.update(
 BOC_START_DATE = "2000-12-01"
 CANADIAN_YIELD_HIST_END = pd.Timestamp("2000-12-31")
 
-# First observation available from the archived StatCan balance sheets.
-CANADIAN_HISTORICAL_START = pd.Timestamp("1961-01-01")
-
 # Live StatCan tables (downloaded on every run).
 STATCAN_CDN_DEBT_TABLE = "36100467"       # general government gross debt, quarterly
 STATCAN_CDN_GDP_TABLE = "36100104"        # GDP at market prices, SAAR, quarterly
@@ -189,9 +186,12 @@ US_INTEREST_COLUMN = "TTM Interest Payments ($)"
 
 YIELD_LINE_STYLE = {"linewidth": 1.2, "alpha": 0.9}
 
-# The same three semantic macro curves are drawn on both country charts.
+# The same three semantic macro curves are drawn on both country charts, plus
+# (Canada only) federal debt alone before the aggregate begins: dotted, so the
+# drop in level where it hands over reads as a change of coverage.
 MACRO_PLOT_STYLES = {
     "debt": {"color": "black", "linewidth": 2.5, "drawstyle": "steps-post"},
+    "federal_debt": {"color": "black", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": ":"},
     "gdp": {"color": "darkgreen", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "-."},
     "interest": {"color": "darkred", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "--"},
 }
@@ -219,24 +219,41 @@ class CountryMetadata:
     gdp_column: str = GDP_COLUMN
     gdp_label: str = "TTM Nominal GDP"
     gdp_title: str = "TTM GDP"
+    # Federal debt alone, for the years before the aggregate exists (None: no such curve).
+    federal_debt_column: str | None = None
+    federal_debt_label: str = ""
+    federal_debt_title: str = ""
 
     def macro_specs(self, config: PlotConfig) -> tuple[tuple[str, bool, str, str], ...]:
-        """Return ``(style_key, enabled, column, label)`` for each macro curve."""
-        return (
+        """Return ``(style_key, enabled, column, label)`` for each macro curve, in legend order."""
+        specs = [
             ("debt", config.include_debt, self.debt_column, self.debt_label),
             ("gdp", config.include_gdp, self.gdp_column, self.gdp_label),
             ("interest", config.include_interest, self.interest_column, self.interest_label),
-        )
+        ]
+        if self.federal_debt_column is not None:
+            # Chosen with the debt curve; listed straight after it.
+            specs.insert(1, ("federal_debt", config.include_debt, self.federal_debt_column, self.federal_debt_label))
+        return tuple(specs)
 
     def title_for(self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str]) -> str:
         """Compose the chart title from the series that were actually drawn.
 
         Parts are joined with commas and a final ampersand, e.g.
         ``"U.S. Treasury Yields, Aggregate US Public Debt & TTM GDP"``.
+        Federal debt alone is named only when the aggregate is not drawn.
         """
-        macro_titles = {"debt": self.debt_title, "gdp": self.gdp_title, "interest": self.interest_title}
+        drawn = set(macro_keys_drawn)
+        if "debt" in drawn:
+            drawn.discard("federal_debt")
+        macro_titles = {
+            "debt": self.debt_title,
+            "federal_debt": self.federal_debt_title,
+            "gdp": self.gdp_title,
+            "interest": self.interest_title,
+        }
         parts = ([self.yield_title] if yields_drawn else []) + [
-            macro_titles[key] for key in macro_titles if key in set(macro_keys_drawn)
+            macro_titles[key] for key in macro_titles if key in drawn
         ]
         if not parts:
             return f"{self.country_name}: no series selected"
@@ -256,6 +273,9 @@ CDN = CountryMetadata(
     debt_title="Aggregate CDN Public Debt",
     interest_column=CDN_INTEREST_COLUMN,
     interest_label="TTM Interest Payable",
+    federal_debt_column=CDN_FEDERAL_DEBT_COLUMN,
+    federal_debt_label="Federal CDN Public Debt (pre-1933)",
+    federal_debt_title="Federal CDN Public Debt",
 )
 
 US = CountryMetadata(

@@ -4,11 +4,19 @@ Each ``fetch_cdn_*`` function returns a quarter-start-indexed frame (or ``None``
 when the curve is deselected or unavailable). ``align_cdn_macro`` then
 forward-fills those quarterly values onto the daily yield dates for plotting.
 
-Debt and interest are each the splice of two sources:
+Debt, GDP and interest are each a chain of sources, joined oldest to newest
+with ``_splice_archived_series`` (the newer source is never modified):
 
-* a baked archive (``cdn_archive_data``) covering 1961 to the mid-1990s, taken
-  from terminated StatCan tables that no longer change; and
-* the live modern table, which starts in 1990 and is authoritative from there.
+* older history baked from terminated sources (``cdn_archive_data``): GDP and
+  interest from 1926, debt of all governments from 1933;
+* for debt and interest, the 1961-1994 archive (national balance sheets and
+  government sector accounts); and
+* the live modern table, authoritative from where it starts (1961 for GDP,
+  1990 for debt and interest).
+
+Before 1933 only federal debt is recorded. It is kept as its own series
+(``CDN_FEDERAL_DEBT_COLUMN``), drawn as a separate curve, rather than joined
+to the aggregate, of which it is only about half.
 """
 
 from __future__ import annotations
@@ -21,7 +29,14 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .cdn_archive_data import EMBEDDED_CDN_DEBT_HISTORY, EMBEDDED_CDN_INTEREST_HISTORY
+from .cdn_archive_data import (
+    EMBEDDED_CDN_DEBT_HISTORY,
+    EMBEDDED_CDN_EARLY_DEBT_HISTORY,
+    EMBEDDED_CDN_EARLY_INTEREST_HISTORY,
+    EMBEDDED_CDN_FEDERAL_DEBT_HISTORY,
+    EMBEDDED_CDN_GDP_HISTORY,
+    EMBEDDED_CDN_INTEREST_HISTORY,
+)
 from .cdn_hist_yields import build_cdn_hist_yields
 from .config import (
     ARCHIVE_CALIBRATION_END_YEAR,
@@ -29,9 +44,9 @@ from .config import (
     BOC_GROUP_URL,
     BOC_SERIES_URL,
     BOC_START_DATE,
-    CANADIAN_HISTORICAL_START,
     CANADIAN_SESSION,
     CDN_DEBT_COLUMN,
+    CDN_FEDERAL_DEBT_COLUMN,
     CDN_INTEREST_COLUMN,
     DATE_COLUMN,
     GDP_COLUMN,
@@ -69,9 +84,11 @@ CANADIAN_SERIES_EARLIEST = {
     "5-Year Yield (Bank of Canada historical table)": pd.Timestamp("1980-11-01"),
     "10-Year Yield (Bank of Canada historical table)": pd.Timestamp("1951-01-01"),
     "30-Year Yield / Over 10 Years (Bank of Canada historical table)": pd.Timestamp("1919-01-01"),
-    "Aggregate CDN Public Debt": CANADIAN_HISTORICAL_START,
-    "TTM Nominal GDP": pd.Timestamp("1961-10-01"),
-    "TTM Interest Payable": pd.Timestamp("1961-10-01"),
+    # The macro series begin where their oldest baked source does.
+    "Federal CDN Public Debt (alone, before 1933)": pd.Timestamp(EMBEDDED_CDN_FEDERAL_DEBT_HISTORY[0][0]),
+    "Aggregate CDN Public Debt": pd.Timestamp(EMBEDDED_CDN_EARLY_DEBT_HISTORY[0][0]),
+    "TTM Nominal GDP": pd.Timestamp(EMBEDDED_CDN_GDP_HISTORY[0][0]),
+    "TTM Interest Payable": pd.Timestamp(EMBEDDED_CDN_EARLY_INTEREST_HISTORY[0][0]),
 }
 
 
@@ -166,19 +183,26 @@ def _statcan_quarterly(table: pd.DataFrame, mask: pd.Series, column: str) -> pd.
 # ---------------------------------------------------------------------------
 
 
-def load_embedded_canadian_archives() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """Return ``(debt_history, interest_history)`` from the baked archive module.
+def embedded_frame(rows: list[tuple[str, float]], column: str) -> pd.DataFrame | None:
+    """Return a baked list as a date-indexed frame, or ``None`` when it is empty.
 
-    Either element is ``None`` when its list is empty (i.e. ``--bake-archives``
-    has never been run), so callers fall back to the live series alone.
+    A list is empty only if ``--bake-archives`` has never filled it; callers
+    then fall back to the remaining sources.
     """
-    debt = rows_to_frame(EMBEDDED_CDN_DEBT_HISTORY, CDN_DEBT_COLUMN) if EMBEDDED_CDN_DEBT_HISTORY else None
-    interest = (
-        rows_to_frame(EMBEDDED_CDN_INTEREST_HISTORY, CDN_INTEREST_COLUMN)
-        if EMBEDDED_CDN_INTEREST_HISTORY
-        else None
-    )
-    return debt, interest
+    return rows_to_frame(rows, column) if rows else None
+
+
+def _chain(sources: Iterable[pd.DataFrame | None], column: str, *, annual_historical: bool) -> pd.DataFrame | None:
+    """Join ``sources`` (oldest first) pairwise with ``_splice_or_fallback``; missing ones are skipped.
+
+    Each newer source is authoritative over the older ones where it exists.
+    ``annual_historical`` is passed to every join (True when the older
+    sources are year-end observations, as for debt).
+    """
+    result: pd.DataFrame | None = None
+    for source in sources:
+        result = _splice_or_fallback(result, source, column, annual_historical=annual_historical)
+    return result
 
 
 def _splice_archived_series(
@@ -288,11 +312,16 @@ def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
 
 
 def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
-    """Return general-government gross debt: baked archive spliced to the live table."""
+    """Return general-government gross debt, and federal debt alone before the aggregate begins.
+
+    The aggregate (``CDN_DEBT_COLUMN``) chains the 1933-1975 history, the
+    1961-1994 archive and the live table. ``CDN_FEDERAL_DEBT_COLUMN`` holds
+    the federal-only years (1867-1932) as they are: a different quantity, so
+    not scaled to the aggregate.
+    """
     if not config.include_debt:
         return None
 
-    archive, _ = load_embedded_canadian_archives()
     try:
         table = statcan_zip_table(STATCAN_CDN_DEBT_TABLE)
         modern = _statcan_quarterly(table, table["Estimates"].eq("Debt"), CDN_DEBT_COLUMN)
@@ -302,17 +331,37 @@ def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
             wds = statcan_wds_vectors([STATCAN_CDN_DEBT_FALLBACK_VECTOR], latest_n=250)
             modern = (wds[STATCAN_CDN_DEBT_FALLBACK_VECTOR] * MILLION).rename(CDN_DEBT_COLUMN).to_frame().resample("QS").last()
         except Exception as exc2:
-            print(f"  Warning: WDS fallback failed ({exc2}); using archive only.")
+            print(f"  Warning: WDS fallback failed ({exc2}); using the baked history only (to 1994).")
             modern = None
 
-    return _splice_or_fallback(archive, modern, CDN_DEBT_COLUMN, annual_historical=True)
+    aggregate = _chain(
+        (
+            embedded_frame(EMBEDDED_CDN_EARLY_DEBT_HISTORY, CDN_DEBT_COLUMN),
+            embedded_frame(EMBEDDED_CDN_DEBT_HISTORY, CDN_DEBT_COLUMN),
+            modern,
+        ),
+        CDN_DEBT_COLUMN,
+        annual_historical=True,
+    )
+    federal_only = embedded_frame(EMBEDDED_CDN_FEDERAL_DEBT_HISTORY, CDN_FEDERAL_DEBT_COLUMN)
+    parts = [part for part in (aggregate, federal_only) if part is not None]
+    return pd.concat(parts, axis=1).sort_index() if parts else None
 
 
 def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
-    """Return trailing-twelve-month nominal GDP (mean of four SAAR quarters)."""
+    """Return trailing-twelve-month nominal GDP: the baked 1926-1994 history joined to the live table."""
     if not config.include_gdp:
         return None
 
+    history = embedded_frame(EMBEDDED_CDN_GDP_HISTORY, GDP_COLUMN)
+    live = _fetch_live_cdn_gdp()
+    if live is None and history is not None:
+        print("  Warning: using the baked GDP history only (to 1994).")
+    return _chain((history, live), GDP_COLUMN, annual_historical=False)
+
+
+def _fetch_live_cdn_gdp() -> pd.DataFrame | None:
+    """Return live TTM nominal GDP (mean of four SAAR quarters), or None if every source fails."""
     try:
         table = statcan_zip_table(STATCAN_CDN_GDP_TABLE)
         mask = (
@@ -327,7 +376,7 @@ def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
             fred = fetch_fred_csv(FRED_CDN_GDP_SERIES).set_index(DATE_COLUMN)
             saar = (fred.iloc[:, 0] * MILLION).rename("GDP_SAAR").to_frame().resample("QS").last()
         except Exception as exc2:
-            print(f"  Warning: FRED GDP fallback failed ({exc2}); GDP curve omitted.")
+            print(f"  Warning: FRED GDP fallback failed ({exc2}).")
             return None
 
     # A SAAR value is already an annual rate, so the TTM level is the 4-quarter mean.
@@ -335,11 +384,10 @@ def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
 
 
 def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
-    """Return TTM public-debt interest: baked archive spliced to the live GFS table."""
+    """Return TTM public-debt interest: the 1926 history, the 1961-1994 archive and the live GFS table."""
     if not config.include_interest:
         return None
 
-    _, archive = load_embedded_canadian_archives()
     try:
         table = statcan_zip_table(STATCAN_CDN_INTEREST_TABLE)
         mask = table["Government sectors"].eq("Consolidated government") & table[
@@ -349,10 +397,18 @@ def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
         # The GFS table reports actual quarterly flows (not annualised), so TTM is a 4-quarter sum.
         modern = quarterly["Interest_q"].rolling(4).sum().rename(CDN_INTEREST_COLUMN).to_frame()
     except Exception as exc:
-        print(f"  Warning: StatCan interest table failed ({exc}); using archive only.")
+        print(f"  Warning: StatCan interest table failed ({exc}); using the baked history only (to 1994).")
         modern = None
 
-    return _splice_or_fallback(archive, modern, CDN_INTEREST_COLUMN, annual_historical=False)
+    return _chain(
+        (
+            embedded_frame(EMBEDDED_CDN_EARLY_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
+            embedded_frame(EMBEDDED_CDN_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
+            modern,
+        ),
+        CDN_INTEREST_COLUMN,
+        annual_historical=False,
+    )
 
 
 def align_cdn_macro(
@@ -366,10 +422,20 @@ def align_cdn_macro(
 
     Returns a frame with a ``DATE`` column plus one column per available series.
     When yields are deselected a daily calendar over the window is used instead.
+
+    Where the window starts before the first yield, the window start and the
+    macro series' own dates up to that first yield are added, so a curve
+    that begins before any yield (federal debt from 1867, GDP from 1926; the
+    oldest yield is 1919) is drawn from the window start, as it would be
+    with yields deselected.
+
+    Federal debt alone is kept only until the aggregate begins: forward
+    filling would otherwise carry its 1932 value on for ever.
     """
-    plot_index = (
-        yields_all.index if not yields_all.empty else pd.date_range(config.start, config.end, freq="D")
-    )
+    if yields_all.empty:
+        plot_index = pd.date_range(config.start, config.end, freq="D")
+    else:
+        plot_index = pd.DatetimeIndex(yields_all.index)
     parts = [part for part in (debt_q, gdp_q, interest_q) if part is not None]
     if not parts:
         return pd.DataFrame({DATE_COLUMN: plot_index})
@@ -378,7 +444,13 @@ def align_cdn_macro(
         # pandas warns about concatenating frames with differing index dtypes/names.
         warnings.simplefilter("ignore", FutureWarning)
         macro = pd.concat(parts, axis=1, sort=False)
+        first_yield = plot_index.min()
+        if not yields_all.empty and config.start < first_yield:
+            before_yields = macro.index[(macro.index > config.start) & (macro.index < first_yield)]
+            plot_index = plot_index.union(before_yields).union(pd.DatetimeIndex([config.start]))
         aligned = (
-            macro.reindex(macro.index.union(plot_index)).sort_index().ffill().reindex(plot_index).reset_index()
+            macro.reindex(macro.index.union(plot_index)).sort_index().ffill().reindex(plot_index)
         )
-    return normalize_date_column(aligned)
+    if CDN_FEDERAL_DEBT_COLUMN in aligned.columns and CDN_DEBT_COLUMN in aligned.columns:
+        aligned.loc[aligned[CDN_DEBT_COLUMN].notna(), CDN_FEDERAL_DEBT_COLUMN] = np.nan
+    return normalize_date_column(aligned.rename_axis(DATE_COLUMN).reset_index())
