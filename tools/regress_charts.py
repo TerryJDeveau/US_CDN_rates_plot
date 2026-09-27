@@ -83,6 +83,8 @@ CASES: dict[str, list[str]] = {
     "u_lv_fpm1955": ["-u", "--i:fpm", "-s:1955"],
     "u_lv_d_fsm": ["-u", "--d:fsm", "-i", "-s:1990"],
     "u_lv_r": ["-u", "-r", "--i:fnpm"],
+    "u_lv_dpsm1950": ["-u", "--d:psm", "-s:1950"],
+    "u_lv_r_all1970": ["-u", "-r", "--d:fnpm", "-i", "-s:1970"],
 }
 
 

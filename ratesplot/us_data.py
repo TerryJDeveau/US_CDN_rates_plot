@@ -2,12 +2,15 @@
 
 All U.S. inputs come from FRED CSV downloads. Yields are daily; the macro
 series are quarterly and are forward-filled onto the daily yield dates by
-``plotting`` after fetching. (State and local interest apart are annual; they
-split the quarterly state-and-local total, see ``_split_state_and_local``.)
+``plotting`` after fetching. State and local apart are yearly (BEA interest,
+and Census debt baked into ``us_archive_data``); they split the quarterly
+state-and-local figures (``_split_state_and_local_interest``,
+``_split_state_and_local_debt``).
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from .config import (
@@ -20,11 +23,11 @@ from .config import (
     THOUSAND,
     US_DEBT_COLUMN,
     US_INTEREST_COLUMN,
-    US,
     PlotConfig,
     component_column,
 )
 from .http import fetch_fred_csv
+from .us_archive_data import EMBEDDED_US_DEBT_BY_LEVEL
 
 # First observation of each U.S. input, used to warn when ``--start`` is earlier.
 US_SERIES_EARLIEST = {
@@ -58,7 +61,7 @@ US_INTEREST_SERIES_ID = "A180RC1Q027SBEA"
 US_FEDERAL_INTEREST_SERIES_ID = "A091RC1Q027SBEA"
 US_STATE_LOCAL_INTEREST_SERIES_ID = "B111RC1Q027SBEA"
 # State and local interest apart (NIPA tables 3.20 and 3.21, the "p" and "m"
-# lines) are annual only, from 1959, $ billions; see _split_state_and_local.
+# lines) are annual only, from 1959, $ billions; see _split_state_and_local_interest.
 US_STATE_INTEREST_SERIES_ID = "W756RC1A027NBEA"
 US_LOCAL_INTEREST_SERIES_ID = "W856RC1A027NBEA"
 US_GDP_SERIES_ID = "GDP"                    # nominal GDP, SAAR $ billions
@@ -122,7 +125,7 @@ def _ttm_interest(saar: pd.Series, column: str) -> pd.DataFrame:
     return saar.rolling(4, min_periods=4).mean().rename(column).reset_index()
 
 
-def _split_state_and_local(state_and_local: pd.Series) -> tuple[pd.Series, pd.Series, int]:
+def _split_state_and_local_interest(state_and_local: pd.Series) -> tuple[pd.Series, pd.Series, int]:
     """Split quarterly state-and-local interest (SAAR) into ``(state, local, last_year)``.
 
     BEA publishes state and local interest apart only annually (from 1959),
@@ -142,7 +145,52 @@ def _split_state_and_local(state_and_local: pd.Series) -> tuple[pd.Series, pd.Se
     return state_and_local * state_share, state_and_local * (1.0 - state_share), last_year
 
 
-def _fetch_us_interest_levels(letters: tuple[str, ...], config: PlotConfig) -> list[pd.DataFrame]:
+def _census_state_debt_share() -> pd.Series | None:
+    """Return the state share of state and local debt at each Census fiscal year end, or None if not baked.
+
+    Dated as FRED dates quarterly levels, by the quarter's first day: a
+    fiscal year ending 30 June is the second quarter's level, dated 1 April.
+    """
+    state, local = (dict(EMBEDDED_US_DEBT_BY_LEVEL.get(key, [])) for key in ("p", "m"))
+    if not state or not local:
+        return None
+    share = (pd.Series(state) / (pd.Series(state) + pd.Series(local))).dropna()
+    share.index = pd.DatetimeIndex(pd.to_datetime(share.index)).to_period("Q").start_time
+    return share.sort_index()
+
+
+def _split_state_and_local_debt(
+    dates: pd.Series, state_and_local: pd.Series, config: PlotConfig
+) -> tuple[pd.Series, pd.Series] | None:
+    """Split quarterly state-and-local debt (indexed like ``dates``) into ``(state, local)``; None if not baked.
+
+    The Census counts state and local debt apart once a year. Its state
+    share is interpolated linearly in time between fiscal years (and across
+    the years before 1952 that it skips) and applied to the Fed's quarterly
+    total, so state plus local is the total exactly and each fiscal year's
+    share is the Census's. After the last fiscal year its share is held,
+    with a warning; before the first (1902) there is none.
+    """
+    share = _census_state_debt_share()
+    if share is None:
+        print("  Warning: U.S. state and local debt apart have not been baked (tools/bake_archives.py); not drawn.")
+        return None
+    last = share.index.max()
+    if config.end > last + pd.DateOffset(months=3):
+        print(
+            f"  Warning: U.S. state and local debt are counted apart only yearly, to fiscal {last.year}; "
+            f"later quarters split the combined figure by fiscal {last.year}'s shares."
+        )
+    when = pd.DatetimeIndex(pd.to_datetime(dates)).as_unit("ns").asi8
+    known = share.index.as_unit("ns").asi8
+    # np.interp holds the last share after it; before the first there is none.
+    values = np.interp(when, known, share.to_numpy(dtype=float))
+    values[when < known[0]] = np.nan
+    state_share = pd.Series(values, index=dates.index)
+    return state_and_local * state_share, state_and_local * (1.0 - state_share)
+
+
+def _fetch_us_interest_levels(letters: str, config: PlotConfig) -> list[pd.DataFrame]:
     """Return one TTM ``[DATE, component_column("interest", letter)]`` frame per level in ``letters``.
 
     Federal interest is required, as the aggregate is; the other levels are
@@ -161,10 +209,10 @@ def _fetch_us_interest_levels(letters: tuple[str, ...], config: PlotConfig) -> l
     quarterly = {"n": state_and_local}
     if set(letters) & set("pm"):
         try:
-            quarterly["p"], quarterly["m"], last_year = _split_state_and_local(state_and_local)
+            quarterly["p"], quarterly["m"], last_year = _split_state_and_local_interest(state_and_local)
             if config.end.year > last_year:
                 print(
-                    f"  Warning: U.S. state and local interest are published apart only annually, to {last_year}; "
+                    f"  Warning: U.S. state and local interest are published apart only yearly, to {last_year}; "
                     f"later quarters split the combined figure by {last_year}'s shares."
                 )
         except Exception as exc:
@@ -207,7 +255,7 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
 
     if config.include_interest:
         if split:
-            frames += _fetch_us_interest_levels(US.levels_drawn(config, "interest"), config)
+            frames += _fetch_us_interest_levels(config.components, config)
         else:
             frames.append(_ttm_interest(_fetch_billions(US_INTEREST_SERIES_ID), US_INTEREST_COLUMN))
 
@@ -232,7 +280,13 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
         if split:
             data[component_column("debt", "f")] = data["Fed_Debt"]
             # As a line of its own, unknown state/local debt is missing, not zero.
-            data[component_column("debt", "n")] = state_local if state_local_debt_known else float("nan")
+            if not state_local_debt_known:
+                state_local = pd.Series(float("nan"), index=data.index)
+            data[component_column("debt", "n")] = state_local
+            if set(config.components) & set("pm"):
+                parts = _split_state_and_local_debt(data[DATE_COLUMN], state_local, config)
+                if parts is not None:
+                    data[component_column("debt", "p")], data[component_column("debt", "m")] = parts
 
     interest_levels = [component_column("interest", letter) for letter in COMPONENT_LETTERS]
     for column in [GDP_COLUMN, US_INTEREST_COLUMN, *interest_levels]:
