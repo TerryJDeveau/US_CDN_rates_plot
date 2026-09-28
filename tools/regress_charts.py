@@ -12,8 +12,9 @@ only the first run touches the network. Delete the folder to fetch fresh data.
 
 --cur is on by default. With the end pinned in the past, the only newer values
 it adds are the U.S. Treasury's daily federal debt after FRED's last quarter
-(cached like the rest); intraday quotes are never fetched for such a window.
-``--extra=--no-cur`` renders every case without it.
+(cached like the rest); intraday quotes are never fetched for such a window,
+and nothing is projected to today. ``--extra=--no-cur`` renders every case
+without it. The quotes and projections need a live run ending today.
 
 Usage (from the project root)::
 

@@ -30,6 +30,16 @@ is fetched only then: a window ending in the past is drawn exactly as before.
 A source that fails prints a warning and adds nothing. GDP, interest,
 population and Canadian debt have no faster free source than the
 quarterly statistics already used.
+
+For those, a chart reaching today gets the effect of a debt clock
+(usdebtclock.org, whose figures are each "base + rate x time elapsed";
+Terry, 2026-09-28: emulate it, without scraping it). Each right-axis curve
+is carried from its last observation to the chart's last date along the
+straight line of its own change over the year before
+(``project_to_now``). The projected stretch is drawn fainter, and its end
+label reads "≈" (plotting). A quarterly figure describes the quarter's end
+although it is dated by the quarter's first day, so the projection starts
+at the quarter's end (``observed_through``).
 """
 
 from __future__ import annotations
@@ -76,10 +86,101 @@ _DEBT_JOIN_TOLERANCE = 0.001
 _QUOTE_MAX_AGE_DAYS = 4
 
 
+# Where ``project_to_now`` records, in the macro frame's ``attrs``, the date each
+# projected column's observations end: {column: date}.
+PROJECTION_ATTR = "projected_from"
+# A curve whose last observation is older than this is not projected: that is
+# a series that ended (federal debt alone, pre-1933) or a live source that
+# failed, leaving only the baked history.
+_PROJECTION_MAX_AGE_DAYS = 400
+# The rate of a projection is the curve's change over this many days before its last observation.
+_PROJECTION_RATE_DAYS = 365
+
+
 def _quotes_can_reach(config: PlotConfig) -> bool:
     """True when the window ends late enough for the day's quotes to fall in it."""
     today = pd.Timestamp.now(tz=MARKET_TIMEZONE).tz_localize(None).normalize()
     return config.end >= today - pd.Timedelta(days=_QUOTE_MAX_AGE_DAYS)
+
+
+def observed_through(dates: pd.Index | pd.Series) -> pd.Timestamp | None:
+    """Return the date a series' last observation describes, given its observation dates (None if none).
+
+    Quarterly series here (FRED's, and StatCan's resampled to "QS") are
+    dated by the quarter's first day but hold the quarter's closing level or
+    its trailing year to the quarter's end: GFDEBTN at 2026-01-01 is the debt
+    on 2026-03-31. So a last date on a quarter's first day, a quarter after
+    the one before it, stands for that quarter's end. Anything else (daily
+    data) stands for itself.
+    """
+    stamps = pd.DatetimeIndex(pd.to_datetime(pd.Series(dates).dropna())).sort_values()
+    if not len(stamps):
+        return None
+    last = stamps[-1]
+    if len(stamps) >= 2 and 80 <= (last - stamps[-2]).days <= 100 and last.is_quarter_start:
+        return last + pd.offsets.QuarterEnd(0)
+    return last
+
+
+def project_to_now(
+    data: pd.DataFrame, observed: dict[str, pd.Timestamp], config: PlotConfig, history: pd.DataFrame
+) -> pd.DataFrame:
+    """Carry each column of ``observed`` from the date its data end to the frame's last date (see the module docstring).
+
+    ``data`` is a macro frame (a ``DATE`` column plus one column per curve,
+    each held forward to the chart's last date); ``observed`` gives each
+    curve's last observation date (``observed_through``); ``history`` holds
+    the same curves over their whole span, date-indexed, since ``data`` may
+    start after the year the pace is measured over. Along the way the value
+    grows at the curve's own rate over that year, in a straight line as a
+    debt clock does. Rows are added at each starting date so a projection
+    begins exactly where its data end. Only with --cur, on a chart reaching
+    today; the columns projected, with their starting dates, are recorded in
+    ``attrs[PROJECTION_ATTR]``.
+    """
+    if not config.current or data.empty or not observed or not _quotes_can_reach(config):
+        return data
+    end = data[DATE_COLUMN].max()
+    starts = {
+        column: start
+        for column, start in observed.items()
+        if column in data.columns and start is not None and start < end
+        and (end - start).days <= _PROJECTION_MAX_AGE_DAYS
+    }
+    if not starts:
+        return data
+
+    data = data.sort_values(DATE_COLUMN).reset_index(drop=True)
+    new_dates = sorted(set(starts.values()) - set(data[DATE_COLUMN]))
+    if new_dates:
+        data = pd.concat([data, pd.DataFrame({DATE_COLUMN: new_dates})], ignore_index=True)
+        data = data.sort_values(DATE_COLUMN).reset_index(drop=True)
+        added = data[DATE_COLUMN].isin(new_dates)
+        for column in data.columns.drop(DATE_COLUMN):
+            # The held value, but not past a curve's own last value.
+            held = data[column].ffill().where(data[column].bfill().notna())
+            data.loc[added, column] = held[added]
+
+    print(f"Projecting to {end:%Y-%m-%d} at each curve's pace over the year before its last data (--cur):")
+    projected: dict[str, pd.Timestamp] = {}
+    for column, start in starts.items():
+        if column not in history.columns:
+            continue
+        series = history[column].sort_index()
+        base = series.loc[:start].dropna()
+        earlier = series.loc[: start - pd.Timedelta(days=_PROJECTION_RATE_DAYS)].dropna()
+        if base.empty or earlier.empty:
+            continue
+        value = float(base.iloc[-1])
+        per_day = (value - float(earlier.iloc[-1])) / _PROJECTION_RATE_DAYS
+        later = (data[DATE_COLUMN] > start) & data[column].notna()
+        elapsed = (data.loc[later, DATE_COLUMN] - start).dt.days
+        data.loc[later, column] = value + per_day * elapsed
+        projected[column] = start
+        pace = per_day * 365 / value if value else float("nan")
+        print(f"  {column}: from {start:%Y-%m-%d}, {pace:+.1%} a year")
+    data.attrs[PROJECTION_ATTR] = projected
+    return data
 
 
 # ---------------------------------------------------------------------------

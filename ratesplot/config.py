@@ -258,6 +258,16 @@ MACRO_PLOT_STYLES.update(
 )
 
 
+# --cur on a chart reaching today: each right-axis curve's stretch from its last
+# data to today, projected like a debt clock (ratesplot.latest.project_to_now),
+# is drawn straight and fainter in the curve's own colour and dashes; one grey
+# legend entry says what the faint stretches are, and their end labels read "≈".
+PROJECTION_ALPHA = 0.4
+PROJECTION_LABEL = "Projected at the past year's pace"
+PROJECTION_KEY_COLOR = "0.35"
+PROJECTION_LABEL_PREFIX = "≈"
+
+
 def component_column(kind: str, letter: str) -> str:
     """Return the column holding one level's ``kind`` ("debt" or "interest"), e.g. ``"Debt [f] ($)"``."""
     return f"{kind.capitalize()} [{letter}] ($)"

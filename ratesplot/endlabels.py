@@ -110,15 +110,20 @@ def _curve_end(line: Line2D) -> tuple[float, float] | None:
     """Return the rightmost finite point of the curve ``line`` is the legend entry for, or None.
 
     A curve can be drawn in pieces: the Canadian yields are monthly steps to
-    2000 and a daily line after it, the later piece in the same colour and
-    hidden from the legend (its label starts with "_", matplotlib's mark for
-    that). Such pieces on the same axes are part of the curve, so its end is
-    where the last of them ends.
+    2000 and a daily line after it, and with --cur a right-axis curve's
+    projection to today follows its data. The later pieces have the same
+    colour and dashes and are hidden from the legend (their labels start with
+    "_", matplotlib's mark for that). Such pieces on the same axes are part of
+    the curve, so its end is where the last of them ends. The dashes matter:
+    federal debt before 1933 is dotted black and the aggregate solid black.
     """
     pieces = [line] + [
         other
         for other in line.axes.get_lines()
-        if other is not line and other.get_label().startswith("_") and same_color(other.get_color(), line.get_color())
+        if other is not line
+        and other.get_label().startswith("_")
+        and same_color(other.get_color(), line.get_color())
+        and other.get_linestyle() == line.get_linestyle()
     ]
     end: tuple[float, float] | None = None
     for piece in pieces:

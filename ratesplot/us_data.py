@@ -27,7 +27,7 @@ from .config import (
     component_column,
 )
 from .http import fetch_fred_csv
-from .latest import extend_us_federal_debt
+from .latest import extend_us_federal_debt, observed_through, project_to_now
 from .us_archive_data import EMBEDDED_US_DEBT_BY_LEVEL
 
 # First observation of each U.S. input, used to warn when ``--start`` is earlier.
@@ -266,6 +266,23 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
         gdp[GDP_COLUMN] = gdp["GDP_SAAR"].rolling(4, min_periods=4).mean()
         frames.append(gdp[[DATE_COLUMN, GDP_COLUMN]])
 
+    # The date each drawn curve's data describe up to, for --cur's projection to
+    # today (ratesplot.latest). The aggregate debt is known as late as the later
+    # of its parts; each level of debt as its source.
+    ends = {
+        column: observed_through(frame.loc[frame[column].notna(), DATE_COLUMN])
+        for frame in frames
+        for column in frame.columns.drop(DATE_COLUMN)
+    }
+    observed = {column: ends[column] for column in (GDP_COLUMN, US_INTEREST_COLUMN) if column in ends}
+    observed.update({column: date for column, date in ends.items() if column.startswith("Interest [")})
+    if config.include_debt:
+        parts = [ends.get("Fed_Debt")] + ([ends.get("State_Local_Debt")] if state_local_debt_known else [])
+        observed[US_DEBT_COLUMN] = max(date for date in parts if date is not None)
+        observed[component_column("debt", "f")] = ends.get("Fed_Debt")
+        for letter in "npm":
+            observed[component_column("debt", letter)] = ends.get("State_Local_Debt") if state_local_debt_known else None
+
     # Outer merge keeps every observation date from every source.
     data = frames[0]
     for frame in frames[1:]:
@@ -297,6 +314,7 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
 
     # Trim to the window and drop rows where no selected series has a value yet
     # (e.g. the first three quarters before a TTM rolling window is complete).
+    history = data.set_index(DATE_COLUMN)  # the whole span, for --cur's projection
     data = data.loc[data[DATE_COLUMN] >= config.start].copy()
     candidates = [US_DEBT_COLUMN, GDP_COLUMN, US_INTEREST_COLUMN] + [
         component_column(kind, letter) for kind in ("debt", "interest") for letter in COMPONENT_LETTERS
@@ -309,4 +327,5 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
         tail[DATE_COLUMN] = last_yield_date
         data = pd.concat([data, tail], ignore_index=True)
 
-    return data
+    # --cur, on a chart reaching today: carried on from the last data, as a debt clock is.
+    return project_to_now(data, observed, config, history)

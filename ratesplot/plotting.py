@@ -43,6 +43,10 @@ from .config import (
     CDN,
     DATE_COLUMN,
     MACRO_PLOT_STYLES,
+    PROJECTION_ALPHA,
+    PROJECTION_KEY_COLOR,
+    PROJECTION_LABEL,
+    PROJECTION_LABEL_PREFIX,
     US,
     YIELD_COLUMNS,
     YIELD_LINE_STYLE,
@@ -51,7 +55,14 @@ from .config import (
 )
 from .endlabels import ValueFormatter
 from .frames import filter_to_date_range
-from .latest import QUOTE_TIME_ATTR, extend_cdn_yields, extend_us_yields
+from .latest import (
+    PROJECTION_ATTR,
+    QUOTE_TIME_ATTR,
+    extend_cdn_yields,
+    extend_us_yields,
+    observed_through,
+    project_to_now,
+)
 from .legend import finish_legend_and_title
 from .measures import express
 from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_population, fetch_us_yields
@@ -108,12 +119,36 @@ def warn_macro_limits_coverage(
 
 
 def add_macro_line(
-    ax: Axes, data: pd.DataFrame, *, enabled: bool, column: str, label: str, style: dict
+    ax: Axes,
+    data: pd.DataFrame,
+    *,
+    enabled: bool,
+    column: str,
+    label: str,
+    style: dict,
+    projected_from: pd.Timestamp | None = None,
 ) -> Line2D | None:
-    """Plot one macro series if it is enabled and has data; return the line or ``None``."""
+    """Plot one macro series if it is enabled and has data; return the (legend) line or ``None``.
+
+    With ``projected_from`` (--cur, ``latest.project_to_now``) the rows after
+    that date are a projection, not data: they are drawn as a straight,
+    fainter continuation, hidden from the legend, after the curve's steps.
+    """
     if not enabled or data.empty or column not in data.columns or not data[column].notna().any():
         return None
-    (line,) = ax.plot(data[DATE_COLUMN], data[column], label=label, **style)
+    if projected_from is None:
+        (line,) = ax.plot(data[DATE_COLUMN], data[column], label=label, **style)
+        return line
+
+    observed = data.loc[data[DATE_COLUMN] <= projected_from]
+    ahead = data.loc[data[DATE_COLUMN] >= projected_from]
+    faint = {key: value for key, value in style.items() if key != "drawstyle"} | {"alpha": PROJECTION_ALPHA}
+    if not observed[column].notna().any():
+        # The window lies wholly in the projection.
+        (line,) = ax.plot(ahead[DATE_COLUMN], ahead[column], label=label, **faint)
+        return line
+    (line,) = ax.plot(observed[DATE_COLUMN], observed[column], label=label, **style)
+    ax.plot(ahead[DATE_COLUMN], ahead[column], label="_projection", **faint)
     return line
 
 
@@ -215,6 +250,7 @@ def draw_country(
     (``build_figure``), so the window and the GUI draw identical charts.
     """
     quote_time = yields.attrs.get(QUOTE_TIME_ATTR)  # --cur: when the day's quotes were taken, if any
+    projected = macro.attrs.get(PROJECTION_ATTR, {})  # --cur: {column: date its data end}
     yield_lines = draw_yield_lines(ax_yield, yields, config)
 
     ax_macro = ax_yield.twinx()
@@ -224,7 +260,13 @@ def draw_country(
     macro_columns_drawn: list[str] = []
     for style_key, enabled, column, label in metadata.macro_specs(config):
         line = add_macro_line(
-            ax_macro, macro_in_range, enabled=enabled, column=column, label=label, style=MACRO_PLOT_STYLES[style_key]
+            ax_macro,
+            macro_in_range,
+            enabled=enabled,
+            column=column,
+            label=label,
+            style=MACRO_PLOT_STYLES[style_key],
+            projected_from=projected.get(column),
         )
         if line is not None:
             macro_lines.append(line)
@@ -235,18 +277,30 @@ def draw_country(
     warn_macro_limits_coverage(macro_in_range, macro_columns_drawn, config)
     # -l: every drawn curve gets its last value at its end, written as its
     # axis writes values: yields in percent, right-axis curves as the tick
-    # labels there (dollars, or percent of GDP under -r).
+    # labels there (dollars, or percent of GDP under -r); a projected value
+    # (--cur) reads "≈".
     end_labels: list[tuple[Line2D, ValueFormatter]] = []
     if config.end_labels:
         macro_format = format_percent if config.relative else partial(format_currency, prefix=metadata.currency_prefix)
-        end_labels = [(line, format_yield) for line in yield_lines] + [(line, macro_format) for line in macro_lines]
+        end_labels = [(line, format_yield) for line in yield_lines] + [
+            (line, (lambda value, fmt=macro_format: PROJECTION_LABEL_PREFIX + fmt(value)) if column in projected else macro_format)
+            for line, column in zip(macro_lines, macro_columns_drawn)
+        ]
+    # One legend entry says what the faint stretches are. Made after the line
+    # widths are scaled (apply_axes_formatting), so it matches them.
+    legend_macro = list(macro_lines)
+    if any(column in projected for column in macro_columns_drawn):
+        width = max(style["linewidth"] for style in MACRO_PLOT_STYLES.values()) * config.line_scale
+        legend_macro.append(
+            Line2D([], [], color=PROJECTION_KEY_COLOR, linewidth=width, alpha=PROJECTION_ALPHA, label=PROJECTION_LABEL)
+        )
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
     title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn, config=config)
     finish_legend_and_title(
         ax_yield,
-        [yield_lines, macro_lines],
+        [yield_lines, legend_macro],
         title,
         config,
         drawn_date_span((ax_yield, ax_macro)),
@@ -286,10 +340,17 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
         series = (fetch_cdn_components(config), fetch_cdn_gdp(config))
     else:
         series = (fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config))
-    macro = align_cdn_macro(yields, series, config)
+    # --cur on a chart reaching today: each curve carried on from its last data (ratesplot.latest).
+    parts = [part for part in series if part is not None]
+    observed = {column: observed_through(part[column].dropna().index) for part in parts for column in part.columns}
+    history = pd.concat(parts, axis=1) if parts else pd.DataFrame()
+    macro = project_to_now(align_cdn_macro(yields, series, config), observed, config, history)
+    projected = macro.attrs.get(PROJECTION_ATTR, {})
     population = fetch_cdn_population() if config.per_capita else None
     yields.attrs[QUOTE_TIME_ATTR] = quote_time
-    return yields, express(macro, config, CDN, population)
+    expressed = express(macro, config, CDN, population)
+    expressed.attrs[PROJECTION_ATTR] = projected
+    return yields, expressed
 
 
 def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -305,11 +366,14 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     last_yield_date = yields[DATE_COLUMN].max() if not yields.empty else config.end
 
     macro = fetch_us_macro(config, last_yield_date)
+    projected = macro.attrs.get(PROJECTION_ATTR, {})
     if not macro.empty:
         macro = macro.loc[macro[DATE_COLUMN] <= config.end]
     population = fetch_us_population() if config.per_capita else None
     yields.attrs[QUOTE_TIME_ATTR] = quote_time
-    return yields, express(macro, config, US, population)
+    expressed = express(macro, config, US, population)
+    expressed.attrs[PROJECTION_ATTR] = projected
+    return yields, expressed
 
 
 @dataclass(frozen=True)
