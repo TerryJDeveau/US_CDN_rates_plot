@@ -27,6 +27,7 @@ from .config import (
     component_column,
 )
 from .http import fetch_fred_csv
+from .latest import extend_us_federal_debt
 from .us_archive_data import EMBEDDED_US_DEBT_BY_LEVEL
 
 # First observation of each U.S. input, used to warn when ``--start`` is earlier.
@@ -243,7 +244,8 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
     split = bool(config.components)  # draw federal and non-federal lines instead of the aggregates
     state_local_debt_known = True
     if config.include_debt:
-        federal = _fetch_fred_dollars(US_DEBT_SERIES_ID, "Fed_Debt", MILLION)
+        # With --cur, continued daily past FRED's last quarter (ratesplot.latest).
+        federal = extend_us_federal_debt(_fetch_fred_dollars(US_DEBT_SERIES_ID, "Fed_Debt", MILLION), "Fed_Debt", config)
         frames.append(federal)
         try:
             frames.append(_fetch_fred_dollars(US_STATE_LOCAL_DEBT_SERIES_ID, "State_Local_Debt", MILLION))

@@ -95,6 +95,9 @@ CASES: list[list[str]] = [
     # -l: each line's last value at its end; first letter, like the measures, and combines with them.
     ["-l"], ["--l"], ["--L"], ["--label"], ["--labels"], ["Label"], ["--lab"], ["--no-label"], ["--l:1"],
     ["-l", "-r", "-c"], ["-l", "-p", "-u", "--d:fp"], ["-L", "--gdp"],
+    # --cur: on by default; at least "cur", so never Canada; --no-cur turns it off.
+    ["--cur"], ["--curr"], ["--current"], ["--CURRENT"], ["--no-cur"], ["--no-current"], ["--No-Cur"],
+    ["--cu"], ["--cur:1"], ["current"], ["-c", "--no-cur"], ["--no-cur", "--cur"], ["--no-cur", "-l", "-u"],
 ]
 
 

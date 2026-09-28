@@ -10,9 +10,11 @@ an option here adds it everywhere.
 How a token is matched (see ``cli.parse_args``), in this order:
 
 1. ``EXACT`` options: the whole name after the dashes, case-insensitive, with
-   an optional ``no-`` prefix. No abbreviation. Checked first so that a new
-   exact name can never be swallowed by the leading-letter rules below
-   (``--gui`` would otherwise mean ``--gdp``).
+   an optional ``no-`` prefix. No abbreviation, unless the option lists
+   ``prefixes``: then any name (without a colon) starting with one of them
+   (``--cur``, ``--curr``, ``--current``). Checked first so that such a
+   name can never be swallowed by the leading-letter rules below (``--gui``
+   would otherwise mean ``--gdp``, and ``--cur`` Canada).
 2. ``VALUE`` options (``KEY:VALUE``): the key must start with one of the
    option's ``prefixes``. Only the leading letter(s) matter, so the many
    historical spellings (``--dim:``, ``--dimensions:``, ``--D:`` …) all work.
@@ -302,7 +304,7 @@ class Option:
     group: str  # key into GROUPS, for the help listing
     usage: str  # left-hand column of the help listing: the spellings
     help: str  # right-hand column; "\n" starts a continuation line
-    prefixes: tuple[str, ...] = ()  # VALUE / TOGGLE: accepted leading letters (lower case)
+    prefixes: tuple[str, ...] = ()  # VALUE / TOGGLE / EXACT: accepted leading letters (lower case)
     parse: Callable[[str], object] | None = None  # VALUE: payload -> value (a tuple if several fields)
     check: Callable[[Mapping[str, object]], None] | None = None  # VALUE: run after this option is parsed
     flag: str | None = None  # SWITCH: the argparse flag
@@ -333,6 +335,7 @@ GROUPS: dict[str, str] = {
     "units": "Measure of debt, GDP and interest (case-insensitive; first letter only):",
     "labels": "Line labels (case-insensitive; first letter only):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
+    "latest": "Latest data (case-insensitive; at least \"cur\"):",
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
     "yield": "Yield-axis limits (percent):",
     "dollar": (
@@ -442,6 +445,14 @@ OPTIONS: tuple[Option, ...] = (
         "bottom", Kind.VALUE, ("macro_bottom",), "dollar", "--bottom:VAL / --b:VAL", "lower bound",
         prefixes=("b",), parse=partial(parse_macro_bound, kind="bottom"), check=check_macro_bounds,
         label="Bottom", format=format_macro_bound,
+    ),
+    # The latest values (ratesplot.latest), on by default. EXACT with a prefix,
+    # so "--cur…" is never Canada (the first-letter rule for -c).
+    Option(
+        "current", Kind.EXACT, ("current",), "latest", "--cur / --current / --no-cur",
+        "on by default: U.S. Treasury daily yields\nand debt, and the day's intraday yield\n"
+        "quotes (CNBC), past the regular sources",
+        prefixes=("cur",), label="Latest values, with intraday quotes",
     ),
     # Interface. EXACT, so "--g", "--gu" and "--guix" still mean the GDP curve.
     Option(
@@ -586,7 +597,7 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     Options left at their defaults are omitted. The GUI passes every option,
     blanks included; blank values are omitted too.
     """
-    defaults, _ = choices_from_config(PlotConfig())
+    defaults, default_flags = choices_from_config(PlotConfig())
     tokens: list[str] = []
 
     countries = [option for option in options_in("country") if option.in_gui]
@@ -614,6 +625,10 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     tokens += [
         f"--{option.name}" for option in options_of(Kind.SWITCH) if option.group != "country" and flags.get(option.name)
     ]
+    # Whole-name switches in the window (--cur): only when not at their default.
+    for option in options_of(Kind.EXACT):
+        if option.in_gui and option.name in flags and flags[option.name] != default_flags[option.name]:
+            tokens.append(f"--{option.name}" if flags[option.name] else f"--no-{option.name}")
 
     # The levels are written on a curve that is shown: --debt:fp, or
     # --interest:fp when debt is off (both mean the same).

@@ -90,20 +90,28 @@ BOC_SERIES_URL = "https://www.bankofcanada.ca/valet/observations/{series_code}/c
 STATCAN_TABLE_URL = "https://www150.statcan.gc.ca/n1/tbl/csv/{table_id}-eng.zip"
 STATCAN_WDS_URL = "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorsAndLatestNPeriods"
 
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-CA,en;q=0.9",
+}
 # Single session for the Canadian providers (Bank of Canada, Statistics Canada)
 # so TCP connections are reused across the several downloads per run. FRED is
 # deliberately *not* routed through this session: see ``http.fetch_fred_csv``.
 CANADIAN_SESSION = requests.Session()
-CANADIAN_SESSION.headers.update(
-    {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-CA,en;q=0.9",
-    }
-)
+CANADIAN_SESSION.headers.update(_BROWSER_HEADERS)
+# The sources of the latest values (--cur, ``ratesplot.latest``): U.S. Treasury
+# and the quote feed. A session of their own, so a problem there cannot
+# disturb the Canadian downloads.
+LATEST_SESSION = requests.Session()
+LATEST_SESSION.headers.update(_BROWSER_HEADERS)
+# The quote feed is an extra: one quick try and one retry, then the chart is
+# drawn without it (with a warning).
+LATEST_QUOTE_TIMEOUT_SECONDS = 20
+LATEST_QUOTE_RETRIES = 2
 
 # ---------------------------------------------------------------------------
 # Data sources and units
@@ -177,6 +185,22 @@ CENSUS_OLD_ESTIMATES_URL = "https://www2.census.gov/govs/estimate/"
 CENSUS_TABLES_URL = "https://www2.census.gov/programs-surveys/gov-finances/tables/"
 US_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED U.S. ARCHIVE DATA"
 US_ARCHIVE_END_MARKER = "# END AUTO-GENERATED U.S. ARCHIVE DATA"
+
+# The latest values (--cur), newer than the regular series (see ratesplot.latest).
+# U.S. Treasury's daily par yield curve: the source of FRED's DGS series,
+# posted the same afternoon, where FRED follows a business day or more later.
+TREASURY_YIELD_CURVE_URL = (
+    "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/{year}/all"
+)
+# U.S. Treasury's "Debt to the Penny": total public debt outstanding each
+# business day, one day behind; FRED's quarterly GFDEBTN is its quarter-end value.
+TREASURY_DEBT_TO_PENNY_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny"
+# CNBC's quote feed (the one cnbc.com's own pages read): intraday government
+# bond yields for both countries, a few minutes old. Unofficial, so it may
+# change without notice; the chart is then drawn without it, with a warning.
+CNBC_QUOTE_URL = "https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol"
+# Quotes are timed in New York / Toronto time (both markets' hours).
+MARKET_TIMEZONE = "America/Toronto"
 
 # Unit multipliers. StatCan tables and FRED's GFDEBTN/SLGSDODNS report millions;
 # FRED's GDP and interest series report billions; its population, thousands.
@@ -489,6 +513,9 @@ class PlotConfig:
     # -l: print each drawn line's last value at its right-hand end, in the
     # line's colour; the date axis is widened to make room (ratesplot.endlabels).
     end_labels: bool = False
+    # --cur (on unless --no-cur): extend the regular series with the latest
+    # values from faster sources, down to intraday quotes (ratesplot.latest).
+    current: bool = True
     # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
     gui: bool = True
 

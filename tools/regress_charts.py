@@ -10,6 +10,11 @@ Downloads are cached on disk (``--cache``, default ``out/download_cache``), one
 pickle per request, so a "before" and an "after" run see byte-identical data and
 only the first run touches the network. Delete the folder to fetch fresh data.
 
+--cur is on by default. With the end pinned in the past, the only newer values
+it adds are the U.S. Treasury's daily federal debt after FRED's last quarter
+(cached like the rest); intraday quotes are never fetched for such a window.
+``--extra=--no-cur`` renders every case without it.
+
 Usage (from the project root)::
 
     python tools/regress_charts.py out/before --commit HEAD     # the last commit, working tree untouched
@@ -149,6 +154,9 @@ def main(argv: list[str]) -> int:
     source.add_argument("--commit", help="render from this git revision (exported, working tree untouched)")
     source.add_argument("--root", type=Path, help="render from this project tree")
     parser.add_argument("--only", help="comma-separated case names")
+    parser.add_argument(
+        "--extra", default="", help="tokens added to every case, e.g. --extra=--no-cur to prove a default-on option neutral"
+    )
     parser.add_argument("--cache", type=Path, default=ROOT / "out" / "download_cache", help="download cache folder")
     parser.add_argument("--verbose", action="store_true", help="show the program's own output")
     parser.add_argument("--list", action="store_true", help="list the cases and exit")
@@ -174,7 +182,7 @@ def main(argv: list[str]) -> int:
     for name, case in cases.items():
         output = io.StringIO()
         with contextlib.nullcontext() if args.verbose else contextlib.redirect_stdout(output):
-            written = verify_charts.run(args.outdir / name, [PINNED_END, *case])
+            written = verify_charts.run(args.outdir / name, [PINNED_END, *case, *args.extra.split()])
         status = []
         if args.compare is not None:
             for path in written:

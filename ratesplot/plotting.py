@@ -51,6 +51,7 @@ from .config import (
 )
 from .endlabels import ValueFormatter
 from .frames import filter_to_date_range
+from .latest import QUOTE_TIME_ATTR, extend_cdn_yields, extend_us_yields
 from .legend import finish_legend_and_title
 from .measures import express
 from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_population, fetch_us_yields
@@ -213,6 +214,7 @@ def draw_country(
     Works on any figure: a pyplot one (``plot_country``) or a bare Agg one
     (``build_figure``), so the window and the GUI draw identical charts.
     """
+    quote_time = yields.attrs.get(QUOTE_TIME_ATTR)  # --cur: when the day's quotes were taken, if any
     yield_lines = draw_yield_lines(ax_yield, yields, config)
 
     ax_macro = ax_yield.twinx()
@@ -243,7 +245,13 @@ def draw_country(
     # column groups.
     title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn, config=config)
     finish_legend_and_title(
-        ax_yield, [yield_lines, macro_lines], title, config, drawn_date_span((ax_yield, ax_macro)), end_labels
+        ax_yield,
+        [yield_lines, macro_lines],
+        title,
+        config,
+        drawn_date_span((ax_yield, ax_macro)),
+        end_labels,
+        quote_time if yield_lines else None,
     )
 
 
@@ -266,9 +274,13 @@ def plot_country(
 
 
 def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch and align all selected Canadian inputs, in the configured measure; return ``(yields, macro)``."""
+    """Fetch and align all selected Canadian inputs, in the configured measure; return ``(yields, macro)``.
+
+    With --cur the yields run on to the day's quotes, and the macro curves
+    with them; the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
+    """
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
-    yields = fetch_cdn_yields(config)
+    yields, quote_time = extend_cdn_yields(fetch_cdn_yields(config), config)
     if config.components:
         # Debt and interest by level of government replace the aggregate lines.
         series = (fetch_cdn_components(config), fetch_cdn_gdp(config))
@@ -276,13 +288,18 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
         series = (fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config))
     macro = align_cdn_macro(yields, series, config)
     population = fetch_cdn_population() if config.per_capita else None
+    yields.attrs[QUOTE_TIME_ATTR] = quote_time
     return yields, express(macro, config, CDN, population)
 
 
 def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro)``."""
+    """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro)``.
+
+    With --cur the yields run on to the day's quotes and federal debt daily
+    (see ``ratesplot.latest``); the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
+    """
     warn_series_coverage(config.start, US_SERIES_EARLIEST)
-    yields = fetch_us_yields(config)
+    yields, quote_time = extend_us_yields(fetch_us_yields(config), config)
     if not yields.empty:
         yields = yields.loc[yields[DATE_COLUMN] <= config.end]
     last_yield_date = yields[DATE_COLUMN].max() if not yields.empty else config.end
@@ -291,6 +308,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     if not macro.empty:
         macro = macro.loc[macro[DATE_COLUMN] <= config.end]
     population = fetch_us_population() if config.per_capita else None
+    yields.attrs[QUOTE_TIME_ATTR] = quote_time
     return yields, express(macro, config, US, population)
 
 

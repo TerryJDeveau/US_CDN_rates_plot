@@ -1,4 +1,4 @@
-"""HTTP and source-format helpers for FRED, Bank of Canada and Statistics Canada."""
+"""HTTP and source-format helpers for FRED, Bank of Canada, Statistics Canada and the latest-value sources."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from .config import (
     DEFAULT_GET_RETRIES,
     FRED_CSV_URL,
     HTTP_TIMEOUT_SECONDS,
+    LATEST_SESSION,
     RETRY_BACKOFF_BASE_SECONDS,
 )
 
@@ -89,6 +90,32 @@ def _with_retries(
     raise AssertionError("unreachable: max_retries must be >= 1")
 
 
+def _session_get(
+    session: requests.Session,
+    tag: str,
+    url: str,
+    params: dict | None,
+    *,
+    max_retries: int,
+    timeout: int,
+    cached: bool = True,
+) -> requests.Response:
+    """GET ``url`` through ``session`` with retries; cached under ``(tag, url, params)`` unless ``cached`` is False."""
+
+    def attempt() -> requests.Response:
+        response = session.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response
+
+    def download() -> requests.Response:
+        return _with_retries(f"{tag.capitalize()} request", attempt, max_retries=max_retries, retry_on=(requests.RequestException,))
+
+    if not cached:
+        return download()
+    # A Response keeps its body, so a cached one can be read again by later callers.
+    return _cached((tag, url, tuple(sorted((params or {}).items()))), download)
+
+
 def canadian_get(
     url: str,
     params: dict | None = None,
@@ -104,20 +131,23 @@ def canadian_get(
         max_retries: Total attempts before the last ``RequestException`` is raised.
         timeout: Per-request timeout in seconds.
     """
+    return _session_get(CANADIAN_SESSION, "canadian", url, params, max_retries=max_retries, timeout=timeout)
 
-    def attempt() -> requests.Response:
-        response = CANADIAN_SESSION.get(url, params=params, timeout=timeout)
-        response.raise_for_status()
-        return response
 
-    # A Response keeps its body, so a cached one can be read again by later callers.
-    key = ("canadian", url, tuple(sorted((params or {}).items())))
-    return _cached(
-        key,
-        lambda: _with_retries(
-            "Canadian request", attempt, max_retries=max_retries, retry_on=(requests.RequestException,)
-        ),
-    )
+def latest_get(
+    url: str,
+    params: dict | None = None,
+    *,
+    cached: bool = True,
+    max_retries: int = DEFAULT_GET_RETRIES,
+    timeout: int = HTTP_TIMEOUT_SECONDS,
+) -> requests.Response:
+    """GET a source of the latest values (--cur, see ``ratesplot.latest``) with retries.
+
+    ``cached=False`` is for intraday quotes: every drawing should show the
+    quotes of the moment, not those of the window's first drawing.
+    """
+    return _session_get(LATEST_SESSION, "latest", url, params, max_retries=max_retries, timeout=timeout, cached=cached)
 
 
 def get_if_published(

@@ -371,12 +371,16 @@ def finish_legend_and_title(
     config: PlotConfig,
     data_span: tuple[pd.Timestamp, pd.Timestamp] | None,
     end_labels: Sequence[tuple[Line2D, ValueFormatter]] = (),
+    quote_time: pd.Timestamp | None = None,
 ) -> None:
     """Add title and date-range subtitle, fix the layout and x-limits, label line ends, then place the legend.
 
     The subtitle names ``data_span``, the first and last dates of the data
     actually drawn, which may be narrower than the axis (``config.start`` to
     ``config.end``). With nothing drawn it falls back to the axis range.
+    When the drawing ends with intraday quotes (--cur), ``quote_time`` is when
+    they were taken, and the subtitle says so: "… – 2026-09-28 13:50 EDT
+    (intraday, provisional)".
 
     ``end_labels`` (-l) are the curves to label at their ends, each with the
     formatter for its value. The labels widen the date axis to the right, so
@@ -403,10 +407,13 @@ def finish_legend_and_title(
     # not leave a gap above the date range.
     subtitle_fs = (TITLE_FS - _SUBTITLE_FS_REDUCTION_PT) * scale
     subtitle_y = _TITLE_TOP_Y - _SUBTITLE_DROP_TITLE_SIZES * title_artist.get_fontsize() / 72.0 / max(figure_height, 0.1)
+    subtitle = f"{first:%Y-%m-%d} – {last:%Y-%m-%d}"
+    if quote_time is not None and quote_time.tz_localize(None).normalize() == last:
+        subtitle += f" {quote_time:%H:%M %Z} (intraday, provisional)"
     figure.text(
         0.5,
         subtitle_y,
-        f"{first:%Y-%m-%d} – {last:%Y-%m-%d}",
+        subtitle,
         ha="center",
         va="top",
         fontsize=subtitle_fs,

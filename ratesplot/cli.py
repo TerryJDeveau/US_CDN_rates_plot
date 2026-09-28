@@ -41,7 +41,7 @@ def match_token(token: str) -> tuple[Option, str | bool] | None:
     name = lower[3:] if is_negative else lower
 
     for option in options_of(Kind.EXACT):
-        if name == option.name:
+        if name == option.name or (option.prefixes and ":" not in name and name.startswith(option.prefixes)):
             return option, not is_negative
 
     if ":" in core:
