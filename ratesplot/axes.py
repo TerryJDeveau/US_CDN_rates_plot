@@ -397,7 +397,16 @@ def apply_axes_formatting(
     ax_yield.set_xlabel("Date", fontsize=LABEL_FS * scale)
     ax_yield.tick_params(axis="both", which="major", labelsize=TICK_FS * scale)
     ax_yield.tick_params(axis="both", which="minor", labelsize=(TICK_FS - 4) * scale)
-    ax_yield.xaxis.set_major_locator(_date_locator(minticks=6, maxticks=12, thin_month_ends=True))
+    major_dates = _date_locator(minticks=6, maxticks=12, thin_month_ends=True)
+    ax_yield.xaxis.set_major_locator(major_dates)
+    # The formatter is set explicitly, tied to that locator. Left to matplotlib,
+    # a chart without yields (nothing plotted on this axis, only on its twin)
+    # gets its date units only when apply_date_xlim sets the limits, and then
+    # a fresh AutoDateFormatter replaces this one, tied to a default locator
+    # that never runs and so formats every tick as a year: "2025, 2025, 2025,
+    # 2026 …" on a 15-month window. This is the formatter a yield chart already
+    # had, so their labels are unchanged.
+    ax_yield.xaxis.set_major_formatter(mdates.AutoDateFormatter(major_dates))
     ax_yield.xaxis.set_minor_locator(_date_locator(minticks=12, maxticks=24))
     grid_width = mpl.rcParams["grid.linewidth"] * config.line_scale
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
