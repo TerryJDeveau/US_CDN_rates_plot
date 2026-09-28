@@ -20,9 +20,10 @@ source, and to the minute by intraday quotes:
   up to 6 basis points (U.S. 3-month -6, 2-year +5, 10- and 30-year +1;
   Canada about -1.5). Appended as they are, the quotes would put a false
   step of that size on each line. So when the official series ends on the
-  business day before the quote, the day's move in the feed (its last
-  price less its own previous close) is added to the official close; only
-  otherwise is the quote used as it is.
+  business day before the quote, the day's move in the feed (its "change"
+  field, which survives the close) is added to the official close; only
+  otherwise is the quote used as it is. Quotes from 17:00 on are the next
+  day's session and are not used.
 
 Only what the regular series lack, up to ``config.end``, is added, and it
 is fetched only then: a window ending in the past is drawn exactly as before.
@@ -62,6 +63,10 @@ _QUOTE_SYMBOLS = {
 _TREASURY_COLUMNS = {"3-Month": "3 Mo", "2-Year": "2 Yr", "5-Year": "5 Yr", "10-Year": "10 Yr", "30-Year": "30 Yr"}
 # A quoted yield outside this range (percent) is a bad print and is left out.
 _PLAUSIBLE_YIELD = (-5.0, 50.0)
+# From this hour (market time) the feed's U.S. quotes are the next day's session:
+# at 17:05 on 2026-09-28 its previous close was that day's close. The day's
+# official figures are due by then, so such quotes are not used.
+_NEXT_SESSION_HOUR = 17
 # Debt to the Penny must agree this closely (fraction) with FRED's value for
 # the same quarter end, or the two are not the same measure and are not joined.
 _DEBT_JOIN_TOLERANCE = 0.001
@@ -124,6 +129,24 @@ def _percent(text: object) -> float:
     return float(str(text).strip().rstrip("%"))
 
 
+def _day_change(quote: dict) -> float:
+    """Return the feed's change on the day, in points; raises KeyError / ValueError / TypeError if it has none.
+
+    Its ``change`` field ("+0.042", "-0.006", "UNCH") keeps the day's move
+    after the close, when ``previous_day_closing`` has already been rolled
+    over to the day's own close (seen for Canada at 16:35 on 2026-09-28:
+    last = previous close, change +0.042). Only without it is the move
+    taken as last less previous close.
+    """
+    text = str(quote.get("change", "")).strip()
+    if text.upper() == "UNCH":
+        return 0.0
+    try:
+        return _percent(text)
+    except ValueError:
+        return _percent(quote["last"]) - _percent(quote["previous_day_closing"])
+
+
 def intraday_yields_after(
     country: str, official: pd.Series, last: pd.Timestamp, config: PlotConfig
 ) -> tuple[pd.DataFrame, pd.Timestamp | None]:
@@ -173,15 +196,17 @@ def intraday_yields_after(
         if not _PLAUSIBLE_YIELD[0] <= value <= _PLAUSIBLE_YIELD[1]:
             print(f"  Warning: quote {symbol} = {value} is not a plausible yield; left out.")
             continue
+        if when.hour >= _NEXT_SESSION_HOUR:
+            continue  # the next day's session: its "change" no longer runs from the official close
         day = when.tz_localize(None).normalize()
         if not last < day <= config.end:
             continue
         close = official.get(column)
         if day - pd.offsets.BDay(1) == last and close is not None and pd.notna(close):
             try:
-                value = float(close) + value - _percent(quote["previous_day_closing"])
+                value = float(close) + _day_change(quote)
             except (KeyError, TypeError, ValueError):
-                pass  # no previous close in the feed: the quote as it is
+                pass  # no change in the feed: the quote as it is
         rows.setdefault(day, {})[column] = value
         newest = when if newest is None else max(newest, when)
     frame = pd.DataFrame.from_dict(rows, orient="index").sort_index()
