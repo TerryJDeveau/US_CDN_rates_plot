@@ -2,9 +2,11 @@
 
 All U.S. inputs come from FRED CSV downloads. Yields are daily; the macro
 series are quarterly and are forward-filled onto the daily yield dates by
-``plotting`` after fetching. State and local apart are yearly (BEA interest,
-and Census debt baked into ``us_archive_data``); they split the quarterly
-state-and-local figures (``_split_state_and_local_interest``,
+``plotting`` after fetching. FRED dates a quarterly figure by the quarter's
+first day; here each is dated by the quarter's last day, the day it
+describes (``frames.at_quarter_end``). State and local apart are yearly (BEA
+interest, and Census debt baked into ``us_archive_data``); they split the
+quarterly state-and-local figures (``_split_state_and_local_interest``,
 ``_split_state_and_local_debt``).
 """
 
@@ -26,6 +28,7 @@ from .config import (
     PlotConfig,
     component_column,
 )
+from .frames import at_quarter_end
 from .http import fetch_fred_csv
 from .latest import extend_us_federal_debt, observed_through, project_to_now
 from .us_archive_data import EMBEDDED_US_DEBT_BY_LEVEL
@@ -37,8 +40,9 @@ US_SERIES_EARLIEST = {
     "5-Year Yield (DGS5)": pd.Timestamp("1962-01-02"),
     "10-Year Yield (DGS10)": pd.Timestamp("1962-01-02"),
     "30-Year Yield (DGS30)": pd.Timestamp("1977-02-15"),
-    "Federal debt (GFDEBTN)": pd.Timestamp("1966-01-01"),
-    "GDP / Interest (GDP, A180RC1…)": pd.Timestamp("1947-01-01"),
+    # Quarterly: the end of the first quarter, where its value is dated.
+    "Federal debt (GFDEBTN)": pd.Timestamp("1966-03-31"),
+    "GDP / Interest (GDP, A180RC1…)": pd.Timestamp("1947-03-31"),
 }
 
 # Chart column -> FRED constant-maturity Treasury yield series.
@@ -104,10 +108,11 @@ def fetch_us_population() -> pd.Series | None:
     return people.dropna()
 
 
-def _fetch_fred_dollars(series_id: str, column: str, multiplier: int) -> pd.DataFrame:
-    """Fetch one FRED series and return ``[DATE, column]`` scaled to dollars."""
+def _fetch_fred_quarterly(series_id: str, column: str, multiplier: int) -> pd.DataFrame:
+    """Fetch one quarterly FRED series and return ``[DATE, column]`` in dollars, dated by each quarter's end."""
     frame = fetch_fred_csv(series_id)
     frame[column] = frame[series_id] * multiplier
+    frame[DATE_COLUMN] = at_quarter_end(frame[DATE_COLUMN])
     return frame[[DATE_COLUMN, column]]
 
 
@@ -119,11 +124,13 @@ def _fetch_billions(series_id: str) -> pd.Series:
 
 
 def _ttm_interest(saar: pd.Series, column: str) -> pd.DataFrame:
-    """Return quarterly SAAR interest (dollars, date-indexed) as a TTM ``[DATE, column]`` frame.
+    """Return quarterly SAAR interest (dollars, dated as FRED dates it) as a TTM ``[DATE, column]`` frame.
 
-    SAAR is already annualised, so the TTM level is the 4-quarter mean.
+    SAAR is already annualised, so the TTM level is the 4-quarter mean. It is
+    dated by the end of its last quarter.
     """
-    return saar.rolling(4, min_periods=4).mean().rename(column).reset_index()
+    ttm = saar.rolling(4, min_periods=4).mean().rename(column)
+    return ttm.set_axis(at_quarter_end(ttm.index)).reset_index()
 
 
 def _split_state_and_local_interest(state_and_local: pd.Series) -> tuple[pd.Series, pd.Series, int]:
@@ -149,14 +156,14 @@ def _split_state_and_local_interest(state_and_local: pd.Series) -> tuple[pd.Seri
 def _census_state_debt_share() -> pd.Series | None:
     """Return the state share of state and local debt at each Census fiscal year end, or None if not baked.
 
-    Dated as FRED dates quarterly levels, by the quarter's first day: a
-    fiscal year ending 30 June is the second quarter's level, dated 1 April.
+    Dated by the fiscal year end the Census stamps it with, 30 June: the day
+    of the Fed's second-quarter level, as that is dated here.
     """
     state, local = (dict(EMBEDDED_US_DEBT_BY_LEVEL.get(key, [])) for key in ("p", "m"))
     if not state or not local:
         return None
     share = (pd.Series(state) / (pd.Series(state) + pd.Series(local))).dropna()
-    share.index = pd.DatetimeIndex(pd.to_datetime(share.index)).to_period("Q").start_time
+    share.index = pd.DatetimeIndex(pd.to_datetime(share.index))
     return share.sort_index()
 
 
@@ -177,7 +184,7 @@ def _split_state_and_local_debt(
         print("  Warning: U.S. state and local debt apart have not been baked (tools/bake_archives.py); not drawn.")
         return None
     last = share.index.max()
-    if config.end > last + pd.DateOffset(months=3):
+    if config.end >= last + pd.offsets.QuarterEnd(1):  # a chart reaching the next quarter's figure
         print(
             f"  Warning: U.S. state and local debt are counted apart only yearly, to fiscal {last.year}; "
             f"later quarters split the combined figure by fiscal {last.year}'s shares."
@@ -245,10 +252,10 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
     state_local_debt_known = True
     if config.include_debt:
         # With --cur, continued daily past FRED's last quarter (ratesplot.latest).
-        federal = extend_us_federal_debt(_fetch_fred_dollars(US_DEBT_SERIES_ID, "Fed_Debt", MILLION), "Fed_Debt", config)
+        federal = extend_us_federal_debt(_fetch_fred_quarterly(US_DEBT_SERIES_ID, "Fed_Debt", MILLION), "Fed_Debt", config)
         frames.append(federal)
         try:
-            frames.append(_fetch_fred_dollars(US_STATE_LOCAL_DEBT_SERIES_ID, "State_Local_Debt", MILLION))
+            frames.append(_fetch_fred_quarterly(US_STATE_LOCAL_DEBT_SERIES_ID, "State_Local_Debt", MILLION))
         except Exception as exc:
             # State/local debt is a refinement; without it the chart still shows federal debt.
             print(f"  Warning: state/local debt unavailable ({exc}); using federal debt only.")
@@ -262,7 +269,7 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
             frames.append(_ttm_interest(_fetch_billions(US_INTEREST_SERIES_ID), US_INTEREST_COLUMN))
 
     if config.needs_gdp:
-        gdp = _fetch_fred_dollars(US_GDP_SERIES_ID, "GDP_SAAR", BILLION)
+        gdp = _fetch_fred_quarterly(US_GDP_SERIES_ID, "GDP_SAAR", BILLION)
         gdp[GDP_COLUMN] = gdp["GDP_SAAR"].rolling(4, min_periods=4).mean()
         frames.append(gdp[[DATE_COLUMN, GDP_COLUMN]])
 

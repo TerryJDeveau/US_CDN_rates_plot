@@ -67,12 +67,12 @@ def ratio_at_observations(numerator: pd.Series, denominator: pd.Series) -> pd.Se
     Both series are already carried forward onto the chart's dates, so an
     observation shows as a change of value. Dividing on every date instead
     would mix dates: Canadian debt before 1990 is a year-end figure (every
-    few years in 1933-1943), while TTM GDP is stamped at the start of each
-    year's fourth quarter, so for a quarter or more each year the old debt
-    would sit over the new GDP, giving a sawtooth and brief dips that are not
-    in the data. Taken at the observation, a year-end debt is divided by the
-    TTM GDP current at the year end. The ratio ends where the numerator does
-    (federal debt alone stops when the aggregate begins).
+    few years in 1933-1943), while TTM GDP changes each quarter, so a year's
+    debt would sit over each newer GDP in turn, the ratio falling through
+    the year and jumping at its end: a sawtooth that is not in the data.
+    Taken at the observation, a year-end debt is divided by the TTM GDP to
+    that year end. The ratio ends where the numerator does (federal debt
+    alone stops when the aggregate begins).
     """
     observed = numerator.notna() & numerator.ne(numerator.shift())
     return (numerator / denominator).where(observed).ffill().where(numerator.notna())

@@ -37,9 +37,9 @@ Terry, 2026-09-28: emulate it, without scraping it). Each right-axis curve
 is carried from its last observation to the chart's last date along the
 straight line of its own change over the year before
 (``project_to_now``). The projected stretch is drawn fainter, and its end
-label reads "≈" (plotting). A quarterly figure describes the quarter's end
-although it is dated by the quarter's first day, so the projection starts
-at the quarter's end (``observed_through``).
+label reads "≈" (plotting). Quarterly figures are dated by the quarter's
+last day, the day they describe (``frames.at_quarter_end``), so a
+projection starts where the data really end (``observed_through``).
 """
 
 from __future__ import annotations
@@ -106,20 +106,12 @@ def _quotes_can_reach(config: PlotConfig) -> bool:
 def observed_through(dates: pd.Index | pd.Series) -> pd.Timestamp | None:
     """Return the date a series' last observation describes, given its observation dates (None if none).
 
-    Quarterly series here (FRED's, and StatCan's resampled to "QS") are
-    dated by the quarter's first day but hold the quarter's closing level or
-    its trailing year to the quarter's end: GFDEBTN at 2026-01-01 is the debt
-    on 2026-03-31. So a last date on a quarter's first day, a quarter after
-    the one before it, stands for that quarter's end. Anything else (daily
-    data) stands for itself.
+    Every series is dated by the day its values describe (a quarterly
+    figure by the quarter's last day, see ``frames.at_quarter_end``), so
+    that is simply its last date.
     """
-    stamps = pd.DatetimeIndex(pd.to_datetime(pd.Series(dates).dropna())).sort_values()
-    if not len(stamps):
-        return None
-    last = stamps[-1]
-    if len(stamps) >= 2 and 80 <= (last - stamps[-2]).days <= 100 and last.is_quarter_start:
-        return last + pd.offsets.QuarterEnd(0)
-    return last
+    stamps = pd.to_datetime(pd.Series(dates).dropna())
+    return pd.Timestamp(stamps.max()) if len(stamps) else None
 
 
 def project_to_now(
@@ -379,16 +371,16 @@ def extend_cdn_yields(yields: pd.DataFrame, config: PlotConfig) -> tuple[pd.Data
 def extend_us_federal_debt(federal: pd.DataFrame, column: str, config: PlotConfig) -> pd.DataFrame:
     """Continue FRED's quarterly federal debt (``[DATE, column]``, dollars) daily from Debt to the Penny.
 
-    FRED dates each quarter's closing debt by the quarter's first day
-    (GFDEBTN at 2026-01-01 is the Treasury's figure for 2026-03-31, exactly).
-    So the daily figures join the day after that quarter ends, where they
-    carry on from it. The join is checked: the Treasury's figure for that
-    quarter end must match FRED's, or nothing is added.
+    Each quarter's closing debt is dated by the quarter's last day (FRED's
+    GFDEBTN for 2026 Q1, dated 2026-01-01 there, is the Treasury's figure
+    for 2026-03-31, exactly). So the daily figures join the day after, where
+    they carry on from it. The join is checked: the Treasury's figure for
+    that quarter end must match FRED's, or nothing is added.
     """
     observed = federal.dropna(subset=[column])
     if not config.current or observed.empty:
         return federal
-    closes = observed[DATE_COLUMN].max() + pd.offsets.QuarterEnd(0)
+    closes = observed[DATE_COLUMN].max()
     if config.end <= closes:
         return federal
 

@@ -20,6 +20,20 @@ def rows_to_frame(rows: Iterable[tuple[str, float]], value_column: str) -> pd.Da
     return frame.set_index(DATE_COLUMN).sort_index()
 
 
+def at_quarter_end(dates: pd.DatetimeIndex | pd.Series) -> pd.DatetimeIndex | pd.Series:
+    """Move each date to the last day of its quarter; a date already there (31 December) stays.
+
+    Statistics Canada and FRED date a quarterly figure by the quarter's first
+    day, but the figure describes the quarter's end: a stock is the level on
+    that day (FRED's GFDEBTN at 2026-01-01 is the Treasury's debt on
+    2026-03-31, exactly) and a trailing-year flow runs to it. Dated there, each
+    step is drawn when it happened rather than a quarter early. The baked
+    histories keep the sources' dates and are moved in the same way when
+    loaded; their year-end figures are already where they belong.
+    """
+    return dates + pd.offsets.QuarterEnd(0)
+
+
 def normalize_date_column(df: pd.DataFrame, date_column: str = DATE_COLUMN) -> pd.DataFrame:
     """Return a copy whose date column is named ``date_column``.
 

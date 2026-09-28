@@ -1,8 +1,11 @@
 """Bank of Canada / Statistics Canada data pipelines.
 
-Each ``fetch_cdn_*`` function returns a quarter-start-indexed frame (or ``None``
-when the curve is deselected or unavailable). ``align_cdn_macro`` then
-forward-fills those quarterly values onto the daily yield dates for plotting.
+Each ``fetch_cdn_*`` macro function returns a date-indexed frame (or ``None``
+when the curve is deselected or unavailable), each value dated by the day it
+describes: a quarterly figure by the quarter's last day, although the sources
+date it by the first (``frames.at_quarter_end``), and a year-end one by
+31 December. ``align_cdn_macro`` then forward-fills those values onto the
+daily yield dates for plotting.
 
 Debt, GDP and interest are each a chain of sources, joined oldest to newest
 with ``_splice_archived_series`` (the newer source is never modified):
@@ -76,7 +79,7 @@ from .config import (
     PlotConfig,
     component_column,
 )
-from .frames import normalize_date_column, rows_to_frame
+from .frames import at_quarter_end, normalize_date_column, rows_to_frame
 from .http import canadian_get, fetch_fred_csv, parse_boc_csv
 
 # Bank of Canada Valet series codes -> chart column names. The 3-month T-bill
@@ -100,11 +103,12 @@ CANADIAN_SERIES_EARLIEST = {
     "5-Year Yield (3-5 year average before 1980-11)": pd.Timestamp(EMBEDDED_CDN_5Y_STAND_IN[0][0]),
     "10-Year Yield (Bank of Canada historical table)": pd.Timestamp("1951-01-01"),
     "30-Year Yield / Over 10 Years (Bank of Canada historical table)": pd.Timestamp("1919-01-01"),
-    # The macro series begin where their oldest baked source does.
+    # The macro series begin where their oldest baked source does, on the
+    # date its first value describes (see _dated_by_quarter_end).
     "Federal CDN Public Debt (alone, before 1933)": pd.Timestamp(EMBEDDED_CDN_FEDERAL_DEBT_HISTORY[0][0]),
     "Aggregate CDN Public Debt": pd.Timestamp(EMBEDDED_CDN_EARLY_DEBT_HISTORY[0][0]),
-    "TTM Nominal GDP": pd.Timestamp(EMBEDDED_CDN_GDP_HISTORY[0][0]),
-    "TTM Interest Payable": pd.Timestamp(EMBEDDED_CDN_EARLY_INTEREST_HISTORY[0][0]),
+    "TTM Nominal GDP": at_quarter_end(pd.Timestamp(EMBEDDED_CDN_GDP_HISTORY[0][0])),
+    "TTM Interest Payable": at_quarter_end(pd.Timestamp(EMBEDDED_CDN_EARLY_INTEREST_HISTORY[0][0])),
 }
 
 
@@ -186,7 +190,10 @@ def _statcan_quarterly(table: pd.DataFrame, mask: pd.Series, column: str) -> pd.
     """Select ``mask`` rows of a StatCan table and return ``VALUE`` in dollars.
 
     ``REF_DATE`` is ``YYYY-MM`` for quarterly tables; the result is indexed by
-    quarter start (``QS``) so all Canadian macro series share one calendar.
+    quarter start (``QS``), the source's own dating, like the baked histories,
+    so all Canadian macro series share one calendar while they are joined.
+    The fetchers then date the joined series by the quarter's end
+    (``_dated_by_quarter_end``).
     """
     selected = table.loc[mask, ["REF_DATE", "VALUE"]]
     dates = pd.DatetimeIndex(pd.to_datetime(selected["REF_DATE"].astype(str) + "-01"), name=DATE_COLUMN)
@@ -295,6 +302,18 @@ def _splice_or_fallback(
     return _splice_archived_series(archive, modern, column, annual_historical=annual_historical)
 
 
+def _dated_by_quarter_end(series: pd.DataFrame | pd.Series | None) -> pd.DataFrame | pd.Series | None:
+    """Return a joined macro series with each quarter-start date moved to its quarter's end (``frames.at_quarter_end``).
+
+    Done after the joins, which compare the sources on their own dates; it
+    moves every date within its year, so the joins are the same either way.
+    Year-end debt stays on 31 December.
+    """
+    if series is None:
+        return None
+    return series.set_axis(at_quarter_end(series.index))
+
+
 # ---------------------------------------------------------------------------
 # Per-curve fetchers
 # ---------------------------------------------------------------------------
@@ -385,7 +404,7 @@ def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
         annual_historical=True,
     )
     federal_only = embedded_frame(EMBEDDED_CDN_FEDERAL_DEBT_HISTORY, CDN_FEDERAL_DEBT_COLUMN)
-    parts = [part for part in (aggregate, federal_only) if part is not None]
+    parts = [_dated_by_quarter_end(part) for part in (aggregate, federal_only) if part is not None]
     return pd.concat(parts, axis=1).sort_index() if parts else None
 
 
@@ -398,7 +417,7 @@ def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
     live = _fetch_live_cdn_gdp()
     if live is None and history is not None:
         print("  Warning: using the baked GDP history only (to 1994).")
-    return _chain((history, live), GDP_COLUMN, annual_historical=False)
+    return _dated_by_quarter_end(_chain((history, live), GDP_COLUMN, annual_historical=False))
 
 
 def _fetch_live_cdn_gdp() -> pd.DataFrame | None:
@@ -441,14 +460,16 @@ def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
         print(f"  Warning: StatCan interest table failed ({exc}); using the baked history only (to 1994).")
         modern = None
 
-    return _chain(
-        (
-            embedded_frame(EMBEDDED_CDN_EARLY_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
-            embedded_frame(EMBEDDED_CDN_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
-            modern,
-        ),
-        CDN_INTEREST_COLUMN,
-        annual_historical=False,
+    return _dated_by_quarter_end(
+        _chain(
+            (
+                embedded_frame(EMBEDDED_CDN_EARLY_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
+                embedded_frame(EMBEDDED_CDN_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
+                modern,
+            ),
+            CDN_INTEREST_COLUMN,
+            annual_historical=False,
+        )
     )
 
 
@@ -547,7 +568,9 @@ def fetch_cdn_components(config: PlotConfig) -> pd.DataFrame | None:
             )
             if chained is not None:
                 columns.append(chained[CDN_INTEREST_COLUMN].rename(component_column("interest", letter)))
-    return pd.concat(columns, axis=1).sort_index() if columns else None
+    # Each series is moved before they are put side by side: interest dated
+    # 1 October and debt dated 31 December would otherwise share a row twice.
+    return pd.concat([_dated_by_quarter_end(column) for column in columns], axis=1).sort_index() if columns else None
 
 
 def fetch_cdn_population() -> pd.Series | None:
