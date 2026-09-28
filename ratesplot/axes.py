@@ -284,6 +284,10 @@ def set_macro_ylim(ax: Axes, config: PlotConfig) -> None:
     ax.set_ylim(10 ** (log_low - pad), 10 ** (log_high + pad))
 
 
+# Tick spacing (days) from which ticks are monthly or longer, not daily.
+_SHORTEST_MONTH_DAYS = 28
+
+
 class _DateLocator(mdates.AutoDateLocator):
     """AutoDateLocator that takes its own fallback without warning about it.
 
@@ -303,17 +307,56 @@ class _DateLocator(mdates.AutoDateLocator):
     chart loses its minor ticks and grid altogether. So the fallback is kept,
     and only that one warning is suppressed. Tick positions are exactly
     matplotlib's for every span (checked from 7 days to 120 years).
+
+    With ``thin_month_ends`` (the labelled major ticks) one more thing is
+    changed. Daily ticks every 2 or 4 days are laid on days of the month
+    (1, 5, 9 … 29) and start again on the 1st, so the last tick of a month
+    can fall only 1-3 days before the next month's 1st, and on windows of a
+    few weeks their labels ran together ("2026-08-292026-09-01", Terry,
+    2026-09-28). A tick closer than the regular spacing to a following
+    month start is dropped; the month start is kept. Only daily ticks: the
+    gaps between monthly or yearly ticks vary with the months' lengths, and
+    a first version that ignored this dropped every tick after a short
+    month. Checked over 2,580 windows from 7 days to 120 years: only such
+    ticks go (windows of 10 to 42 days), nothing is added, no short gap is
+    left, and the minor ticks are untouched.
     """
+
+    def __init__(self, *, minticks: int, maxticks: int, thin_month_ends: bool = False) -> None:
+        super().__init__(minticks=minticks, maxticks=maxticks)
+        self.thin_month_ends = thin_month_ends
 
     def get_locator(self, dmin, dmax):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="AutoDateLocator was unable to pick an appropriate interval")
             return super().get_locator(dmin, dmax)
 
+    def __call__(self):
+        return self._thinned(super().__call__())
 
-def _date_locator(*, minticks: int, maxticks: int) -> mdates.AutoDateLocator:
+    def tick_values(self, vmin, vmax):
+        return self._thinned(super().tick_values(vmin, vmax))
+
+    def _thinned(self, ticks):
+        """Drop a tick closer than the regular spacing to a following month start (see the class docstring)."""
+        values = np.asarray(ticks, dtype=float)
+        if not self.thin_month_ends or len(values) < 3:
+            return ticks
+        gaps = np.diff(values)
+        regular = float(np.median(gaps))
+        if regular >= _SHORTEST_MONTH_DAYS:
+            # Monthly and yearly ticks: their gaps vary with the months' lengths, which is not crowding.
+            return ticks
+        keep = np.ones(len(values), dtype=bool)
+        for index, gap in enumerate(gaps):
+            if gap < regular - 1e-9 and mdates.num2date(values[index + 1]).day == 1:
+                keep[index] = False
+        return values[keep]
+
+
+def _date_locator(*, minticks: int, maxticks: int, thin_month_ends: bool = False) -> mdates.AutoDateLocator:
     """Return the chart's date locator (see ``_DateLocator``)."""
-    return _DateLocator(minticks=minticks, maxticks=maxticks)
+    return _DateLocator(minticks=minticks, maxticks=maxticks, thin_month_ends=thin_month_ends)
 
 
 def scale_line_widths(ax_yield: Axes, ax_macro: Axes, line_scale: float) -> None:
@@ -354,7 +397,7 @@ def apply_axes_formatting(
     ax_yield.set_xlabel("Date", fontsize=LABEL_FS * scale)
     ax_yield.tick_params(axis="both", which="major", labelsize=TICK_FS * scale)
     ax_yield.tick_params(axis="both", which="minor", labelsize=(TICK_FS - 4) * scale)
-    ax_yield.xaxis.set_major_locator(_date_locator(minticks=6, maxticks=12))
+    ax_yield.xaxis.set_major_locator(_date_locator(minticks=6, maxticks=12, thin_month_ends=True))
     ax_yield.xaxis.set_minor_locator(_date_locator(minticks=12, maxticks=24))
     grid_width = mpl.rcParams["grid.linewidth"] * config.line_scale
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
