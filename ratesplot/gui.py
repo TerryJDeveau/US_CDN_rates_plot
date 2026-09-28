@@ -247,18 +247,21 @@ class ChartGeometry:
     ``box`` is (left, top, right, bottom) in image pixels, origin top-left.
     x limits are matplotlib date numbers. "left"/"right" are the two y axes:
     the yield axis and its twin carrying the macro series (dollars, or % of GDP).
+    ``window`` is the requested Start and End, also as date numbers: the axis
+    is wider (a small pad each side, and with -l room for the value labels).
     """
 
     box: tuple[float, float, float, float]
     xlim: tuple[float, float]
+    window: tuple[float, float]
     left_ylim: tuple[float, float]
     right_ylim: tuple[float, float]
     left_log: bool
     right_log: bool
 
     @classmethod
-    def from_figure(cls, figure: Figure) -> ChartGeometry | None:
-        """Measure a drawn figure (axes[0] is the yield axis, axes[1] its twin)."""
+    def from_figure(cls, figure: Figure, config: PlotConfig) -> ChartGeometry | None:
+        """Measure a figure drawn for ``config`` (axes[0] is the yield axis, axes[1] its twin)."""
         if len(figure.axes) < 2:
             return None
         left, right = figure.axes[0], figure.axes[1]
@@ -267,6 +270,7 @@ class ChartGeometry:
         return cls(
             box=(extent.x0, height - extent.y1, extent.x1, height - extent.y0),
             xlim=tuple(left.get_xlim()),
+            window=(float(mdates.date2num(config.start)), float(mdates.date2num(config.end))),
             left_ylim=tuple(left.get_ylim()),
             right_ylim=tuple(right.get_ylim()),
             left_log=left.get_yscale() == "log",
@@ -279,6 +283,12 @@ class ChartGeometry:
         low, high = self.xlim
         number = low + (x - left) / (right - left) * (high - low)
         return pd.Timestamp(mdates.num2date(number).replace(tzinfo=None)).normalize()
+
+    def window_x(self) -> tuple[float, float]:
+        """Return the image x of the requested Start and End (inside the axes, which are wider)."""
+        left, _top, right, _bottom = self.box
+        low, high = self.xlim
+        return tuple(left + (number - low) / (high - low) * (right - left) for number in self.window)
 
     def value_at(self, y: float, side: str) -> float:
         """Return the value at image y on the ``"left"`` or ``"right"`` y axis."""
@@ -1062,7 +1072,7 @@ class RatesPlotApp:
                 buffer = io.BytesIO()
                 figure.savefig(buffer, format="png", dpi=figure.dpi, metadata=_PNG_METADATA)
                 # Measured after savefig, so the axes positions are the final rendered ones.
-                geometry = ChartGeometry.from_figure(figure)
+                geometry = ChartGeometry.from_figure(figure, config)
                 self.messages.put(("chart", country.key, buffer.getvalue(), geometry))
         except Exception as exc:  # reported in the window and log, never swallowed
             self.messages.put(("failed", config, f"{type(exc).__name__}: {exc}", traceback.format_exc()))
@@ -1245,10 +1255,13 @@ class RatesPlotApp:
         geometry = self.geometry.get(key)
         if geometry is None:
             return
-        left, top, right, bottom = geometry.box
+        _left, top, _right, bottom = geometry.box
         updates: dict[str, str] = {}
         if abs(dx) >= _MIN_DRAG_PX:
-            updates.update(_date_range_texts(geometry.date_at(left - dx), geometry.date_at(right - dx)))
+            # The requested window moves, not the whole axis: its pad (and the
+            # -l label room) would otherwise be added to the window at every pan.
+            start_x, end_x = geometry.window_x()
+            updates.update(_date_range_texts(geometry.date_at(start_x - dx), geometry.date_at(end_x - dx)))
         if abs(dy) >= _MIN_DRAG_PX:
             updates.update(self._axis_updates(key, top - dy, bottom - dy))
         if updates:
@@ -1276,11 +1289,11 @@ class RatesPlotApp:
         if wheel is None or self.geometry.get(wheel["key"]) is None:
             return
         geometry = self.geometry[wheel["key"]]
-        left, _top, right, _bottom = geometry.box
+        start_x, end_x = geometry.window_x()  # the requested window, as for a pan
         factor = _WHEEL_ZOOM_FACTOR ** wheel["notches"]
         anchor = wheel["x"]
-        new_left = anchor - (anchor - left) * factor
-        new_right = anchor + (right - anchor) * factor
+        new_left = anchor - (anchor - start_x) * factor
+        new_right = anchor + (end_x - anchor) * factor
         self._apply_view(_date_range_texts(geometry.date_at(new_left), geometry.date_at(new_right)), "Zoomed")
 
     def _apply_view(self, updates: dict[str, str], verb: str) -> None:
