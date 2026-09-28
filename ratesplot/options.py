@@ -331,6 +331,7 @@ GROUPS: dict[str, str] = {
         "from the default set of all four:"
     ),
     "units": "Measure of debt, GDP and interest (case-insensitive; first letter only):",
+    "labels": "Line labels (case-insensitive; first letter only):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
     "yield": "Yield-axis limits (percent):",
@@ -380,6 +381,14 @@ OPTIONS: tuple[Option, ...] = (
         "per-capita", Kind.SWITCH, ("per_capita",), "units", "--P / -p / --per-capita",
         "GDP, debt and interest per person (log\ndollar axis); not with -r",
         flag="--P", flag_help="GDP, debt and interest per person", initial="P", label="Per capita",
+    ),
+    # Value labels at the line ends: a switch with a first-letter alias like
+    # the measures, but in a group of its own, since it combines with either.
+    Option(
+        "label", Kind.SWITCH, ("end_labels",), "labels", "--L / -l / --label",
+        "each line's last value at its end, in\nthe line's colour; the date axis is\nwidened to make room",
+        flag="--L", flag_help="label each line's end with its last value", initial="L",
+        label="Last value at each line's end",
     ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its
@@ -600,8 +609,11 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     elif off:
         tokens += [f"--{option.name}" for option in on]
 
-    # The measure: its switch, spelled out (the first letter is what counts).
-    tokens += [f"--{option.name}" for option in options_in("units") if flags.get(option.name)]
+    # The measure and the line labels: each switch that is on, spelled out
+    # (the first letter is what counts).
+    tokens += [
+        f"--{option.name}" for option in options_of(Kind.SWITCH) if option.group != "country" and flags.get(option.name)
+    ]
 
     # The levels are written on a curve that is shown: --debt:fp, or
     # --interest:fp when debt is off (both mean the same).

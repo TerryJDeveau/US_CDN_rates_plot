@@ -92,6 +92,9 @@ CASES: list[list[str]] = [
     ["--d:fp"], ["--debt:PF"], ["--debt:s"], ["--d:ps"], ["--d:fnpsm"], ["--d:ff"], ["-i:m"], ["--interest:nm", "--gdp"],
     ["--d:fp", "--i:pf"], ["--d:fp", "--i:m"], ["--d:fp", "--no-debt", "--interest"], ["--d:"], ["--d:fx"], ["--d:1100"],
     ["--d:fp", "-r"], ["--d:fp", "-p", "-u"], ["--dept:f"],
+    # -l: each line's last value at its end; first letter, like the measures, and combines with them.
+    ["-l"], ["--l"], ["--L"], ["--label"], ["--labels"], ["Label"], ["--lab"], ["--no-label"], ["--l:1"],
+    ["-l", "-r", "-c"], ["-l", "-p", "-u", "--d:fp"], ["-L", "--gdp"],
 ]
 
 

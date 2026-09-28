@@ -5,14 +5,16 @@ axis, the three macro curves on a right log twin axis (dollars; with -r debt
 and interest as % of GDP; with -p dollars per person; see ``measures``; with
 --debt:LETTERS one debt and one interest line per level of government), an auto-placed
 legend, a title and a subtitle naming the dates the drawn data cover (which
-can be narrower than the axis). Only the yield-line style differs:
-the Canadian pre-2001 history is monthly and drawn as steps.
+can be narrower than the axis), and with -l each line's last value at its
+end. Only the yield-line style differs: the Canadian pre-2001 history is
+monthly and drawn as steps.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import partial
 from typing import Callable, Iterable
 
 import matplotlib.dates as mdates
@@ -24,7 +26,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from .axes import apply_axes_formatting, format_currency, format_percent
+from .axes import apply_axes_formatting, format_currency, format_percent, format_yield
 from .cdn_data import (
     CANADIAN_SERIES_EARLIEST,
     align_cdn_macro,
@@ -47,6 +49,7 @@ from .config import (
     CountryMetadata,
     PlotConfig,
 )
+from .endlabels import ValueFormatter
 from .frames import filter_to_date_range
 from .legend import finish_legend_and_title
 from .measures import express
@@ -228,12 +231,19 @@ def draw_country(
 
     apply_axes_formatting(ax_yield, ax_macro, config, metadata)
     warn_macro_limits_coverage(macro_in_range, macro_columns_drawn, config)
+    # -l: every drawn curve gets its last value at its end, written as its
+    # axis writes values: yields in percent, right-axis curves as the tick
+    # labels there (dollars, or percent of GDP under -r).
+    end_labels: list[tuple[Line2D, ValueFormatter]] = []
+    if config.end_labels:
+        macro_format = format_percent if config.relative else partial(format_currency, prefix=metadata.currency_prefix)
+        end_labels = [(line, format_yield) for line in yield_lines] + [(line, macro_format) for line in macro_lines]
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
     title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn, config=config)
     finish_legend_and_title(
-        ax_yield, [yield_lines, macro_lines], title, config, drawn_date_span((ax_yield, ax_macro))
+        ax_yield, [yield_lines, macro_lines], title, config, drawn_date_span((ax_yield, ax_macro)), end_labels
     )
 
 

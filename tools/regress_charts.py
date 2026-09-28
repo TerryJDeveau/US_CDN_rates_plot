@@ -85,6 +85,19 @@ CASES: dict[str, list[str]] = {
     "u_lv_r": ["-u", "-r", "--i:fnpm"],
     "u_lv_dpsm1950": ["-u", "--d:psm", "-s:1950"],
     "u_lv_r_all1970": ["-u", "-r", "--d:fnpm", "-i", "-s:1970"],
+    # -l: last values at the line ends (the date axis widens to fit them).
+    "l_default": ["-l"],
+    "c_l1867": ["-c", "-l", "-s:1867"],
+    "c_l1900_40": ["-c", "-l", "-s:1900", "--e:1940"],
+    "u_l_y2019": ["-u", "-l", "--yield", "-s:2019"],
+    "u_l_r": ["-u", "-l", "-r"],
+    "c_l_p": ["-c", "-l", "-p"],
+    "c_l_lv": ["-c", "-l", "--d:fpm", "-i", "-s:1990"],
+    "u_l800": ["-u", "-l", "-dim:800x800", "-s:2001"],
+    "u_l_top": ["-u", "-l", "--t:20t", "-s:2001"],
+    # A flat yield curve on a long axis: the yield labels crowd (smaller type, leader lines).
+    "u_l2019": ["-u", "-l", "--e:2019-09-01"],
+    "c_l2019": ["-c", "-l", "--e:2019-09-01"],
 }
 
 

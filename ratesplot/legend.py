@@ -6,7 +6,8 @@ lines drawn on a twin axis, so the legend is placed here instead:
 1. The figure layout (title, subtitle, margins, x-limits) is finalised first,
    because moving the axes afterwards would invalidate everything below.
 2. Every line on every axis of the figure is sampled a few pixels apart and
-   rasterised into a coarse occupancy grid covering the axes area.
+   rasterised into a coarse occupancy grid covering the axes area. With -l
+   the value labels at the line ends (``endlabels``) fill their cells too.
 3. Candidate legend *shapes* are tried in preference order: the default two
    columns at full size, then other column counts, then the same shapes at
    reduced font sizes. Each shape is measured, and every position at which
@@ -37,9 +38,12 @@ import pandas as pd
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.legend import Legend
+from matplotlib.lines import Line2D
+from matplotlib.transforms import Bbox
 
 from .axes import apply_date_xlim
 from .config import CANVAS_DPI, LEGEND_FS, TITLE_FS, PlotConfig
+from .endlabels import ValueFormatter, add_end_labels
 
 # Display-space sampling density along each line segment, in pixels.
 _SAMPLE_SPACING_PX = 3.0
@@ -125,7 +129,8 @@ class _OccupancyGrid:
     summed: np.ndarray
 
     @classmethod
-    def from_axes(cls, ax: Axes, points: np.ndarray, *, pad: int) -> "_OccupancyGrid":
+    def from_axes(cls, ax: Axes, points: np.ndarray, *, pad: int, boxes: Sequence[Bbox] = ()) -> "_OccupancyGrid":
+        """Rasterise ``points`` (display coordinates), and every cell any of ``boxes`` touches, over ``ax``."""
         box = ax.get_window_extent(ax.figure.canvas.get_renderer())
         cols = max(1, math.ceil(box.width / _CELL_PX))
         rows = max(1, math.ceil(box.height / _CELL_PX))
@@ -136,6 +141,15 @@ class _OccupancyGrid:
             row = ((points[:, 1] - box.y0) / _CELL_PX).astype(int)
             inside = (col >= 0) & (col < cols) & (row >= 0) & (row < rows)
             grid[row[inside] + pad, col[inside] + pad] = 1
+
+        # Solid obstacles such as the -l value labels: every cell they touch is occupied.
+        for obstacle in boxes:
+            col0 = max(0, math.floor((obstacle.x0 - box.x0) / _CELL_PX))
+            col1 = min(cols, math.ceil((obstacle.x1 - box.x0) / _CELL_PX))
+            row0 = max(0, math.floor((obstacle.y0 - box.y0) / _CELL_PX))
+            row1 = min(rows, math.ceil((obstacle.y1 - box.y0) / _CELL_PX))
+            if col0 < col1 and row0 < row1:
+                grid[row0 + pad : row1 + pad, col0 + pad : col1 + pad] = 1
 
         # Summed-area table with a leading zero row/column so that the sum of
         # any window is four lookups.
@@ -290,13 +304,15 @@ def _best_position(
     return 0, int(clearance[r, c]), int(r) + edge_cells, int(c) + edge_cells
 
 
-def auto_place_legend(ax: Axes, groups: Sequence[Sequence[Artist]], font_scale: float) -> Legend | None:
-    """Place the legend where it obscures the plotted lines least. See module docstring."""
+def auto_place_legend(
+    ax: Axes, groups: Sequence[Sequence[Artist]], font_scale: float, obstacles: Sequence[Bbox] = ()
+) -> Legend | None:
+    """Place the legend where it obscures the plotted lines (and ``obstacles``, display boxes) least. See module docstring."""
     figure = ax.figure
     figure.canvas.draw()  # data→display transforms must be final before sampling
     renderer = figure.canvas.get_renderer()
     target = round(_TARGET_MARGIN_PX * font_scale / _CELL_PX)
-    grid = _OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=target)
+    grid = _OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=target, boxes=obstacles)
     edge_cells = math.ceil(_EDGE_PADDING_PX * font_scale / _CELL_PX)
 
     best: _Placement | None = None
@@ -354,12 +370,17 @@ def finish_legend_and_title(
     title: str,
     config: PlotConfig,
     data_span: tuple[pd.Timestamp, pd.Timestamp] | None,
+    end_labels: Sequence[tuple[Line2D, ValueFormatter]] = (),
 ) -> None:
-    """Add title and date-range subtitle, fix the layout and x-limits, then place the legend.
+    """Add title and date-range subtitle, fix the layout and x-limits, label line ends, then place the legend.
 
     The subtitle names ``data_span``, the first and last dates of the data
     actually drawn, which may be narrower than the axis (``config.start`` to
     ``config.end``). With nothing drawn it falls back to the axis range.
+
+    ``end_labels`` (-l) are the curves to label at their ends, each with the
+    formatter for its value. The labels widen the date axis to the right, so
+    they follow the requested limits; the legend then avoids them.
 
     The legend goes last: its position is chosen against the final axes
     geometry, so nothing may move after it is placed.
@@ -400,4 +421,5 @@ def finish_legend_and_title(
     figure.subplots_adjust(top=subtitle_bottom - gap_fraction)
     apply_date_xlim(ax, config)
 
-    auto_place_legend(ax, legend_groups, scale)
+    obstacles = add_end_labels(ax, end_labels, config) if end_labels else []
+    auto_place_legend(ax, legend_groups, scale, obstacles)

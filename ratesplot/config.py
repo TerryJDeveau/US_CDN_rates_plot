@@ -486,6 +486,9 @@ class PlotConfig:
     # -p: GDP, debt and interest per person, still on a log dollar axis. At
     # most one of relative / per_capita is set (options.config_from_choices).
     per_capita: bool = False
+    # -l: print each drawn line's last value at its right-hand end, in the
+    # line's colour; the date axis is widened to make room (ratesplot.endlabels).
+    end_labels: bool = False
     # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
     gui: bool = True
 

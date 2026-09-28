@@ -56,6 +56,11 @@ def format_percent(value: float) -> str:
     return f"{value:,.0f}%" if value >= 1000 else f"{value:.3g}%"
 
 
+def format_yield(value: float) -> str:
+    """Format a bond yield in percent with two decimals, as the sources publish them: ``4.12%``."""
+    return f"{value:.2f}%"
+
+
 class LogNiceLocator(ticker.Locator):
     """Log-axis tick positions chosen for even *visual* spacing at "nice" values.
 
