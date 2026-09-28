@@ -315,7 +315,17 @@ def fetch_us_macro(config: PlotConfig, last_yield_date: pd.Timestamp | None) -> 
     # Trim to the window and drop rows where no selected series has a value yet
     # (e.g. the first three quarters before a TTM rolling window is complete).
     history = data.set_index(DATE_COLUMN)  # the whole span, for --cur's projection
+    before = data.loc[data[DATE_COLUMN] < config.start]
     data = data.loc[data[DATE_COLUMN] >= config.start].copy()
+    # The values in effect when the window starts (the last row before it) are
+    # carried to the start, as align_cdn_macro does for Canada. Otherwise a
+    # window starting between two quarterly observations began at the next
+    # one, and one starting after the last (e.g. 2026-05-01 with the last
+    # quarter dated 04-01) had no rows and drew no macro curves at all.
+    if not before.empty and (data.empty or data[DATE_COLUMN].iloc[0] > config.start):
+        carried = before.iloc[[-1]].copy()
+        carried[DATE_COLUMN] = config.start
+        data = pd.concat([carried, data], ignore_index=True)
     candidates = [US_DEBT_COLUMN, GDP_COLUMN, US_INTEREST_COLUMN] + [
         component_column(kind, letter) for kind in ("debt", "interest") for letter in COMPONENT_LETTERS
     ]
