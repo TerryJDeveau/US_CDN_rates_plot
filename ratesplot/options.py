@@ -3,30 +3,31 @@
 Every option is described once, in ``OPTIONS``: how it is recognised on the
 command line, which ``PlotConfig`` field(s) it sets, how its value is parsed
 and checked, and its line in ``--help``. ``cli.parse_args`` is driven entirely
-by this table, and the ``--help`` epilog is generated from it. A future GUI
-should read the same table (kinds, fields, parsers, help text) so that adding
-an option here adds it everywhere.
+by this table, the ``--help`` epilog is generated from it, and the GUI builds
+its controls from it, so adding an option here adds it everywhere.
 
-How a token is matched (see ``cli.parse_args``), in this order:
+How a token is matched (``cli.match_token``). Leading dashes are optional
+and case does not matter. A token spells an option when the word after the
+dashes (and after ``no-``, for the options that have an off form) is a
+leading part of one of the option's ``names``, at least ``shortest`` letters
+long; hyphens inside a name may be left out (``--percapita``). So ``-r``,
+``--rel`` and ``--ratio`` are all ``--relative``, and ``--reg`` is the
+regression. Nothing is matched by its first letter alone any more (Terry,
+2026-09-29: "--reg must never invoke -r"): ``--yes`` is not the yield curve,
+``--dept`` is not debt, and ``--dimensions`` without a value is not debt.
 
-1. ``EXACT`` options: the whole name after the dashes, case-insensitive, with
-   an optional ``no-`` prefix. No abbreviation, unless the option lists
-   ``prefixes``: then any name (without a colon) starting with one of them
-   (``--cur``, ``--curr``, ``--current``). Checked first so that such a
-   name can never be swallowed by the leading-letter rules below (``--gui``
-   would otherwise mean ``--gdp``, and ``--cur`` Canada).
-2. ``VALUE`` options (``KEY:VALUE``): the key must start with one of the
-   option's ``prefixes``. Only the leading letter(s) matter, so the many
-   historical spellings (``--dim:``, ``--dimensions:``, ``--D:`` …) all work.
-3. ``TOGGLE`` options (curves, no colon): the first letter after an optional
-   ``no-`` must be one of the ``prefixes``.
-4. ``SWITCH`` options go to argparse. A switch with ``initial`` set is also
-   reached by any remaining token whose first letter (after dashes) is that
-   letter, so ``Canada``, ``-c`` and ``--cdn`` all mean ``--C``. argparse
-   would also accept unique prefixes of a long switch name, so any option
-   that must not be abbreviated belongs in ``EXACT`` instead.
+* A ``KEY:VALUE`` token is matched against the ``VALUE`` options only, and
+  any other token against the rest. A value given to an option that takes
+  none (``-r:1``, ``--cur:1``) is an error, never another option that shares
+  its first letter; so is a ``VALUE`` option named without a value.
+* ``no-`` is accepted by ``FLAG`` and ``TOGGLE`` options only.
+* A token that spells two options is an error (``--m:5``: --min or --max).
+  ``shortest`` keeps apart the names that share a first letter: "c" is
+  Canada and "cur" the latest values, "r" the measure and "reg" the
+  regression, "g" the GDP curve and "gui" (in full) the window.
 
-Anything still unmatched reaches argparse, which reports it as unrecognised.
+Anything unmatched goes to argparse, which prints ``--help`` or reports it
+as unrecognised.
 
 Value parsers raise ``ValueError`` with a user-facing message; ``cli`` turns
 that into an argparse error (exit status 2).
@@ -288,15 +289,15 @@ def check_macro_bound_units(payloads: Mapping[str, str], values: Mapping[str, ob
 
 
 class Kind(Enum):
-    EXACT = "exact"    # on/off flag, whole name only, optional "no-" prefix
-    VALUE = "value"    # KEY:VALUE, recognised by leading letters of KEY
-    TOGGLE = "toggle"  # curve on/off, recognised by first letter, optional "no-" prefix
-    SWITCH = "switch"  # handed to argparse as a store_true flag
+    FLAG = "flag"      # on/off with a "no-" form, sets its field directly (--cur, --reg, --gui)
+    VALUE = "value"    # KEY:VALUE
+    TOGGLE = "toggle"  # curve on/off with a "no-" form, under the curve rule
+    SWITCH = "switch"  # on only; also an argparse store_true flag (``flag``), for usage and --help
 
 
 @dataclass(frozen=True)
 class Option:
-    """One command-line option. See the module docstring for how ``kind`` is matched."""
+    """One command-line option. See the module docstring for how a token is matched."""
 
     name: str  # canonical name, used by the GUI and in messages
     kind: Kind
@@ -304,12 +305,12 @@ class Option:
     group: str  # key into GROUPS, for the help listing
     usage: str  # left-hand column of the help listing: the spellings
     help: str  # right-hand column; "\n" starts a continuation line
-    prefixes: tuple[str, ...] = ()  # VALUE / TOGGLE / EXACT: accepted leading letters (lower case)
+    names: tuple[str, ...] = ()  # lower case; any leading part of one spells the option
+    shortest: int = 1  # the fewest letters a spelling may have
     parse: Callable[[str], object] | None = None  # VALUE: payload -> value (a tuple if several fields)
     check: Callable[[Mapping[str, object]], None] | None = None  # VALUE: run after this option is parsed
     flag: str | None = None  # SWITCH: the argparse flag
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
-    initial: str | None = None  # SWITCH: legacy first-letter alias (upper case)
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
     # field value(s) back into text a parser accepts, given the rest of the
     # config (VALUE only). Options with ``in_gui=False`` get no control: they
@@ -326,19 +327,15 @@ class Option:
 # Help-listing sections, in display order: key -> heading (and any notes).
 # The GUI titles its panels with the heading up to the first " (" or ":".
 GROUPS: dict[str, str] = {
-    "country": "Country selection (case-insensitive; only the first letter matters):",
+    "country": "Country selection:",
     "curves": (
-        "Curve selection (case-insensitive; only the first letter matters). Naming any\n"
-        "curve positively shows *only* the named curves; ``--no-`` forms hide curves\n"
-        "from the default set of all four:"
+        "Curve selection (naming any curve positively shows *only* the named curves;\n"
+        "``--no-`` forms hide curves from the default set of all four):"
     ),
-    "units": "Measure of debt, GDP and interest (case-insensitive; first letter only):",
-    "labels": (
-        "Line labels and regression segments (case-insensitive; -l by its first\n"
-        "letter; --reg needs at least \"reg\"):"
-    ),
+    "units": "Measure of debt, GDP and interest:",
+    "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
-    "latest": "Latest data (case-insensitive; at least \"cur\"):",
+    "latest": "Latest data (at least \"cur\"):",
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
     "yield": "Yield-axis limits (percent):",
     "dollar": (
@@ -352,126 +349,126 @@ OPTIONS: tuple[Option, ...] = (
     # Country selection: argparse store_true flags; no flag at all means both.
     Option(
         "cdn", Kind.SWITCH, ("show_cdn",), "country", "--C / -C / --canada / --cdn", "Canadian chart only",
-        flag="--C", flag_help="Canadian chart only", initial="C", label="Canada",
+        names=("canada", "cdn"), flag="--C", flag_help="Canadian chart only", label="Canada",
     ),
     Option(
         "us", Kind.SWITCH, ("show_us",), "country", "--U / -U / --us / --usa", "U.S. chart only",
-        flag="--U", flag_help="U.S. chart only", initial="U", label="United States",
+        names=("us", "usa"), flag="--U", flag_help="U.S. chart only", label="United States",
     ),
     # Curves. The listing order here is the help order; the selection rule is
     # in ``config_from_choices``.
     Option(
         "gdp", Kind.TOGGLE, ("include_gdp",), "curves", "--GDP / --no-GDP", "TTM nominal GDP",
-        prefixes=("g",), label="TTM nominal GDP",
+        names=("gdp",), label="TTM nominal GDP",
     ),
     Option(
         "debt", Kind.TOGGLE, ("include_debt",), "curves", "--debt / --no-debt", "aggregate public debt",
-        prefixes=("d",), label="Aggregate public debt",
+        names=("debt",), label="Aggregate public debt",
     ),
     Option(
         "interest", Kind.TOGGLE, ("include_interest",), "curves", "--interest / --no-interest", "TTM interest outlays",
-        prefixes=("i",), label="TTM interest outlays",
+        names=("interest",), label="TTM interest outlays",
     ),
     Option(
         "yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields",
-        prefixes=("y",), label="Bond yields",
+        names=("yield", "yields"), label="Bond yields",
     ),
-    # Measure of the right-axis curves: argparse store_true flags with a
-    # first-letter alias, like the countries.
+    # Measure of the right-axis curves: argparse store_true flags, like the
+    # countries.
     Option(
         "relative", Kind.SWITCH, ("relative",), "units", "--R / -r / --relative",
         "debt and interest as % of TTM GDP (log\npercent axis); GDP itself is not drawn",
-        flag="--R", flag_help="debt and interest as a percentage of GDP", initial="R", label="As % of GDP",
+        names=("relative",), flag="--R", flag_help="debt and interest as a percentage of GDP", label="As % of GDP",
     ),
     Option(
         "per-capita", Kind.SWITCH, ("per_capita",), "units", "--P / -p / --per-capita",
         "GDP, debt and interest per person (log\ndollar axis); not with -r",
-        flag="--P", flag_help="GDP, debt and interest per person", initial="P", label="Per capita",
+        names=("per-capita",), flag="--P", flag_help="GDP, debt and interest per person", label="Per capita",
     ),
-    # Value labels at the line ends: a switch with a first-letter alias like
-    # the measures, but in a group of its own, since it combines with either.
+    # Value labels at the line ends: a switch like the measures, but in a
+    # group of its own, since it combines with either.
     Option(
         "label", Kind.SWITCH, ("end_labels",), "labels", "--L / -l / --label",
         "each line's last value at its end, in\nthe line's colour; the date axis is\nwidened to make room",
-        flag="--L", flag_help="label each line's end with its last value", initial="L",
+        names=("label", "labels"), flag="--L", flag_help="label each line's end with its last value",
         label="Last value at each line's end",
     ),
     # Regression segments on the right-axis curves (ratesplot.regression), in
-    # the same group, so the window keeps one panel for both. EXACT with a
-    # prefix, so "--reg…" is never -r (the first-letter rule for the measure);
-    # "--re", "--rel" and "--relative" still are.
+    # the same group, so the window keeps one panel for both. At least "reg",
+    # so it is never -r: "-r", "--re" and "--rel" are --relative.
     Option(
-        "regression", Kind.EXACT, ("regression",), "labels", "--reg / --regression / --no-reg",
+        "regression", Kind.FLAG, ("regression",), "labels", "--reg / --regression / --no-reg",
         "each right-axis curve fitted by the fewest\nstraight pieces on its log axis, each\n"
         "labelled with its slope in %/yr",
-        prefixes=("reg",), label="Regression segments, slope in %/yr",
+        names=("regression",), shortest=3, label="Regression segments, slope in %/yr",
     ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its
     # fields are known.
     Option(
         "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --dim:W / --dim:xH",
-        f"(minimum {MIN_CANVAS_PX} px each way)", prefixes=("dim",), parse=parse_dimensions_spec,
+        f"(minimum {MIN_CANVAS_PX} px each way)", names=("dimensions",), shortest=3, parse=parse_dimensions_spec,
         label="Size", format=format_dimensions, editor="size",
     ),
-    # Curve sub-options: debt and interest by level of government. Keys are
-    # matched by leading letters in table order, so these must come after
-    # "dimensions" ("dim…" is the size, any other "d…:" is debt). They set one
-    # field; see ``config_from_choices`` for how they name their curves. The
-    # window has one control for both.
+    # Curve sub-options: debt and interest by level of government ("--d:" is
+    # debt; the size needs at least "dim"). They set one field; see
+    # ``config_from_choices`` for how they name their curves. The window has
+    # one control for both.
     Option(
         "debt-parts", Kind.VALUE, ("components",), "curves", "--debt:LETTERS / --d:LETTERS",
         "debt and interest by level instead of\nin total: f federal, n non-federal,\n"
         "p or s provincial/state, m municipal",
-        prefixes=("d",), parse=partial(parse_components, kind="debt"),
+        names=("debt",), parse=partial(parse_components, kind="debt"),
         label="By level", format=format_components, editor="levels",
     ),
     Option(
         "interest-parts", Kind.VALUE, ("components",), "curves", "--interest:LETTERS / --i:LETTERS",
         "the same letters; given on both --debt\nand --interest they must agree",
-        prefixes=("i",), parse=partial(parse_components, kind="interest"), in_gui=False,
+        names=("interest",), parse=partial(parse_components, kind="interest"), in_gui=False,
     ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE", "first date (default 1966-01-01)",
-        prefixes=("s",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
+        names=("start",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
         editor="date",
     ),
     Option(
         "end", Kind.VALUE, ("end",), "dates", "--end:DATE / --e:DATE", "last date (default today)",
-        prefixes=("e",), parse=partial(parse_date_spec, kind="end"), check=check_date_range,
+        names=("end",), parse=partial(parse_date_spec, kind="end"), check=check_date_range,
         label="End", format=format_date, editor="date",
     ),
+    # "--m:" could be either, so it is refused as ambiguous.
     Option(
         "min", Kind.VALUE, ("yield_ymin",), "yield", "--min:VAL / --mn:VAL", "lower bound",
-        prefixes=("mn", "mi"), parse=partial(parse_yield_bound, kind="min"), label="Min %", format=format_yield_bound,
+        names=("minimum", "mn"), parse=partial(parse_yield_bound, kind="min"), label="Min %", format=format_yield_bound,
     ),
     Option(
         "max", Kind.VALUE, ("yield_ymax",), "yield", "--max:VAL / --mx:VAL", "upper bound",
-        prefixes=("mx", "ma"), parse=partial(parse_yield_bound, kind="max"), check=check_yield_bounds,
+        names=("maximum", "mx"), parse=partial(parse_yield_bound, kind="max"), check=check_yield_bounds,
         label="Max %", format=format_yield_bound,
     ),
     Option(
         "top", Kind.VALUE, ("macro_top",), "dollar", "--top:VAL / --t:VAL", "upper bound",
-        prefixes=("t",), parse=partial(parse_macro_bound, kind="top"), label="Top", format=format_macro_bound,
+        names=("top",), parse=partial(parse_macro_bound, kind="top"), label="Top", format=format_macro_bound,
     ),
     Option(
         "bottom", Kind.VALUE, ("macro_bottom",), "dollar", "--bottom:VAL / --b:VAL", "lower bound",
-        prefixes=("b",), parse=partial(parse_macro_bound, kind="bottom"), check=check_macro_bounds,
+        names=("bottom",), parse=partial(parse_macro_bound, kind="bottom"), check=check_macro_bounds,
         label="Bottom", format=format_macro_bound,
     ),
-    # The latest values (ratesplot.latest), on by default. EXACT with a prefix,
-    # so "--cur…" is never Canada (the first-letter rule for -c).
+    # The latest values (ratesplot.latest), on by default. At least "cur", so
+    # it is never Canada ("-c", "--ca", "--cdn").
     Option(
-        "current", Kind.EXACT, ("current",), "latest", "--cur / --current / --no-cur",
+        "current", Kind.FLAG, ("current",), "latest", "--cur / --current / --no-cur",
         "on by default: U.S. Treasury daily yields\nand debt, and the day's intraday yield\n"
         "quotes (CNBC), past the regular sources",
-        prefixes=("cur",), label="Latest values, with intraday quotes",
+        names=("current",), shortest=3, label="Latest values, with intraday quotes",
     ),
-    # Interface. EXACT, so "--g", "--gu" and "--guix" still mean the GDP curve.
+    # Interface. Spelled in full (Terry, 2026-09-24): "--g" is the GDP curve,
+    # and "--gu" nothing.
     Option(
-        "gui", Kind.EXACT, ("gui",), "interface", "--gui / --no-gui",
+        "gui", Kind.FLAG, ("gui",), "interface", "--gui / --no-gui",
         "interactive window (default); --no-gui\ndraws plain matplotlib windows instead",
-        in_gui=False,
+        names=("gui",), shortest=3, in_gui=False,
     ),
     # Baking the historical data into the code is not an option of the program:
     # it is a maintenance step run from tools/bake_archives.py when an
@@ -510,6 +507,21 @@ def group_title(group: str) -> str:
     return GROUPS[group].split(" (")[0].split(":")[0]
 
 
+def _letters(text: str) -> str:
+    """Return ``text`` without hyphens or underscores, which may be left out of a name."""
+    return text.replace("-", "").replace("_", "")
+
+
+def spells(option: Option, word: str) -> bool:
+    """True when ``word`` (lower case) is a leading part of one of the option's names.
+
+    It must have at least ``option.shortest`` letters. ``per``, ``percap``
+    and ``per_capita`` all spell ``per-capita``; ``pizza`` spells nothing.
+    """
+    letters = _letters(word)
+    return len(letters) >= option.shortest and any(_letters(name).startswith(letters) for name in option.names)
+
+
 # ---------------------------------------------------------------------------
 # Choices <-> PlotConfig (shared by the command line and the GUI)
 # ---------------------------------------------------------------------------
@@ -518,7 +530,7 @@ def group_title(group: str) -> str:
 _PART_OPTIONS = {"debt-parts": "debt", "interest-parts": "interest"}
 # "Choices" are what a user expressed, keyed by option name:
 #   payloads: VALUE option -> its text (absent = not given, so the default)
-#   flags:    EXACT / TOGGLE / SWITCH option -> True or False (absent = not given)
+#   flags:    FLAG / TOGGLE / SWITCH option -> True or False (absent = not given)
 
 
 def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> PlotConfig:
@@ -557,7 +569,7 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
         )
     flags = {**{curve: True for curve in given_parts}, **flags}
 
-    for option in options_of(Kind.EXACT):
+    for option in options_of(Kind.FLAG):
         if option.name in flags:
             values[option.fields[0]] = flags[option.name]
 
@@ -633,13 +645,12 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     elif off:
         tokens += [f"--{option.name}" for option in on]
 
-    # The measure and the line labels: each switch that is on, spelled out
-    # (the first letter is what counts).
+    # The measure and the line labels: each switch that is on, spelled out.
     tokens += [
         f"--{option.name}" for option in options_of(Kind.SWITCH) if option.group != "country" and flags.get(option.name)
     ]
-    # Whole-name switches in the window (--cur): only when not at their default.
-    for option in options_of(Kind.EXACT):
+    # On/off flags in the window (--cur, --reg): only when not at their default.
+    for option in options_of(Kind.FLAG):
         if option.in_gui and option.name in flags and flags[option.name] != default_flags[option.name]:
             tokens.append(f"--{option.name}" if flags[option.name] else f"--no-{option.name}")
 
@@ -660,11 +671,21 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
 _HELP_INDENT = "    "
 _HELP_COLUMN = 36  # width of the spellings column (fits "--interest:LETTERS / --i:LETTERS")
 _HELP_MIN_GAP = 3  # a spelling longer than the column still gets this many spaces
+_HELP_INTRO = """\
+Run with no flags to open the interactive window with both charts (Canadian,
+then U.S.). Flags set the window's starting values.
+
+Names are case-insensitive, the dashes in front are optional, and any leading
+part of a name will do: -r, --rel and --relative are the same. A name is never
+matched by its first letter alone (--reg is not -r, --yes is not --yield). An
+option that takes a value is written NAME:VALUE, and one that takes none must
+not be given one (-r:1 is an error).
+"""
 
 
 def help_epilog() -> str:
     """Return the option reference printed after argparse's own ``--help`` output."""
-    lines = ["Run with no flags to open the interactive window with both charts (Canadian,", "then U.S.). Flags set the window's starting values.", ""]
+    lines = _HELP_INTRO.split("\n")
     for group, heading in GROUPS.items():
         lines.append(heading)
         for option in OPTIONS:
