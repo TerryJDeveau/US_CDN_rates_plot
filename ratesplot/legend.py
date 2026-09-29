@@ -15,11 +15,15 @@ lines drawn on a twin axis, so the legend is placed here instead:
    reduced font sizes. Each shape is measured, and every position at which
    it fits inside the axes is scored in O(1) with a summed-area table.
 4. The first shape that can be placed without covering any sampled point
-   wins. If some positions keep it at least ``_TARGET_MARGIN_PX`` from every
-   line, the one nearest an axes corner is used. Otherwise the target is
-   treated as aspirational: the legend goes where it is furthest from both
-   the lines and the axes frame, i.e. centred in the largest pocket. If no
-   shape fits anywhere, the shape/position covering the fewest points is used.
+   wins. Of its positions that cover nothing, only those at least
+   ``_FRAME_MARGIN_PX`` from the axes frame are considered, or if there are
+   none those as far from it as any. If some of them keep it at least
+   ``_TARGET_MARGIN_PX`` from every line, the one nearest an axes corner is
+   used. Otherwise the target is treated as aspirational: the legend goes
+   where it is furthest from both the lines and the axes frame, i.e. centred
+   in the largest pocket. If no shape fits anywhere, the shape/position
+   covering the fewest points is used.
+5. It is drawn exactly where it was placed (``borderaxespad=0``).
 
 Font sizes and the pixel distances tied to them (clearance target, frame
 padding, title spacing) are multiplied by ``PlotConfig.font_scale``, so a small
@@ -49,8 +53,18 @@ from .endlabels import ValueFormatter, add_end_labels
 from .occupancy import CELL_PX, OccupancyGrid, collect_display_samples
 from .regression import SlopeLabel, add_slope_labels
 
-# Minimum gap between the legend and the axes frame (at font scale 1).
+# Least gap between the legend and the axes frame (at font scale 1), used
+# only where a wider one would cover data.
 _EDGE_PADDING_PX = 8.0
+# The gap between the legend and the axes frame wherever it covers no data
+# (at font scale 1). Terry, 2026-09-29: a legend "snuggled right into one of
+# the corners ... with no margin gap, when there is plenty of blank space"
+# should be offset "to leave a margin"; "8 px and 11 px isn't enough margin
+# for a pleasing look, unless more would obscure data, then it is ok". So it
+# comes first: of the positions that cover nothing, only those this far from
+# the frame (or as far as any gets) are considered, and the rules below
+# choose among them.
+_FRAME_MARGIN_PX = 40.0
 # Clearance from lines the search aims for. Once a shape can be placed this
 # far from every line, corner proximity decides between positions; a smaller
 # clearance is accepted only when no position reaches the target, in which
@@ -118,12 +132,19 @@ def arrange_legend_groups(groups: Sequence[Sequence[Artist]], ncols: int) -> tup
 
 
 def _draw_legend(ax: Axes, handles: Sequence[Artist], *, ncols: int, fontsize: float, anchor: tuple[float, float]) -> Legend:
-    """Draw the legend with its upper-left corner at ``anchor`` (axes fraction)."""
+    """Draw the legend with its upper-left corner at ``anchor`` (axes fraction).
+
+    ``borderaxespad=0``: matplotlib otherwise sets the legend half a font size
+    (11 px at 16 pt) right of and below the anchor, off the position the
+    occupancy grid chose. Placed in a lower-right corner it then ran 3 px
+    over the frame (found 2026-09-29).
+    """
     return ax.legend(
         handles,
         [handle.get_label() for handle in handles],
         loc="upper left",
         bbox_to_anchor=anchor,
+        borderaxespad=0.0,
         ncols=ncols,
         fontsize=fontsize,
         framealpha=0.95,
@@ -146,14 +167,16 @@ class _Placement:
 
 
 def _best_position(
-    grid: OccupancyGrid, height: int, width: int, edge_cells: int, target: int
+    grid: OccupancyGrid, height: int, width: int, edge_cells: int, margin_cells: int, target: int
 ) -> tuple[int, int, int, int] | None:
     """Return ``(covered, clearance, row, col)`` for the best position of a box, or None if it cannot fit.
 
     ``covered`` is the number of occupied cells under the box (0 when it
     obscures nothing) and ``clearance`` its distance from the nearest line,
-    in cells, capped at the grid padding. ``target`` is the clearance goal in
-    cells (``_TARGET_MARGIN_PX`` scaled and converted).
+    in cells, capped at the grid padding. ``edge_cells`` is the least gap to
+    the axes frame, ``margin_cells`` the gap kept wherever it covers no data
+    (``_FRAME_MARGIN_PX``), and ``target`` the clearance goal from lines
+    (``_TARGET_MARGIN_PX``), all scaled and converted to cells.
     """
     if height + 2 * edge_cells > grid.rows or width + 2 * edge_cells > grid.cols:
         return None
@@ -179,10 +202,22 @@ def _best_position(
     clearance[covered > 0] = -1
 
     rows, cols = np.indices(covered.shape)
-    meets_target = clearance >= target
+    frame_distance = np.minimum(
+        np.minimum(rows, covered.shape[0] - 1 - rows),
+        np.minimum(cols, covered.shape[1] - 1 - cols),
+    ) + edge_cells
+    # The frame margin comes first: of the positions that cover nothing, those
+    # at least margin_cells from the frame, or if there are none, those as far
+    # from it as any is.
+    margin_kept = np.minimum(frame_distance, margin_cells)
+    margin_kept[covered > 0] = -1
+    allowed = margin_kept == margin_kept.max()
+
+    meets_target = (clearance >= target) & allowed
     if meets_target.any():
         # Plenty of room: among positions with the target clearance take the
-        # one nearest an axes corner, where a legend conventionally sits.
+        # one nearest an axes corner, where a legend conventionally sits (the
+        # margin from its two sides).
         corner_distance = (
             np.minimum(rows, covered.shape[0] - 1 - rows) ** 2
             + np.minimum(cols, covered.shape[1] - 1 - cols) ** 2
@@ -193,12 +228,8 @@ def _best_position(
         # Cramped: the target is aspirational. Treat the axes frame as a soft
         # obstacle too, so the legend centres itself in whatever pocket exists
         # instead of hugging the frame at one end of it.
-        frame_distance = np.minimum(
-            np.minimum(rows, covered.shape[0] - 1 - rows),
-            np.minimum(cols, covered.shape[1] - 1 - cols),
-        ) + edge_cells
         score = np.minimum(clearance, frame_distance).astype(float)
-        score[covered > 0] = -np.inf
+        score[~allowed] = -np.inf
         # Tie-break on line clearance so, within a pocket, the legend still
         # sits as far from the data as the frame allows.
         score += clearance / (10.0 * grid.pad)
@@ -217,6 +248,7 @@ def auto_place_legend(
     target = round(_TARGET_MARGIN_PX * font_scale / CELL_PX)
     grid = OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=target, boxes=obstacles)
     edge_cells = math.ceil(_EDGE_PADDING_PX * font_scale / CELL_PX)
+    margin_cells = math.ceil(_FRAME_MARGIN_PX * font_scale / CELL_PX)
 
     best: _Placement | None = None
     for reduction in _FONT_SIZE_REDUCTIONS_PT:
@@ -235,7 +267,7 @@ def auto_place_legend(
             height = math.ceil(extent.height / CELL_PX)
             width = math.ceil(extent.width / CELL_PX)
 
-            result = _best_position(grid, height, width, edge_cells, target)
+            result = _best_position(grid, height, width, edge_cells, margin_cells, target)
             if result is None:
                 continue
             covered, clearance, row, col = result
