@@ -103,12 +103,13 @@ CANADIAN_SERIES_EARLIEST = {
     "5-Year Yield (3-5 year average before 1980-11)": pd.Timestamp(EMBEDDED_CDN_5Y_STAND_IN[0][0]),
     "10-Year Yield (Bank of Canada historical table)": pd.Timestamp("1951-01-01"),
     "30-Year Yield / Over 10 Years (Bank of Canada historical table)": pd.Timestamp("1919-01-01"),
-    # The macro series begin where their oldest baked source does, on the
-    # date its first value describes (see _dated_by_quarter_end).
+    # The macro series begin where their oldest baked source does, on its own
+    # date (a quarterly one's first quarter starts there, though its value is
+    # drawn from the quarter's end: see _dated_by_quarter_end).
     "Federal CDN Public Debt (alone, before 1933)": pd.Timestamp(EMBEDDED_CDN_FEDERAL_DEBT_HISTORY[0][0]),
     "Aggregate CDN Public Debt": pd.Timestamp(EMBEDDED_CDN_EARLY_DEBT_HISTORY[0][0]),
-    "TTM Nominal GDP": at_quarter_end(pd.Timestamp(EMBEDDED_CDN_GDP_HISTORY[0][0])),
-    "TTM Interest Payable": at_quarter_end(pd.Timestamp(EMBEDDED_CDN_EARLY_INTEREST_HISTORY[0][0])),
+    "TTM Nominal GDP": pd.Timestamp(EMBEDDED_CDN_GDP_HISTORY[0][0]),
+    "TTM Interest Payable": pd.Timestamp(EMBEDDED_CDN_EARLY_INTEREST_HISTORY[0][0]),
 }
 
 

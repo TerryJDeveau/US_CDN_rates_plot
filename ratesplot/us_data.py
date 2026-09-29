@@ -40,9 +40,11 @@ US_SERIES_EARLIEST = {
     "5-Year Yield (DGS5)": pd.Timestamp("1962-01-02"),
     "10-Year Yield (DGS10)": pd.Timestamp("1962-01-02"),
     "30-Year Yield (DGS30)": pd.Timestamp("1977-02-15"),
-    # Quarterly: the end of the first quarter, where its value is dated.
-    "Federal debt (GFDEBTN)": pd.Timestamp("1966-03-31"),
-    "GDP / Interest (GDP, A180RC1…)": pd.Timestamp("1947-03-31"),
+    # Where each source's coverage begins: the start of its first quarter, though
+    # that quarter's value is dated at its end. A start inside that quarter is
+    # not asking for anything before the source, so it is not warned about.
+    "Federal debt (GFDEBTN)": pd.Timestamp("1966-01-01"),
+    "GDP / Interest (GDP, A180RC1…)": pd.Timestamp("1947-01-01"),
 }
 
 # Chart column -> FRED constant-maturity Treasury yield series.
