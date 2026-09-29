@@ -6,8 +6,9 @@ lines drawn on a twin axis, so the legend is placed here instead:
 1. The figure layout (title, subtitle, margins, x-limits) is finalised first,
    because moving the axes afterwards would invalidate everything below.
 2. Every line on every axis of the figure is sampled a few pixels apart and
-   rasterised into a coarse occupancy grid covering the axes area. With -l
-   the value labels at the line ends (``endlabels``) fill their cells too.
+   rasterised into a coarse occupancy grid covering the axes area
+   (``occupancy``). With -l the value labels at the line ends (``endlabels``)
+   fill their cells too.
 3. Candidate legend *shapes* are tried in preference order: the default two
    columns at full size, then other column counts, then the same shapes at
    reduced font sizes. Each shape is measured, and every position at which
@@ -44,12 +45,8 @@ from matplotlib.transforms import Bbox
 from .axes import apply_date_xlim
 from .config import CANVAS_DPI, LEGEND_FS, TITLE_FS, PlotConfig
 from .endlabels import ValueFormatter, add_end_labels
+from .occupancy import CELL_PX, OccupancyGrid, collect_display_samples
 
-# Display-space sampling density along each line segment, in pixels.
-_SAMPLE_SPACING_PX = 3.0
-# Occupancy-grid cell size. Lines are 1-3 px wide, so a 4 px cell marks
-# exactly the cells a line passes through without exaggerating its footprint.
-_CELL_PX = 4
 # Minimum gap between the legend and the axes frame (at font scale 1).
 _EDGE_PADDING_PX = 8.0
 # Clearance from lines the search aims for. Once a shape can be placed this
@@ -73,102 +70,6 @@ _AXES_GAP_BELOW_SUBTITLE_PX = 10.0
 # The title may use at most this fraction of the figure width before it is
 # shrunk further than font_scale alone would make it.
 _TITLE_MAX_WIDTH_FRACTION = 0.98
-
-
-# ---------------------------------------------------------------------------
-# Line sampling and occupancy grid
-# ---------------------------------------------------------------------------
-
-
-def _line_display_samples(line, transform) -> np.ndarray:
-    """Return points sampled every few pixels along one line, in display space."""
-    xy = np.asarray(line.get_xydata(), dtype=float)  # numeric (date-converted) data
-    xy = xy[np.isfinite(xy).all(axis=1)]
-    if len(xy) < 2:
-        return np.empty((0, 2))
-
-    try:
-        display = transform.transform(xy)
-    except Exception:
-        return np.empty((0, 2))
-
-    # Sample each segment at roughly _SAMPLE_SPACING_PX intervals, excluding the
-    # segment's end point (which is the next segment's start).
-    deltas = np.diff(display, axis=0)
-    counts = np.maximum(1, (np.hypot(deltas[:, 0], deltas[:, 1]) / _SAMPLE_SPACING_PX).astype(int))
-    segment = np.repeat(np.arange(len(counts)), counts)
-    k = np.arange(counts.sum()) - np.repeat(np.cumsum(counts) - counts, counts)
-    t = k * (1.0 / counts[segment])
-    return display[:-1][segment] + t[:, None] * deltas[segment]
-
-
-def collect_display_samples(ax: Axes) -> np.ndarray:
-    """Sample every line on every axis of ``ax.figure`` in display coordinates."""
-    parts = [
-        _line_display_samples(line, axis.transData)
-        for axis in ax.figure.axes
-        for line in axis.get_lines()
-    ]
-    return np.concatenate(parts) if parts else np.empty((0, 2))
-
-
-@dataclass(frozen=True)
-class _OccupancyGrid:
-    """Boolean raster of the axes area: True where a plotted line passes.
-
-    ``summed`` is the summed-area table of the grid padded by ``pad`` empty
-    cells on every side, so window sums can be evaluated for boxes that
-    extend past the axes edge (used when measuring clearance margins).
-    """
-
-    x0: float  # display x of the grid's left edge
-    y0: float  # display y of the grid's bottom edge
-    rows: int
-    cols: int
-    pad: int
-    summed: np.ndarray
-
-    @classmethod
-    def from_axes(cls, ax: Axes, points: np.ndarray, *, pad: int, boxes: Sequence[Bbox] = ()) -> "_OccupancyGrid":
-        """Rasterise ``points`` (display coordinates), and every cell any of ``boxes`` touches, over ``ax``."""
-        box = ax.get_window_extent(ax.figure.canvas.get_renderer())
-        cols = max(1, math.ceil(box.width / _CELL_PX))
-        rows = max(1, math.ceil(box.height / _CELL_PX))
-        grid = np.zeros((rows + 2 * pad, cols + 2 * pad), dtype=np.int32)
-
-        if points.size:
-            col = ((points[:, 0] - box.x0) / _CELL_PX).astype(int)
-            row = ((points[:, 1] - box.y0) / _CELL_PX).astype(int)
-            inside = (col >= 0) & (col < cols) & (row >= 0) & (row < rows)
-            grid[row[inside] + pad, col[inside] + pad] = 1
-
-        # Solid obstacles such as the -l value labels: every cell they touch is occupied.
-        for obstacle in boxes:
-            col0 = max(0, math.floor((obstacle.x0 - box.x0) / _CELL_PX))
-            col1 = min(cols, math.ceil((obstacle.x1 - box.x0) / _CELL_PX))
-            row0 = max(0, math.floor((obstacle.y0 - box.y0) / _CELL_PX))
-            row1 = min(rows, math.ceil((obstacle.y1 - box.y0) / _CELL_PX))
-            if col0 < col1 and row0 < row1:
-                grid[row0 + pad : row1 + pad, col0 + pad : col1 + pad] = 1
-
-        # Summed-area table with a leading zero row/column so that the sum of
-        # any window is four lookups.
-        summed = np.zeros((grid.shape[0] + 1, grid.shape[1] + 1), dtype=np.int64)
-        summed[1:, 1:] = grid.cumsum(axis=0).cumsum(axis=1)
-        return cls(box.x0, box.y0, rows, cols, pad, summed)
-
-    def window_sums(self, height: int, width: int, *, margin: int) -> np.ndarray:
-        """Occupied-cell counts for a ``height × width`` box at every interior position.
-
-        Result ``[r, c]`` is the count inside the box whose bottom-left cell is
-        ``(r, c)`` in unpadded grid coordinates, after growing the box by
-        ``margin`` cells on every side. Shape is ``(rows - height + 1, cols - width + 1)``.
-        """
-        h, w = height + 2 * margin, width + 2 * margin
-        s = self.summed
-        total = s[h:, w:] - s[:-h, w:] - s[h:, :-w] + s[:-h, :-w]
-        offset = self.pad - margin
-        return total[offset : offset + self.rows - height + 1, offset : offset + self.cols - width + 1]
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +144,7 @@ class _Placement:
 
 
 def _best_position(
-    grid: _OccupancyGrid, height: int, width: int, edge_cells: int, target: int
+    grid: OccupancyGrid, height: int, width: int, edge_cells: int, target: int
 ) -> tuple[int, int, int, int] | None:
     """Return ``(covered, clearance, row, col)`` for the best position of a box, or None if it cannot fit.
 
@@ -311,9 +212,9 @@ def auto_place_legend(
     figure = ax.figure
     figure.canvas.draw()  # data→display transforms must be final before sampling
     renderer = figure.canvas.get_renderer()
-    target = round(_TARGET_MARGIN_PX * font_scale / _CELL_PX)
-    grid = _OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=target, boxes=obstacles)
-    edge_cells = math.ceil(_EDGE_PADDING_PX * font_scale / _CELL_PX)
+    target = round(_TARGET_MARGIN_PX * font_scale / CELL_PX)
+    grid = OccupancyGrid.from_axes(ax, collect_display_samples(ax), pad=target, boxes=obstacles)
+    edge_cells = math.ceil(_EDGE_PADDING_PX * font_scale / CELL_PX)
 
     best: _Placement | None = None
     for reduction in _FONT_SIZE_REDUCTIONS_PT:
@@ -329,8 +230,8 @@ def auto_place_legend(
             probe = _draw_legend(ax, handles, ncols=ncols, fontsize=fontsize, anchor=(0.0, 1.0))
             extent = probe.get_window_extent(renderer)
             probe.remove()
-            height = math.ceil(extent.height / _CELL_PX)
-            width = math.ceil(extent.width / _CELL_PX)
+            height = math.ceil(extent.height / CELL_PX)
+            width = math.ceil(extent.width / CELL_PX)
 
             result = _best_position(grid, height, width, edge_cells, target)
             if result is None:
@@ -352,8 +253,8 @@ def auto_place_legend(
 
     # Convert the chosen cell to the legend's upper-left corner in axes fraction.
     upper_left_display = (
-        grid.x0 + best.col * _CELL_PX,
-        grid.y0 + (best.row + best.height) * _CELL_PX,
+        grid.x0 + best.col * CELL_PX,
+        grid.y0 + (best.row + best.height) * CELL_PX,
     )
     x_axes, y_axes = ax.transAxes.inverted().transform(upper_left_display)
     return _draw_legend(ax, best.handles, ncols=best.ncols, fontsize=best.fontsize, anchor=(float(x_axes), float(y_axes)))
