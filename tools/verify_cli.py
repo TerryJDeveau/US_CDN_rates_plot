@@ -114,6 +114,11 @@ CASES: list[list[str]] = [
     ["--deb:fp"], ["--de:fp"], ["--int:m"], ["--dime:1100"], ["--no-dim"], ["--no-d:fp"],
     ["--st:2001"], ["--starts:2001"], ["--en:2026"], ["--ends:2026"], ["--start"], ["--s"], ["--e"],
     ["--minimum:2"], ["--maximum:5"], ["--minimums:2"], ["--mix:2"], ["--to:5t"], ["--bot:10b"], ["--tops:5t"],
+    # --reg:TOL: the regression's tolerance in % of the axis height; turns --reg on unless --no-reg is given.
+    ["--reg:1.5"], ["--reg:1.5%"], ["--regression:2"], ["--REG: 0.5 %"], ["--regr:3"], ["--reg:1e-3"],
+    ["--reg:2", "--no-reg"], ["--no-reg", "--reg:2"], ["--reg", "--reg:2"], ["--reg:2", "-r", "-c"],
+    ["--reg:0"], ["--reg:-1"], ["--reg:100"], ["--reg:101"], ["--reg:"], ["--reg:x"], ["--reg:%"], ["--reg:nan"],
+    ["--re:1"], ["-r:1.5"],
 ]
 
 

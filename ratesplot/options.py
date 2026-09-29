@@ -45,7 +45,14 @@ from typing import Callable, Mapping
 
 import pandas as pd
 
-from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, MIN_CANVAS_PX, PlotConfig
+from .config import (
+    COMPONENT_LETTERS,
+    COMPONENT_SYNONYMS,
+    DEFAULT_REGRESSION_TOLERANCE_PCT,
+    MIN_CANVAS_PX,
+    MIN_REGRESSION_TOLERANCE_PCT,
+    PlotConfig,
+)
 
 _DOLLAR_SUFFIX_MULTIPLIERS = {"t": 1e12, "b": 1e9, "m": 1e6, "k": 1e3}
 _DEFAULT_DOLLAR_MULTIPLIER = 1e9
@@ -120,6 +127,22 @@ def parse_yield_bound(spec: str, *, kind: str) -> float:
         raise ValueError(f"invalid {kind} yield bound {spec!r}: must be a decimal number") from None
     if not 0 <= parsed < 100:
         raise ValueError(f"{kind} yield bound must be non-negative and < 100, got {parsed}")
+    return parsed
+
+
+def parse_regression_tolerance(spec: str) -> float:
+    """Parse the regression tolerance, a percentage of the right axis's height: ``1.5`` or ``1.5%``."""
+    value = spec.strip()
+    if value.endswith("%"):
+        value = value[:-1].strip()
+    if not value:
+        raise ValueError("empty --reg tolerance: give a percentage of the axis height, e.g. --reg:1.5")
+    try:
+        parsed = float(value)
+    except ValueError:
+        raise ValueError(f"invalid --reg tolerance {spec!r}: must be a percentage of the axis height, e.g. 1.5") from None
+    if not 0 < parsed <= 100:
+        raise ValueError(f"--reg tolerance must be above 0 and at most 100 (% of the axis height), got {spec.strip()}")
     return parsed
 
 
@@ -203,6 +226,11 @@ def format_macro_bound(values: tuple, config: PlotConfig) -> str:
     if values[0] is None:
         return ""
     return f"{values[0]:g}%" if config.relative else format_dollar_bound(values)
+
+
+def format_regression_tolerance(values: tuple, _config: PlotConfig) -> str:
+    """Format the regression tolerance in percent (the window's label gives the unit); blank when unset."""
+    return "" if values[0] is None else f"{values[0]:g}"
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +337,7 @@ class Option:
     shortest: int = 1  # the fewest letters a spelling may have
     parse: Callable[[str], object] | None = None  # VALUE: payload -> value (a tuple if several fields)
     check: Callable[[Mapping[str, object]], None] | None = None  # VALUE: run after this option is parsed
+    turns_on: str | None = None  # VALUE: the FLAG option that giving this value turns on (--reg:TOL is --reg)
     flag: str | None = None  # SWITCH: the argparse flag
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
@@ -400,7 +429,18 @@ OPTIONS: tuple[Option, ...] = (
         "regression", Kind.FLAG, ("regression",), "labels", "--reg / --regression / --no-reg",
         "each right-axis curve fitted by the fewest\nstraight pieces on its log axis, each\n"
         "labelled with its slope in %/yr",
-        names=("regression",), shortest=3, label="Regression segments, slope in %/yr",
+        names=("regression",), shortest=3, label="Regression segments",
+    ),
+    # Its tolerance. Giving it turns --reg on, as --debt:LETTERS names the
+    # debt curve (``config_from_choices``); in the window the field is greyed
+    # while --reg is off.
+    Option(
+        "regression-tolerance", Kind.VALUE, ("regression_tolerance",), "labels", "--reg:TOL / --regression:TOL",
+        "how far a piece may stray from the\ncurve's points, in % of the axis height\n"
+        f"(default {DEFAULT_REGRESSION_TOLERANCE_PCT:g}; never less than {MIN_REGRESSION_TOLERANCE_PCT:g} % of the\n"
+        "value); turns --reg on",
+        names=("regression",), shortest=3, parse=parse_regression_tolerance, turns_on="regression",
+        label="tolerance, % of axis", format=format_regression_tolerance,
     ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its
@@ -549,6 +589,8 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
       levels, so given on both they must agree. Each also names its curve,
       as --debt and --interest do, unless that curve's flag was given
       explicitly (the window gives every flag, so there it names nothing).
+    * A value that belongs to a flag (``turns_on``: --reg:TOL) turns it on,
+      unless the flag was given explicitly (--reg:2 --no-reg is off).
     * Measure: -r and -p exclude each other (``check_single_measure``).
     * Right-axis limits are percentages under -r and dollars otherwise
       (``check_macro_bound_units``, once the flags are known).
@@ -567,7 +609,8 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
             f"--debt:{given_parts['debt']} and --interest:{given_parts['interest']} choose different levels; "
             "give the letters once, or the same on both"
         )
-    flags = {**{curve: True for curve in given_parts}, **flags}
+    turned_on = {option.turns_on: True for option in options_of(Kind.VALUE) if option.turns_on and option.name in payloads}
+    flags = {**{curve: True for curve in given_parts}, **turned_on, **flags}
 
     for option in options_of(Kind.FLAG):
         if option.name in flags:
@@ -649,19 +692,32 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     tokens += [
         f"--{option.name}" for option in options_of(Kind.SWITCH) if option.group != "country" and flags.get(option.name)
     ]
-    # On/off flags in the window (--cur, --reg): only when not at their default.
-    for option in options_of(Kind.FLAG):
-        if option.in_gui and option.name in flags and flags[option.name] != default_flags[option.name]:
-            tokens.append(f"--{option.name}" if flags[option.name] else f"--no-{option.name}")
-
-    # The levels are written on a curve that is shown: --debt:fp, or
-    # --interest:fp when debt is off (both mean the same).
+    # Values, each by the first spelling the help shows (--dimensions:,
+    # --reg:). The levels are written on a curve that is shown: --debt:fp, or
+    # --interest:fp when debt is off (both mean the same). A value that turns
+    # a flag on (--reg:TOL) is left out while that flag is off, where it has
+    # no effect, and otherwise stands for the flag too.
     level_key = "interest" if not flags.get("debt", True) and flags.get("interest", True) else "debt"
+    values: list[str] = []
+    stood_for: set[str] = set()
     for option in options_of(Kind.VALUE):
         text = payloads.get(option.name, "").strip()
-        if text and text != defaults.get(option.name):
-            tokens.append(f"--{level_key if option.name in _PART_OPTIONS else option.name}:{text}")
-    return tokens
+        if not text or text == defaults.get(option.name):
+            continue
+        if option.turns_on:
+            if not flags.get(option.turns_on, default_flags.get(option.turns_on)):
+                continue
+            stood_for.add(option.turns_on)
+        key = f"--{level_key}" if option.name in _PART_OPTIONS else option.usage.split(":")[0]
+        values.append(f"{key}:{text}")
+
+    # On/off flags in the window (--cur, --reg): only when not at their default.
+    for option in options_of(Kind.FLAG):
+        if option.name in stood_for:
+            continue
+        if option.in_gui and option.name in flags and flags[option.name] != default_flags[option.name]:
+            tokens.append(f"--{option.name}" if flags[option.name] else f"--no-{option.name}")
+    return tokens + values
 
 
 # ---------------------------------------------------------------------------

@@ -93,6 +93,7 @@ from .options import (
     format_dollar_bound,
     group_title,
     options_in,
+    options_of,
     parse_date_spec,
 )
 from .plotting import COUNTRIES, Country, build_figure
@@ -211,6 +212,11 @@ def starting_choices(
                 continue
             if option.name in flags and option.name in cli_flags:
                 flags[option.name] = cli_flags[option.name]
+        # A value given on the command line that turns its flag on (--reg:TOL)
+        # does so over the remembered flag too.
+        for option in options_of(Kind.VALUE):
+            if option.turns_on in flags and option.name in cli_payloads:
+                flags[option.turns_on] = cli_config_flags[option.turns_on]
         # Remembered Top/Bottom are in the remembered measure's units (dollars,
         # percent, dollars per person). If the command line chose a different
         # measure they no longer apply, unless it gave them too; the other
@@ -674,6 +680,7 @@ class RatesPlotApp:
         self.flag_vars: dict[str, tk.BooleanVar] = {}
         self.flag_boxes: dict[str, ttk.Checkbutton] = {}
         self.value_labels: dict[str, ttk.Label] = {}
+        self.value_entries: dict[str, ttk.Entry] = {}
         self.size_editors: dict[str, _SizeEditor] = {}
         self.level_editors: dict[str, _LevelsEditor] = {}
 
@@ -814,7 +821,12 @@ class RatesPlotApp:
             frame = ttk.LabelFrame(panel, text=group_title(group), padding=(8, 4))
             frame.pack(fill="x", pady=(0, 6))
             frame.columnconfigure(1, weight=1)
-            for row, option in enumerate(members):
+            # A value that belongs to a flag (the regression tolerance) goes on
+            # the flag's own row: on a 972 px window one more row would put the
+            # Redraw and Save buttons below the fold.
+            attached = {option.turns_on: option for option in members if option.kind is Kind.VALUE and option.turns_on}
+            rows = [option for option in members if option not in attached.values()]
+            for row, option in enumerate(rows):
                 if option.kind is Kind.VALUE and option.editor == "size":
                     self._add_size_control(frame, row, option)
                 elif option.kind is Kind.VALUE and option.editor == "levels":
@@ -822,28 +834,35 @@ class RatesPlotApp:
                 elif option.kind is Kind.VALUE:
                     self._add_value_control(frame, row, option)
                 else:
-                    self._add_flag_control(frame, row, option)
+                    self._add_flag_control(frame, row, option, attached.get(option.name))
 
-    def _add_flag_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+    def _add_flag_control(self, frame: ttk.LabelFrame, row: int, option: Option, value: Option | None = None) -> None:
+        """A check box; with ``value``, that option's field at the right of the same row."""
         variable = tk.BooleanVar(value=False)
         self.flag_vars[option.name] = variable
         box = ttk.Checkbutton(
             frame, text=option.label, variable=variable, command=lambda name=option.name: self._flag_changed(name)
         )
-        box.grid(row=row, column=0, columnspan=3, sticky="w")
+        box.grid(row=row, column=0, columnspan=3 if value is None else 1, sticky="w")
         self.flag_boxes[option.name] = box
         _Tooltip(box, _tooltip_text(option))
+        if value is not None:
+            field = ttk.Frame(frame)
+            field.grid(row=row, column=1, columnspan=2, sticky="e")
+            # No padding: the row stays as tall as a check box.
+            self._add_value_control(field, 0, value, entry_width=5, pady=0)
 
-    def _add_value_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+    def _add_value_control(self, frame: ttk.Frame, row: int, option: Option, entry_width: int = 16, pady: int = 1) -> None:
         variable = tk.StringVar()
         self.payload_vars[option.name] = variable
         label = ttk.Label(frame, text=option.label)
-        label.grid(row=row, column=0, sticky="w", padx=(0, 6), pady=1)
-        entry = ttk.Entry(frame, textvariable=variable, width=16)
-        entry.grid(row=row, column=1, sticky="ew", pady=1)
+        label.grid(row=row, column=0, sticky="w", padx=(0, 6), pady=pady)
+        entry = ttk.Entry(frame, textvariable=variable, width=entry_width)
+        entry.grid(row=row, column=1, sticky="ew", pady=pady)
         entry.bind("<Return>", lambda _event: self.request_redraw())
         variable.trace_add("write", lambda *_args: self._text_changed())
         self.value_labels[option.name] = label
+        self.value_entries[option.name] = entry
         for widget in (label, entry):
             _Tooltip(widget, _tooltip_text(option) + "\nBlank = default.")
         if option.editor == "date":
@@ -1030,10 +1049,17 @@ class RatesPlotApp:
         self.request_redraw()
 
     def _update_dependent_controls(self) -> None:
-        """Grey out the GDP check box under -r, where GDP is the denominator and is not drawn."""
+        """Grey out controls that have no effect: GDP under -r, where it is the
+        denominator and is not drawn, and a value whose flag is off (the
+        regression tolerance without --reg)."""
         relative = "relative" in self.flag_vars and self.flag_vars["relative"].get()
         if "gdp" in self.flag_boxes:
             self.flag_boxes["gdp"].state(["disabled"] if relative else ["!disabled"])
+        for option in options_of(Kind.VALUE):
+            if option.turns_on in self.flag_vars and option.name in self.value_entries:
+                state = ["!disabled"] if self.flag_vars[option.turns_on].get() else ["disabled"]
+                self.value_entries[option.name].state(state)
+                self.value_labels[option.name].state(state)
 
     def _text_changed(self) -> None:
         if self._loading:
@@ -1072,6 +1098,11 @@ class RatesPlotApp:
         self._update_command_line()
         snapshot = self._snapshot()
         payloads = {name: text.strip() for name, text in snapshot[0].items() if text.strip()}
+        # A value whose flag is off has no effect and its field is greyed:
+        # a bad one left there must not stop the drawing.
+        for option in options_of(Kind.VALUE):
+            if option.turns_on in snapshot[1] and not snapshot[1][option.turns_on]:
+                payloads.pop(option.name, None)
         problems = self._mark_invalid_fields(payloads)
         try:
             config = config_from_choices(payloads, snapshot[1])

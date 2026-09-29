@@ -24,10 +24,12 @@ How the pieces are chosen
 -------------------------
 - A piece is acceptable when its fitted line lies within the tolerance of
   every observation in it, so at its ends too. The tolerance is a vertical
-  distance on the log axis: ``_AXIS_FRACTION`` of the axis height (what the
-  eye sees as "close", whatever the span), but not less than
-  ``_MIN_TOLERANCE``, below which a zoomed-in window would be cut up by
-  quarter-to-quarter noise.
+  distance on the log axis: a percentage of the axis height (what the eye
+  sees as "close", whatever the span), 1 % unless --reg:TOL gives another
+  (``PlotConfig.regression_tolerance``), but never less than 1 % of the
+  value, below which a zoomed-in window would be cut up by
+  quarter-to-quarter noise (``tolerance_for``; the constants are in
+  ``config``).
 - The curve is covered by the fewest acceptable pieces; among equally few,
   the least total squared error decides where they break (``fit_pieces``).
 - The pieces are separate regressions and do not join: a jump in the data
@@ -62,16 +64,11 @@ from matplotlib.colors import to_rgb
 from matplotlib.lines import Line2D
 from matplotlib.transforms import Bbox
 
-from .config import DATE_COLUMN, PlotConfig
+from .config import DATE_COLUMN, DEFAULT_REGRESSION_TOLERANCE_PCT, MIN_REGRESSION_TOLERANCE_PCT, PlotConfig
 from .occupancy import CELL_PX, Raster, collect_display_samples
 
-# The tolerance, as a share of the right axis's height (in log terms): 1 % is
-# about 12 px on the default canvas, a gap the eye still reads as "on the
-# curve" next to a line this thick.
-_AXIS_FRACTION = 0.01
-# ...and never less than 1 % of the value (ln 1.01): below that, on a window
-# of a year or two, the pieces would follow each quarter's noise.
-_MIN_TOLERANCE = math.log1p(0.01)
+# The floor of the tolerance in ln units: 1 % of the value is ln 1.01.
+_MIN_TOLERANCE = math.log1p(MIN_REGRESSION_TOLERANCE_PCT / 100)
 # A curve needs this many observations in the window to be fitted at all.
 _MIN_OBSERVATIONS = 3
 _DAYS_PER_YEAR = 365.25
@@ -273,11 +270,16 @@ def _fitted(x: np.ndarray, z: np.ndarray, w: np.ndarray, first: int, last: int) 
     return Piece(first, last, slope, float(mean_z - slope * mean_x))
 
 
-def tolerance_for(ax: Axes) -> float:
-    """Return the fitting tolerance in ln units for curves on ``ax`` (a log axis with its limits set)."""
+def tolerance_for(ax: Axes, config: PlotConfig) -> float:
+    """Return the fitting tolerance in ln units for curves on ``ax`` (a log axis with its limits set).
+
+    It is the chosen percentage of the axis height (--reg:TOL, else the
+    default), but never below ``_MIN_TOLERANCE``.
+    """
     low, high = ax.get_ylim()
     span = abs(math.log(high / low)) if low > 0 and high > 0 else 0.0
-    return max(_AXIS_FRACTION * span, _MIN_TOLERANCE)
+    percent = DEFAULT_REGRESSION_TOLERANCE_PCT if config.regression_tolerance is None else config.regression_tolerance
+    return max(percent / 100 * span, _MIN_TOLERANCE)
 
 
 def slope_text(slope: float) -> str:
@@ -326,7 +328,7 @@ def add_regression_segments(
     drawn curve's line with its column in ``macro``, the whole prepared frame;
     ``projected`` maps a column to the date its data end (--cur).
     """
-    tolerance = tolerance_for(ax)
+    tolerance = tolerance_for(ax, config)
     labels: list[SlopeLabel] = []
     for line, column in curves:
         observed = observations(macro, column, config, projected.get(column))

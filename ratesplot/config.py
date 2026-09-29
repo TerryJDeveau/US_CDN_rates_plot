@@ -73,6 +73,18 @@ AXIS_LABEL_PAD_PT = 8
 # also shrunk to fit on its own (see ``legend.finish_legend_and_title``).
 MIN_FONT_SCALE = 0.5
 
+# Regression segments (--reg, ratesplot.regression): how far a piece's line
+# may lie from any observation it covers, as a percentage of the right axis's
+# height (in log terms, so the same distance on the picture everywhere). 1 %
+# is about 12 px on the default canvas, a gap the eye still reads as "on the
+# curve" next to a line this thick. --reg:TOL sets it
+# (PlotConfig.regression_tolerance).
+DEFAULT_REGRESSION_TOLERANCE_PCT = 1.0
+# ...but never less than this percentage of the value (ln 1.01 for 1 %), with
+# --reg:TOL too: below it, on a window of a year or two, the pieces would
+# follow each quarter's noise.
+MIN_REGRESSION_TOLERANCE_PCT = 1.0
+
 # ---------------------------------------------------------------------------
 # Networking
 # ---------------------------------------------------------------------------
@@ -536,6 +548,10 @@ class PlotConfig:
     # --reg: fit each drawn right-axis curve with the fewest straight pieces on
     # its log axis, each labelled with its slope in %/yr (ratesplot.regression).
     regression: bool = False
+    # --reg:TOL: the pieces' tolerance, in percent of the right axis's height;
+    # None = DEFAULT_REGRESSION_TOLERANCE_PCT. Never below
+    # MIN_REGRESSION_TOLERANCE_PCT of the value (ratesplot.regression).
+    regression_tolerance: float | None = None
     # --cur (on unless --no-cur): extend the regular series with the latest
     # values from faster sources, down to intraday quotes (ratesplot.latest).
     current: bool = True

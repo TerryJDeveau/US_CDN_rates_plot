@@ -115,6 +115,9 @@ CASES: dict[str, list[str]] = {
     "c_reg_l_lv": ["-c", "--reg", "-l", "--d:fpm", "-i", "-s:1990"],
     "u_reg_top": ["-u", "--reg", "--t:20t", "-s:2001"],
     "u_reg800": ["-u", "--reg", "-dim:800x800", "-s:2001"],
+    # --reg:TOL: a coarser and a finer tolerance than the default 1 % of the axis.
+    "u_reg_tol3": ["-u", "--reg:3"],
+    "c_reg_tol05": ["-c", "--reg:0.5", "-s:1990"],
 }
 
 
