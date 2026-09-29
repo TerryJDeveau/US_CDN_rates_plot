@@ -201,6 +201,13 @@ TREASURY_DEBT_TO_PENNY_URL = "https://api.fiscaldata.treasury.gov/services/api/f
 CNBC_QUOTE_URL = "https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol"
 # Quotes are timed in New York / Toronto time (both markets' hours).
 MARKET_TIMEZONE = "America/Toronto"
+# Bank of Canada: Government of Canada treasury bills and domestic marketable
+# bonds outstanding, the total (real return bonds with their inflation
+# adjustment), dollars, each business day, a few days behind; from 2025. It is
+# the Fiscal Monitor's "market debt payable in Canadian currency" to within
+# 0.5 %, months sooner. The series holds the current year; each earlier year
+# is the same name with "_YYYY" added.
+BOC_CDN_MARKET_DEBT_SERIES = "DOM_DBT_OUTSTANDING_AMOUNT_INF_ADJ_TOTAL"
 
 # Unit multipliers. StatCan tables and FRED's GFDEBTN/SLGSDODNS report millions;
 # FRED's GDP and interest series report billions; its population, thousands.
@@ -262,8 +269,11 @@ MACRO_PLOT_STYLES.update(
 # data to today, projected like a debt clock (ratesplot.latest.project_to_now),
 # is drawn straight and fainter in the curve's own colour and dashes; one grey
 # legend entry says what the faint stretches are, and their end labels read "≈".
+# Canadian debt, when steered by the Government of Canada's market debt, is
+# not straight, and the entry says so.
 PROJECTION_ALPHA = 0.4
 PROJECTION_LABEL = "Projected at the past year's pace"
+PROJECTION_LABEL_STEERED = "Projected; debt follows market debt"
 PROJECTION_KEY_COLOR = "0.35"
 PROJECTION_LABEL_PREFIX = "≈"
 

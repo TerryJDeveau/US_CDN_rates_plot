@@ -40,6 +40,16 @@ straight line of its own change over the year before
 label reads "≈" (plotting). Quarterly figures are dated by the quarter's
 last day, the day they describe (``frames.at_quarter_end``), so a
 projection starts where the data really end (``observed_through``).
+
+Canadian debt (the aggregate and the federal level) is not projected blind:
+the Bank of Canada counts the Government of Canada's market debt (bills and
+bonds outstanding) each business day, a few days behind
+(``cdn_market_debt``). Its change is observed, the rest of the curve is
+projected at its own pace (``_market_steered``). Tested on the quarters
+since 2010, standing at each quarter's start, this predicts the next
+quarter's debt with a root-mean-square error of 33 billion dollars for the
+federal level and 37 for the aggregate, against 45 and 48 for the pace
+alone. It is a better projection, not data: it is drawn as one.
 """
 
 from __future__ import annotations
@@ -49,6 +59,9 @@ import io
 import pandas as pd
 
 from .config import (
+    BOC_CDN_MARKET_DEBT_SERIES,
+    BOC_SERIES_URL,
+    CDN_DEBT_COLUMN,
     CNBC_QUOTE_URL,
     DATE_COLUMN,
     LATEST_QUOTE_RETRIES,
@@ -57,8 +70,9 @@ from .config import (
     TREASURY_DEBT_TO_PENNY_URL,
     TREASURY_YIELD_CURVE_URL,
     PlotConfig,
+    component_column,
 )
-from .http import latest_get
+from .http import latest_get, parse_boc_csv
 
 # Where ``plotting.prepare_us`` / ``prepare_cdn`` record, in the yields frame's
 # ``attrs``, the time of the newest quote added (for the subtitle).
@@ -87,14 +101,27 @@ _QUOTE_MAX_AGE_DAYS = 4
 
 
 # Where ``project_to_now`` records, in the macro frame's ``attrs``, the date each
-# projected column's observations end: {column: date}.
+# projected column's observations end: {column: date}; and the columns among
+# them that follow market debt (``_market_steered``): [column, ...].
 PROJECTION_ATTR = "projected_from"
+STEERED_ATTR = "steered_by_market_debt"
 # A curve whose last observation is older than this is not projected: that is
 # a series that ended (federal debt alone, pre-1933) or a live source that
 # failed, leaving only the baked history.
 _PROJECTION_MAX_AGE_DAYS = 400
 # The rate of a projection is the curve's change over this many days before its last observation.
 _PROJECTION_RATE_DAYS = 365
+# The Canadian debt curves steered by market debt (``_market_steered``).
+_MARKET_STEERED_COLUMNS = (CDN_DEBT_COLUMN, component_column("debt", "f"))
+# Market debt is read as the median of each day and the two before. Once a
+# month new treasury bills settle a day before the old ones mature, lifting
+# the total by about 2 % for that day (2025: every month); 2026-07-03 read
+# 9.6 % high for one day. The median drops such a day and follows a real
+# change (a new bond, a maturity) one business day late.
+_MARKET_DEBT_MEDIAN_DAYS = 3
+# Market debt must be known this close (days) before the dates it is read at:
+# the curve's last observation, and the year before it.
+_MARKET_DEBT_MAX_GAP_DAYS = 7
 
 
 def _quotes_can_reach(config: PlotConfig) -> bool:
@@ -115,7 +142,11 @@ def observed_through(dates: pd.Index | pd.Series) -> pd.Timestamp | None:
 
 
 def project_to_now(
-    data: pd.DataFrame, observed: dict[str, pd.Timestamp], config: PlotConfig, history: pd.DataFrame
+    data: pd.DataFrame,
+    observed: dict[str, pd.Timestamp],
+    config: PlotConfig,
+    history: pd.DataFrame,
+    market: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Carry each column of ``observed`` from the date its data end to the frame's last date (see the module docstring).
 
@@ -125,10 +156,12 @@ def project_to_now(
     the same curves over their whole span, date-indexed, since ``data`` may
     start after the year the pace is measured over. Along the way the value
     grows at the curve's own rate over that year, in a straight line as a
-    debt clock does. Rows are added at each starting date so a projection
-    begins exactly where its data end. Only with --cur, on a chart reaching
-    today; the columns projected, with their starting dates, are recorded in
-    ``attrs[PROJECTION_ATTR]``.
+    debt clock does. With ``market`` (Canadian market debt, from
+    ``market_debt_for_projection``) the Canadian debt curves follow it
+    instead (``_market_steered``). Rows are added at each starting date so a
+    projection begins exactly where its data end. Only with --cur, on a
+    chart reaching today; the columns projected, with their starting dates,
+    are recorded in ``attrs[PROJECTION_ATTR]``.
     """
     if not config.current or data.empty or not observed or not _quotes_can_reach(config):
         return data
@@ -155,6 +188,7 @@ def project_to_now(
 
     print(f"Projecting to {end:%Y-%m-%d} at each curve's pace over the year before its last data (--cur):")
     projected: dict[str, pd.Timestamp] = {}
+    steered_columns: list[str] = []
     for column, start in starts.items():
         if column not in history.columns:
             continue
@@ -167,12 +201,71 @@ def project_to_now(
         per_day = (value - float(earlier.iloc[-1])) / _PROJECTION_RATE_DAYS
         later = (data[DATE_COLUMN] > start) & data[column].notna()
         elapsed = (data.loc[later, DATE_COLUMN] - start).dt.days
-        data.loc[later, column] = value + per_day * elapsed
+        steered = None
+        if market is not None and column in _MARKET_STEERED_COLUMNS:
+            steered = _market_steered(
+                data.loc[later, DATE_COLUMN], start, value, (earlier.index[-1], float(earlier.iloc[-1])), market
+            )
+            if steered is None:
+                print(f"  Warning: Government of Canada market debt does not cover the year to {start:%Y-%m-%d}; {column} goes on at its own pace alone.")
         projected[column] = start
+        if steered is not None:
+            values, note = steered
+            data.loc[later, column] = values
+            steered_columns.append(column)
+            print(f"  {column}: from {start:%Y-%m-%d}, {note}")
+            continue
+        data.loc[later, column] = value + per_day * elapsed
         pace = per_day * 365 / value if value else float("nan")
         print(f"  {column}: from {start:%Y-%m-%d}, {pace:+.1%} a year")
     data.attrs[PROJECTION_ATTR] = projected
+    data.attrs[STEERED_ATTR] = steered_columns
     return data
+
+
+def _market_steered(
+    dates: pd.Series, start: pd.Timestamp, value: float, earlier: tuple[pd.Timestamp, float], market: pd.Series
+) -> tuple[pd.Series, str] | None:
+    """Return a Canadian debt curve's values on ``dates`` (all after ``start``) steered by market debt, and a note; None if it cannot be.
+
+    The curve is market debt plus the rest. Market debt (``market``,
+    dollars, date-indexed) is read as observed up to its last day and goes
+    on after it at its own pace over the year before that day. The rest goes
+    on from ``start``, where the curve's data end at ``value``, at its own
+    pace over the year to it, from ``earlier`` (the curve's date and value a
+    year before). Paces are over ``_PROJECTION_RATE_DAYS``, as in
+    ``project_to_now``. None when market debt is not known close to
+    ``start``, to that earlier date, or to a year before its own last day.
+    """
+    known = market.dropna().sort_index()
+    if known.empty:
+        return None
+
+    def on(day: pd.Timestamp) -> float | None:
+        upto = known.loc[:day]
+        if upto.empty or (day - upto.index[-1]).days > _MARKET_DEBT_MAX_GAP_DAYS:
+            return None
+        return float(upto.iloc[-1])
+
+    earlier_date, earlier_value = earlier
+    last_day, last_value = known.index[-1], float(known.iloc[-1])
+    at_start, at_earlier = on(start), on(earlier_date)
+    year_before_last = on(last_day - pd.Timedelta(days=_PROJECTION_RATE_DAYS))
+    if at_start is None or at_earlier is None or year_before_last is None:
+        return None
+    rest_per_day = ((value - at_start) - (earlier_value - at_earlier)) / _PROJECTION_RATE_DAYS
+    market_per_day = (last_value - year_before_last) / _PROJECTION_RATE_DAYS
+
+    when = pd.DatetimeIndex(dates)
+    market_then = known.reindex(known.index.union(when)).ffill().reindex(when).to_numpy(dtype=float, copy=True)
+    beyond = when > last_day
+    market_then[beyond] = last_value + market_per_day * (when[beyond] - last_day).days.to_numpy()
+    values = value + (market_then - at_start) + rest_per_day * (when - start).days.to_numpy()
+    note = (
+        f"market debt as observed to {last_day:%Y-%m-%d} ({(last_value - at_start) / 1e9:+,.1f} billion since), "
+        f"the rest {rest_per_day * 365 / value:+.1%} of the curve a year"
+    )
+    return pd.Series(values, index=dates.index), note
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +308,55 @@ def treasury_debt_from(first: pd.Timestamp, config: PlotConfig) -> pd.Series:
         dtype=float,
     )
     return debt.loc[debt.index <= config.end]
+
+
+# Government of Canada market debt is between these (dollars): C$1.4-1.6
+# trillion in 2025-2026. Outside them the Bank has changed the units or the
+# series, and it is not used.
+_PLAUSIBLE_CDN_MARKET_DEBT = (2e11, 2e13)
+
+
+def cdn_market_debt(first: pd.Timestamp) -> pd.Series:
+    """Return Government of Canada market debt outstanding (dollars, date-indexed) from ``first``'s year to the latest day.
+
+    One Bank of Canada series per year (``BOC_CDN_MARKET_DEBT_SERIES``); a
+    year it does not have, before 2025 or not yet archived under its own
+    name, is skipped. Each day is the median of that day and the two before
+    (``_MARKET_DEBT_MEDIAN_DAYS``).
+    """
+    this_year = pd.Timestamp.now(tz=MARKET_TIMEZONE).year
+    names = [f"{BOC_CDN_MARKET_DEBT_SERIES}_{year}" for year in range(first.year, this_year + 1)]
+    parts = []
+    for name in [*names, BOC_CDN_MARKET_DEBT_SERIES]:  # the current year's last, so it wins any overlap
+        response = latest_get(BOC_SERIES_URL.format(series_code=name), missing_ok=True)
+        if response is not None:
+            table = parse_boc_csv(response.text, key="dom_dbt_id")
+            parts.append(pd.to_numeric(table.iloc[:, 0], errors="coerce"))
+    if not parts:
+        raise ValueError(f"the Bank of Canada has no {BOC_CDN_MARKET_DEBT_SERIES} series")
+    daily = pd.concat(parts).dropna().sort_index()
+    daily = daily[~daily.index.duplicated(keep="last")]
+    low, high = _PLAUSIBLE_CDN_MARKET_DEBT
+    if daily.empty or not low <= daily.iloc[-1] <= high:
+        raise ValueError(f"its latest value ({daily.iloc[-1] if len(daily) else None}) is not a plausible total in dollars")
+    return daily.rolling(_MARKET_DEBT_MEDIAN_DAYS, min_periods=1).median().rename(BOC_CDN_MARKET_DEBT_SERIES)
+
+
+def market_debt_for_projection(observed: dict[str, pd.Timestamp | None], config: PlotConfig) -> pd.Series | None:
+    """Return Canadian market debt for ``project_to_now`` when a Canadian debt curve will be projected; else None.
+
+    Fetched only for a chart reaching today, as the projection is. A failure
+    prints a warning; the debt curves then go on at their own pace.
+    """
+    starts = [observed[column] for column in _MARKET_STEERED_COLUMNS if observed.get(column) is not None]
+    if not config.current or not starts or not _quotes_can_reach(config):
+        return None
+    print("Fetching Government of Canada market debt (--cur) …")
+    try:
+        return cdn_market_debt(min(starts) - pd.Timedelta(days=_PROJECTION_RATE_DAYS))
+    except Exception as exc:
+        print(f"  Warning: Government of Canada market debt unavailable ({exc}); Canadian debt goes on at its own pace alone.")
+        return None
 
 
 def _percent(text: object) -> float:

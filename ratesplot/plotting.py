@@ -47,6 +47,7 @@ from .config import (
     PROJECTION_KEY_COLOR,
     PROJECTION_LABEL,
     PROJECTION_LABEL_PREFIX,
+    PROJECTION_LABEL_STEERED,
     US,
     YIELD_COLUMNS,
     YIELD_LINE_STYLE,
@@ -58,8 +59,10 @@ from .frames import filter_to_date_range
 from .latest import (
     PROJECTION_ATTR,
     QUOTE_TIME_ATTR,
+    STEERED_ATTR,
     extend_cdn_yields,
     extend_us_yields,
+    market_debt_for_projection,
     observed_through,
     project_to_now,
 )
@@ -291,9 +294,9 @@ def draw_country(
     legend_macro = list(macro_lines)
     if any(column in projected for column in macro_columns_drawn):
         width = max(style["linewidth"] for style in MACRO_PLOT_STYLES.values()) * config.line_scale
-        legend_macro.append(
-            Line2D([], [], color=PROJECTION_KEY_COLOR, linewidth=width, alpha=PROJECTION_ALPHA, label=PROJECTION_LABEL)
-        )
+        steered = set(macro.attrs.get(STEERED_ATTR, [])) & set(macro_columns_drawn)
+        label = PROJECTION_LABEL_STEERED if steered else PROJECTION_LABEL
+        legend_macro.append(Line2D([], [], color=PROJECTION_KEY_COLOR, linewidth=width, alpha=PROJECTION_ALPHA, label=label))
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
@@ -340,16 +343,20 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
         series = (fetch_cdn_components(config), fetch_cdn_gdp(config))
     else:
         series = (fetch_cdn_debt(config), fetch_cdn_gdp(config), fetch_cdn_interest(config))
-    # --cur on a chart reaching today: each curve carried on from its last data (ratesplot.latest).
+    # --cur on a chart reaching today: each curve carried on from its last data,
+    # debt steered by the Government of Canada's market debt (ratesplot.latest).
     parts = [part for part in series if part is not None]
     observed = {column: observed_through(part[column].dropna().index) for part in parts for column in part.columns}
     history = pd.concat(parts, axis=1) if parts else pd.DataFrame()
-    macro = project_to_now(align_cdn_macro(yields, series, config), observed, config, history)
+    market = market_debt_for_projection(observed, config)
+    macro = project_to_now(align_cdn_macro(yields, series, config), observed, config, history, market)
     projected = macro.attrs.get(PROJECTION_ATTR, {})
+    steered = macro.attrs.get(STEERED_ATTR, [])
     population = fetch_cdn_population() if config.per_capita else None
     yields.attrs[QUOTE_TIME_ATTR] = quote_time
     expressed = express(macro, config, CDN, population)
     expressed.attrs[PROJECTION_ATTR] = projected
+    expressed.attrs[STEERED_ATTR] = steered
     return yields, expressed
 
 

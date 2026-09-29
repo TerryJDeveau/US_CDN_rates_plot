@@ -99,15 +99,22 @@ def _session_get(
     max_retries: int,
     timeout: int,
     cached: bool = True,
-) -> requests.Response:
-    """GET ``url`` through ``session`` with retries; cached under ``(tag, url, params)`` unless ``cached`` is False."""
+    missing_ok: bool = False,
+) -> requests.Response | None:
+    """GET ``url`` through ``session`` with retries; cached under ``(tag, url, params)`` unless ``cached`` is False.
 
-    def attempt() -> requests.Response:
+    With ``missing_ok`` a 404 returns None at once: the thing does not exist
+    (yet), and asking again will not change that.
+    """
+
+    def attempt() -> requests.Response | None:
         response = session.get(url, params=params, timeout=timeout)
+        if missing_ok and response.status_code == 404:
+            return None
         response.raise_for_status()
         return response
 
-    def download() -> requests.Response:
+    def download() -> requests.Response | None:
         return _with_retries(f"{tag.capitalize()} request", attempt, max_retries=max_retries, retry_on=(requests.RequestException,))
 
     if not cached:
@@ -131,7 +138,9 @@ def canadian_get(
         max_retries: Total attempts before the last ``RequestException`` is raised.
         timeout: Per-request timeout in seconds.
     """
-    return _session_get(CANADIAN_SESSION, "canadian", url, params, max_retries=max_retries, timeout=timeout)
+    response = _session_get(CANADIAN_SESSION, "canadian", url, params, max_retries=max_retries, timeout=timeout)
+    assert response is not None  # only missing_ok returns None
+    return response
 
 
 def latest_get(
@@ -139,15 +148,19 @@ def latest_get(
     params: dict | None = None,
     *,
     cached: bool = True,
+    missing_ok: bool = False,
     max_retries: int = DEFAULT_GET_RETRIES,
     timeout: int = HTTP_TIMEOUT_SECONDS,
-) -> requests.Response:
+) -> requests.Response | None:
     """GET a source of the latest values (--cur, see ``ratesplot.latest``) with retries.
 
     ``cached=False`` is for intraday quotes: every drawing should show the
     quotes of the moment, not those of the window's first drawing.
+    ``missing_ok`` returns None for a 404 (a year the source does not have).
     """
-    return _session_get(LATEST_SESSION, "latest", url, params, max_retries=max_retries, timeout=timeout, cached=cached)
+    return _session_get(
+        LATEST_SESSION, "latest", url, params, max_retries=max_retries, timeout=timeout, cached=cached, missing_ok=missing_ok
+    )
 
 
 def get_if_published(
@@ -201,25 +214,28 @@ def fetch_fred_csv(series_id: str, *, max_retries: int = DEFAULT_FRED_RETRIES) -
     return _cached(("fred", series_id), lambda: _with_retries(series_id, attempt, max_retries=max_retries)).copy()
 
 
-def parse_boc_csv(response_text: str) -> pd.DataFrame:
+def parse_boc_csv(response_text: str, key: str = "date") -> pd.DataFrame:
     """Parse a Bank of Canada Valet CSV, skipping the metadata block above the header.
 
     Valet responses begin with several ``"key","value"`` metadata lines; the
-    observation table starts at the first line whose first field is ``date``.
+    observation table starts at the first line whose first field is ``key``:
+    ``date`` for time series, another name for a table keyed by something
+    else (``dom_dbt_id``, the "as of" date of the debt outstanding). The
+    result is indexed by that field, read as dates.
     """
     lines = response_text.splitlines()
     header_index = next(
         (
             index
             for index, line in enumerate(lines)
-            if line.startswith(('"date"', "date"))
+            if line.startswith((f'"{key}"', key))
         ),
         None,
     )
     if header_index is None:
-        raise ValueError("Bank of Canada response contains no 'date' header line")
+        raise ValueError(f"Bank of Canada response contains no {key!r} header line")
 
     df = pd.read_csv(io.StringIO("\n".join(lines[header_index:])))
     df.columns = [column.strip().strip('"') for column in df.columns]
-    df["date"] = pd.to_datetime(df["date"])
-    return df.set_index("date").sort_index()
+    df[key] = pd.to_datetime(df[key])
+    return df.set_index(key).sort_index()
