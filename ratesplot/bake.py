@@ -947,20 +947,28 @@ def _parse_census_estimates(text: str, year: int) -> dict[str, float]:
     return totals
 
 
+def census_estimates_url(year: int) -> str | None:
+    """Return the URL of a fiscal year's "Individual Unit File" ZIP (2011 on), or None if the Census has not listed one.
+
+    The ZIP's name and folder vary by year, so it is found in the listing.
+    Also used by ``tools/check_sources.py`` to see whether a new year is out.
+    """
+    for folder in (f"{CENSUS_TABLES_URL}{year}/", f"{CENSUS_TABLES_URL}{year}/summary-tables/"):
+        listing = get_if_published(folder)
+        found = re.search(r'href="([^"]*Individual_Unit_[Ff]iles?\.zip)"', listing.text) if listing else None
+        if found:
+            return folder + found.group(1)
+    return None
+
+
 def _census_estimates_text(year: int) -> str | None:
     """Download one fiscal year's estimates by state and type of government; None if not published."""
     short = f"{year % 100:02d}"
     if year <= 2010:
         candidates = [f"{CENSUS_OLD_ESTIMATES_URL}{short}statetypepu.zip", f"{CENSUS_OLD_ESTIMATES_URL}{short}statetypepu.txt"]
     else:
-        # The ZIP's name and folder vary by year, so it is found in the listing.
-        candidates = []
-        for folder in (f"{CENSUS_TABLES_URL}{year}/", f"{CENSUS_TABLES_URL}{year}/summary-tables/"):
-            listing = get_if_published(folder)
-            found = re.search(r'href="([^"]*Individual_Unit_[Ff]iles?\.zip)"', listing.text) if listing else None
-            if found:
-                candidates.append(folder + found.group(1))
-                break
+        listed = census_estimates_url(year)
+        candidates = [listed] if listed else []
     for url in candidates:
         response = get_if_published(url)
         if response is None:

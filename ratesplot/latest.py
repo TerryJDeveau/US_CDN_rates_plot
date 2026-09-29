@@ -382,22 +382,11 @@ def _day_change(quote: dict) -> float:
         return _percent(quote["last"]) - _percent(quote["previous_day_closing"])
 
 
-def intraday_yields_after(
-    country: str, official: pd.Series, last: pd.Timestamp, config: PlotConfig
-) -> tuple[pd.DataFrame, pd.Timestamp | None]:
-    """Return one country's intraday yields dated after ``last`` (and not after ``config.end``).
+def fetch_quotes(country: str) -> dict[str, dict | None]:
+    """Return the feed's quote of the moment for each of one country's yield columns (None where it has none).
 
-    ``official`` holds the last official value of each yield column, on
-    ``last``. Where ``last`` is the business day before a quote's day, the
-    value is that official close plus the day's move in the feed; otherwise
-    the quote itself (see the module docstring).
-
-    Returns a date-indexed frame, one row per quote date (normally just
-    today), and the time of the newest quote used, in ``MARKET_TIMEZONE``.
-    A quote is dated by its own time there: at a weekend the feed still
-    gives Friday's last quotes, which are then no newer than the official
-    Friday figures and are left out. Fetched afresh every time (not cached),
-    so each drawing shows the quotes of the moment.
+    Not cached: each drawing gets fresh quotes. ``tools/check_sources.py``
+    uses it to check the feed still answers in the expected form.
     """
     symbols = _QUOTE_SYMBOLS[country]
     params = {
@@ -417,11 +406,33 @@ def intraday_yields_after(
     if isinstance(quotes, dict):  # a single symbol comes back unlisted
         quotes = [quotes]
     by_symbol = {quote.get("symbol"): quote for quote in quotes}
+    return {column: by_symbol.get(symbol) for column, symbol in symbols.items()}
+
+
+def intraday_yields_after(
+    country: str, official: pd.Series, last: pd.Timestamp, config: PlotConfig
+) -> tuple[pd.DataFrame, pd.Timestamp | None]:
+    """Return one country's intraday yields dated after ``last`` (and not after ``config.end``).
+
+    ``official`` holds the last official value of each yield column, on
+    ``last``. Where ``last`` is the business day before a quote's day, the
+    value is that official close plus the day's move in the feed; otherwise
+    the quote itself (see the module docstring).
+
+    Returns a date-indexed frame, one row per quote date (normally just
+    today), and the time of the newest quote used, in ``MARKET_TIMEZONE``.
+    A quote is dated by its own time there: at a weekend the feed still
+    gives Friday's last quotes, which are then no newer than the official
+    Friday figures and are left out. Fetched afresh every time (not cached),
+    so each drawing shows the quotes of the moment.
+    """
+    symbols = _QUOTE_SYMBOLS[country]
+    quotes = fetch_quotes(country)
 
     rows: dict[pd.Timestamp, dict[str, float]] = {}
     newest: pd.Timestamp | None = None
     for column, symbol in symbols.items():
-        quote = by_symbol.get(symbol)
+        quote = quotes[column]
         try:
             value = _percent(quote["last"])
             when = pd.Timestamp(quote["last_time"]).tz_convert(MARKET_TIMEZONE)

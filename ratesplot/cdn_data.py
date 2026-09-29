@@ -360,7 +360,7 @@ def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
     try:
         yields = yields.join(boc_valet_series(BOC_3M_TBILL_SERIES).rename("3-Month"), how="outer")
     except Exception as exc:
-        print("  3-month T-bill failed:", exc)
+        print(f"  Warning: Bank of Canada 3-month T-bill ({BOC_3M_TBILL_SERIES}) unavailable ({exc}); drawn without it.")
 
     available = [column for column in YIELD_COLUMNS if column in yields.columns]
     # Short forward-fill bridges holidays and single missing prints only.
