@@ -428,7 +428,8 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "regression", Kind.FLAG, ("regression",), "labels", "--reg / --regression / --no-reg",
         "each right-axis curve fitted by the fewest\nstraight pieces on its log axis, each\n"
-        "labelled with its slope in %/yr",
+        "labelled with its growth in %/yr:\ncompounded on a piece of a year or more,\n"
+        "the log slope on a shorter one",
         names=("regression",), shortest=3, label="Regression segments",
     ),
     # Its tolerance. Giving it turns --reg on, as --debt:LETTERS names the

@@ -7,7 +7,7 @@ and interest as % of GDP; with -p dollars per person; see ``measures``; with
 legend, a title and a subtitle naming the dates the drawn data cover (which
 can be narrower than the axis), with -l each line's last value at its
 end, and with --reg straight pieces fitted to the right-axis curves, each
-labelled with its slope in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
+labelled with its growth in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
 monthly and drawn as steps.
 """
 

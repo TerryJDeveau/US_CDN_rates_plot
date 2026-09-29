@@ -546,7 +546,7 @@ class PlotConfig:
     # line's colour; the date axis is widened to make room (ratesplot.endlabels).
     end_labels: bool = False
     # --reg: fit each drawn right-axis curve with the fewest straight pieces on
-    # its log axis, each labelled with its slope in %/yr (ratesplot.regression).
+    # its log axis, each labelled with its growth in %/yr (ratesplot.regression).
     regression: bool = False
     # --reg:TOL: the pieces' tolerance, in percent of the right axis's height;
     # None = DEFAULT_REGRESSION_TOLERANCE_PCT. Never below

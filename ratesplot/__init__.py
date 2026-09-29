@@ -10,7 +10,7 @@ legend            legend auto-placement, title/subtitle/layout finishing
 occupancy         every drawn line sampled into a grid of the axes, for finding free room
 endlabels         -l: each line's last value at its end; widens the date axis to fit
 regression        --reg: the right-axis curves fitted by straight pieces on their log
-                  axis, each labelled with its slope in %/yr
+                  axis, each labelled with its growth in %/yr
 cdn_data          Bank of Canada / Statistics Canada fetch, splice and align
 cdn_archive_data  baked historical CDN rows: debt, GDP, interest, population, yield
                   stand-ins (rewritten by tools/bake_archives.py)

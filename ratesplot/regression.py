@@ -1,11 +1,18 @@
-"""Regression segments on the right-axis curves, each labelled with its slope in %/yr (--reg).
+"""Regression segments on the right-axis curves, each labelled with its growth in %/yr (--reg).
 
 The right axis is logarithmic, so a straight line on it is a constant rate
 of growth. Each drawn right-axis curve (debt, GDP, interest, each level of
 government, federal debt before 1933; in dollars, as % of GDP or per person)
 is cut into as few pieces as possible, and each piece is fitted by least
-squares of ln(value) on time in years. The fitted slope times 100 is the
+squares of ln(value) on time in years. The fitted slope b times 100 is the
 piece's growth rate in %/yr, the unit of such a slope (Terry, 2026-09-29).
+
+A piece whose observations span a year or more is labelled with the
+compound annual rate instead, 100 (e^b - 1), which is what the curve grew
+by, on average, in each year of it (Terry asked for it on 2026-09-29): a
+slope of 30.0 %/yr is 35.0 %/yr compounded. A shorter piece keeps the
+slope: compounding a few months' growth into a year's would be
+extrapolation (``rate_text``).
 
 What is fitted
 --------------
@@ -39,7 +46,7 @@ How they are drawn
 ------------------
 - Each piece is a thick, paler, translucent line in its curve's colour,
   under the curves, from its first observation to its last.
-- Its slope is written above it, turned to lie along it, in the curve's own
+- Its rate is written above it, turned to lie along it, in the curve's own
   colour, after the layout, the date limits and the -l labels are final
   (``add_slope_labels``, called by ``legend.finish_legend_and_title``). It
   goes where it covers the fewest other lines and labels, nearest the
@@ -72,6 +79,12 @@ _MIN_TOLERANCE = math.log1p(MIN_REGRESSION_TOLERANCE_PCT / 100)
 # A curve needs this many observations in the window to be fitted at all.
 _MIN_OBSERVATIONS = 3
 _DAYS_PER_YEAR = 365.25
+# A piece whose first and last observations are at least this many days
+# apart is labelled with the compound annual rate, a shorter one with the
+# slope (see the module docstring). Five quarterly figures, or two annual
+# ones, span a year: 365 days, or 366 across a 29 February. Counted in whole
+# days, since 365 days is only 0.9993 of the 365.25-day years of ``x``.
+_COMPOUND_MIN_DAYS = 365
 
 # The pieces: the curve's colour this far towards white, at this opacity and
 # width (points, before PlotConfig.line_scale; the curves are 2.5), under the
@@ -80,7 +93,7 @@ _LIGHTEN = 0.45
 _ALPHA = 0.5
 _LINE_WIDTH_PT = 8.0
 _ZORDER = 1.5
-LEGEND_LABEL = "Regression segments, slope in %/yr"
+LEGEND_LABEL = "Regression segments, growth in %/yr"
 
 # The labels, in points before PlotConfig.font_scale: size, gap between the
 # piece's edge and the text, and the white halo that keeps grid lines out of
@@ -282,9 +295,16 @@ def tolerance_for(ax: Axes, config: PlotConfig) -> float:
     return max(percent / 100 * span, _MIN_TOLERANCE)
 
 
-def slope_text(slope: float) -> str:
-    """Write a slope in ln units per year as %/yr with one decimal and its sign: ``+6.8%/yr``, ``−1.2%/yr``."""
-    percent = round(100.0 * slope, 1)
+def rate_text(slope: float, span_days: int) -> str:
+    """Write a piece's growth as %/yr with one decimal and its sign: ``+6.8%/yr``, ``−1.2%/yr``.
+
+    ``slope`` is in ln units per year, and ``span_days`` the days from the
+    piece's first observation to its last. Over ``_COMPOUND_MIN_DAYS`` or
+    more the rate is compounded, 100 (e^slope - 1); over fewer it is the
+    slope itself, 100 slope.
+    """
+    rate = math.expm1(slope) if span_days >= _COMPOUND_MIN_DAYS else slope
+    percent = round(100.0 * rate, 1)
     if percent == 0:
         return "0.0%/yr"
     return f"{percent:+.1f}%/yr".replace("-", "\N{MINUS SIGN}")
@@ -344,7 +364,8 @@ def add_regression_segments(
                 dates[ends], values, label="_regression", zorder=_ZORDER, scalex=False, scaley=False,
                 **_piece_style(line.get_color(), config),
             )
-            labels.append(SlopeLabel(drawn, slope_text(piece.slope), line.get_color()))
+            span_days = (dates[piece.last] - dates[piece.first]).days
+            labels.append(SlopeLabel(drawn, rate_text(piece.slope, span_days), line.get_color()))
     return labels
 
 
