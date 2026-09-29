@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot import plotting  # noqa: E402
+from ratesplot import http, plotting  # noqa: E402
 from ratesplot.cli import main, parse_args as parse_cli_args  # noqa: E402
 
 # Strip the matplotlib version from the PNG metadata so hashes stay comparable
@@ -74,6 +74,11 @@ def run_figure_path(outdir: Path, cli_args: list[str]) -> list[Path]:
     """
     outdir.mkdir(parents=True, exist_ok=True)
     config = parse_cli_args(["--no-gui", *cli_args])
+    if config.start is None:
+        # As the window does: the automatic start once for all the charts,
+        # its trial pass sharing the downloads with the drawing.
+        http.enable_download_cache()
+        config = plotting.resolve_start(config)
     written: list[Path] = []
     for country in plotting.COUNTRIES:
         if not getattr(config, country.show_field):

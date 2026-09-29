@@ -17,7 +17,8 @@ import sys
 
 from .config import PlotConfig
 from .options import OPTIONS, Kind, Option, config_from_choices, help_epilog, options_of, spells
-from .plotting import run_cdn, run_us
+from .http import enable_download_cache
+from .plotting import resolve_start, run_cdn, run_us
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +159,12 @@ def main(argv: list[str] | None = None) -> None:
         run_gui(config, payloads, flags)
         return
 
+    if config.start is None:
+        # The start is found from the data (plotting.resolve_start), which are
+        # then prepared again from it: keep each download for this run, so no
+        # source is fetched twice.
+        enable_download_cache()
+        config = resolve_start(config)
     if config.show_cdn:
         run_cdn(config)
     if config.show_us:

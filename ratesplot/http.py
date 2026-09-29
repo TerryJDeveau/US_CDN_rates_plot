@@ -29,6 +29,9 @@ T = TypeVar("T")
 # Off by default: a command-line run downloads everything fresh, as it always
 # has. The GUI turns it on so that redrawing after a change re-processes what
 # was already downloaded instead of fetching it again; "Reload data" clears it.
+# The command line turns it on for a run without --start, whose trial pass
+# (plotting.resolve_start) and drawing then share each download; it is still
+# fresh for every run.
 # Keyed by URL (and query parameters). Only the two download helpers below use
 # it; the StatCan WDS fallback is rare and stays uncached.
 

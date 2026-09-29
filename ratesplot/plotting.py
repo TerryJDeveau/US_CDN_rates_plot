@@ -9,14 +9,21 @@ can be narrower than the axis), with -l each line's last value at its
 end, and with --reg straight pieces fitted to the right-axis curves, each
 labelled with its growth in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
 monthly and drawn as steps.
+
+Without --start the charts begin on the first date on which every chosen
+curve has data (``resolve_start``), the same date for both countries.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import math
-from dataclasses import dataclass
+import sys
+import threading
+from dataclasses import dataclass, replace
 from functools import partial
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -43,7 +50,9 @@ from .config import (
     CANVAS_DPI,
     CDN,
     DATE_COLUMN,
+    EARLIEST_DATA_START,
     MACRO_PLOT_STYLES,
+    MIN_WINDOW_DAYS,
     PROJECTION_ALPHA,
     PROJECTION_KEY_COLOR,
     PROJECTION_LABEL,
@@ -348,6 +357,7 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     With --cur the yields run on to the day's quotes, and the macro curves
     with them; the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
     """
+    _require_start(config)
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields, quote_time = extend_cdn_yields(fetch_cdn_yields(config), config)
     if config.components:
@@ -378,6 +388,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     With --cur the yields run on to the day's quotes and federal debt daily
     (see ``ratesplot.latest``); the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
     """
+    _require_start(config)
     warn_series_coverage(config.start, US_SERIES_EARLIEST)
     yields, quote_time = extend_us_yields(fetch_us_yields(config), config)
     if not yields.empty:
@@ -413,6 +424,126 @@ COUNTRIES: tuple[Country, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# The automatic start (no --start)
+# ---------------------------------------------------------------------------
+
+
+def _require_start(config: PlotConfig) -> None:
+    """Refuse a config whose automatic start has not been found yet (``resolve_start``)."""
+    if config.start is None:
+        raise ValueError("the start date is automatic: call plotting.resolve_start(config) before preparing a chart")
+
+
+@contextlib.contextmanager
+def _output_of_this_thread_discarded() -> Iterator[None]:
+    """Discard what the calling thread prints meanwhile; other threads print as before.
+
+    ``contextlib.redirect_stdout`` would swallow every thread's output, and
+    the window's worker thread draws while its main thread runs (see
+    ``gui._WorkerStdout``, which this wraps there).
+    """
+    original = sys.stdout
+    caller = threading.get_ident()
+
+    class _Filter(io.TextIOBase):
+        def write(self, text: str) -> int:
+            if threading.get_ident() == caller or original is None:
+                return len(text)
+            return original.write(text)
+
+        def flush(self) -> None:
+            if original is not None:
+                original.flush()
+
+    sys.stdout = _Filter()
+    try:
+        yield
+    finally:
+        sys.stdout = original
+
+
+def curve_first_dates(
+    yields: pd.DataFrame, macro: pd.DataFrame, config: PlotConfig, metadata: CountryMetadata
+) -> dict[str, pd.Timestamp]:
+    """Return the first date on which each curve ``draw_country`` would draw has a value, by its legend label.
+
+    ``yields`` and ``macro`` are as ``prepare_*`` returns them (the Canadian
+    yields are date-indexed, the other frames have a ``DATE`` column). The
+    curves are every yield tenor, if yields are chosen, and each chosen
+    right-axis curve (``metadata.macro_specs``) in the chosen measure: under
+    -r debt begins where both debt and GDP do.
+    """
+    firsts: dict[str, pd.Timestamp] = {}
+
+    def note(frame: pd.DataFrame, dates: pd.DatetimeIndex, column: str, label: str) -> None:
+        if column in frame.columns:
+            has_value = frame[column].notna().to_numpy()
+            if has_value.any():
+                firsts[label] = dates[has_value][0]
+
+    if config.include_yield and not yields.empty:
+        dates = pd.DatetimeIndex(yields[DATE_COLUMN] if DATE_COLUMN in yields.columns else yields.index)
+        for column in YIELD_COLUMNS:
+            note(yields, dates, column, f"{column} Yield")
+    if not macro.empty:
+        dates = pd.DatetimeIndex(macro[DATE_COLUMN])
+        for _key, enabled, column, label in metadata.macro_specs(config):
+            if enabled:
+                note(macro, dates, column, label)
+    return firsts
+
+
+def resolve_start(config: PlotConfig) -> PlotConfig:
+    """Return ``config`` with its automatic start found; as it is when --start was given.
+
+    Terry, 2026-09-29: without -s the start is "the oldest date that fully
+    populates the curves that were specified", with no curve missing at the
+    left; from that country's curves under -u or -c alone, otherwise from
+    both countries' together. So each chosen country is prepared from
+    ``EARLIEST_DATA_START``, the first date of each curve it would draw is
+    read off (``curve_first_dates``), and the start is the latest of them.
+    The charts are then prepared from that date exactly as with -s set to it
+    (the command line and the window keep the downloads for that second pass).
+
+    The trial pass runs without --cur, which only adds values after the data
+    end. It prints nothing: the real pass fetches the same data and prints
+    the same progress and warnings. A curve that begins within
+    ``MIN_WINDOW_DAYS`` of the end, or after it, cannot be whole in any
+    window: it is left out of the choice (and said so), and drawn from where
+    it begins, if at all.
+    """
+    if config.start is not None:
+        return config
+    trial = replace(config, start=EARLIEST_DATA_START, current=False)
+    firsts: dict[tuple[str, str], pd.Timestamp] = {}  # (country, curve label) -> first date
+    with _output_of_this_thread_discarded():
+        for country in COUNTRIES:
+            if getattr(config, country.show_field):
+                yields, macro = country.prepare(trial)
+                for label, first in curve_first_dates(yields, macro, trial, country.metadata).items():
+                    firsts[(country.metadata.country_name, label)] = first
+
+    def named(curves: list[tuple[str, str]]) -> str:
+        """``5-Year Yield and 10-Year Yield (Canada)``, one bracket per country."""
+        countries = dict.fromkeys(country for country, _label in curves)
+        return "; ".join(
+            f"{' and '.join(label for c, label in curves if c == country)} ({country})" for country in countries
+        )
+
+    latest_start = config.end - pd.Timedelta(days=MIN_WINDOW_DAYS)
+    whole = {curve: first for curve, first in firsts.items() if first <= latest_start}
+    late = [curve for curve, first in firsts.items() if first > latest_start]
+    left_out = f"; beginning after {latest_start:%Y-%m-%d}, too late to count for this end: {named(late)}" if late else ""
+    if not whole:
+        print(f"  Warning: no chosen curve begins by {latest_start:%Y-%m-%d}; the chart shows the last {MIN_WINDOW_DAYS} days{left_out}.")
+        return replace(config, start=latest_start)
+    start = max(whole.values())
+    last = [curve for curve, first in whole.items() if first == start]
+    print(f"Start {start:%Y-%m-%d}, the first date on which every chosen curve has data; the last to begin: {named(last)}{left_out}.")
+    return replace(config, start=start)
+
+
 def build_figure(country: Country, config: PlotConfig) -> Figure:
     """Fetch, prepare and draw one country's chart on a new Agg figure, without pyplot.
 
@@ -420,6 +551,8 @@ def build_figure(country: Country, config: PlotConfig) -> Figure:
     from a worker thread; a bare ``Figure`` with an Agg canvas is safe there
     as long as one thread uses it at a time. The DPI is pinned to
     ``CANVAS_DPI`` so the pixel size is exactly ``width_px`` x ``height_px``.
+    An automatic start must be found first (``resolve_start``), once for all
+    the charts drawn together.
     """
     figure = Figure(figsize=config.figsize_inches, dpi=CANVAS_DPI)
     FigureCanvasAgg(figure)

@@ -51,6 +51,7 @@ from .config import (
     DEFAULT_REGRESSION_TOLERANCE_PCT,
     MIN_CANVAS_PX,
     MIN_REGRESSION_TOLERANCE_PCT,
+    MIN_WINDOW_DAYS,
     PlotConfig,
 )
 
@@ -196,8 +197,8 @@ def parse_macro_bound(spec: str, *, kind: str) -> float:
 
 
 def format_date(values: tuple, _config: PlotConfig) -> str:
-    """Format a date field as ``YYYY-MM-DD``."""
-    return f"{values[0]:%Y-%m-%d}"
+    """Format a date field as ``YYYY-MM-DD``; blank for the automatic start (None)."""
+    return "" if values[0] is None else f"{values[0]:%Y-%m-%d}"
 
 
 def format_dimensions(values: tuple, _config: PlotConfig) -> str:
@@ -241,12 +242,19 @@ def format_regression_tolerance(values: tuple, _config: PlotConfig) -> str:
 
 
 def check_date_range(values: Mapping[str, object]) -> None:
-    """Reject reversed ranges and windows shorter than seven days."""
+    """Reject reversed ranges and windows shorter than seven days.
+
+    Without --start there is nothing to check yet: the automatic start is
+    found from the data, and always leaves the minimum window
+    (``plotting.resolve_start``).
+    """
     start, end = values["start"], values["end"]
+    if start is None:
+        return
     if end < start:
         raise ValueError(f"end date {end.date()} is before start date {start.date()}")
-    if (end - start).days < 7:
-        raise ValueError(f"end date {end.date()} is less than 7 days after start date {start.date()}")
+    if (end - start).days < MIN_WINDOW_DAYS:
+        raise ValueError(f"end date {end.date()} is less than {MIN_WINDOW_DAYS} days after start date {start.date()}")
 
 
 def check_yield_bounds(values: Mapping[str, object]) -> None:
@@ -468,7 +476,8 @@ OPTIONS: tuple[Option, ...] = (
         names=("interest",), parse=partial(parse_components, kind="interest"), in_gui=False,
     ),
     Option(
-        "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE", "first date (default 1966-01-01)",
+        "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE",
+        "first date (default: the first date on\nwhich every chosen curve has data)",
         names=("start",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
         editor="date",
     ),

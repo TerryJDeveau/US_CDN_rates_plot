@@ -18,7 +18,13 @@ import requests
 # Canvas and date defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_START = pd.Timestamp("1966-01-01")
+# Without --start the chart begins where the last of the chosen curves begins
+# (plotting.resolve_start). It is found by preparing the data from this date,
+# which no series precedes: Canadian population (1 June 1867) and federal
+# debt (31 December 1867), the oldest, begin with Confederation.
+EARLIEST_DATA_START = pd.Timestamp("1867-01-01")
+# The shortest window: --end at least this many days after --start.
+MIN_WINDOW_DAYS = 7
 DEFAULT_CANVAS_PX = (2048, 1536)
 CANVAS_DPI = 100
 MIN_CANVAS_PX = 800
@@ -518,7 +524,10 @@ class PlotConfig:
     mutable global state to find out what the user asked for.
     """
 
-    start: pd.Timestamp = DEFAULT_START
+    # None: the first date on which every chosen curve has a value (Terry,
+    # 2026-09-29), found from the data by plotting.resolve_start before the
+    # charts are prepared; nothing downstream of it sees None.
+    start: pd.Timestamp | None = None
     end: pd.Timestamp = field(default_factory=_today)
     width_px: int = DEFAULT_CANVAS_PX[0]
     height_px: int = DEFAULT_CANVAS_PX[1]

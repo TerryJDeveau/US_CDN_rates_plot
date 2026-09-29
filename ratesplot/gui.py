@@ -42,7 +42,10 @@ Drawing
     ``plotting.draw_country``) on an off-screen Agg figure at the configured
     pixel size, rendered to PNG, and shown scaled to fit the window (or at
     actual size). "Save PNG" writes those same bytes, so a saved chart is the
-    real output, not a screenshot of the preview.
+    real output, not a screenshot of the preview. A blank Start is the
+    automatic start, found for the charts drawn together
+    (``plotting.resolve_start``) each time they are drawn, so it follows the
+    chosen curves; the log names it.
 
 Threading
     Fetching and drawing run on one worker thread at a time so the window stays
@@ -79,7 +82,7 @@ from matplotlib.figure import Figure
 from PIL import Image, ImageTk
 
 from . import http
-from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, PlotConfig
+from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, MIN_WINDOW_DAYS, PlotConfig
 from .options import (
     GROUPS,
     GROUPS_CHOSEN_TOGETHER,
@@ -96,7 +99,7 @@ from .options import (
     options_of,
     parse_date_spec,
 )
-from .plotting import COUNTRIES, Country, build_figure
+from .plotting import COUNTRIES, Country, build_figure, resolve_start
 
 WINDOW_TITLE = "Rates plot: yields, public debt, GDP & interest"
 _SCRIPT_NAME = "US_CDN_rates_plot.py"
@@ -116,7 +119,11 @@ _MIN_DRAG_PX = 8
 # How many zoom/pan steps "Back" can undo.
 _HISTORY_LIMIT = 50
 # The command line insists on at least seven days between start and end.
-_MIN_SPAN_DAYS = 7
+_MIN_SPAN_DAYS = MIN_WINDOW_DAYS
+# The start date written out before it became automatic (Terry, 2026-09-29):
+# a remembered Start with this text was the old default, not a choice, and is
+# read as blank, the automatic start.
+_FORMER_DEFAULT_START = "1966-01-01"
 # Initial window size as a fraction of the screen (when nothing is remembered).
 _SCREEN_FRACTION = 0.9
 # Same PNG metadata as tools/verify_charts.py, so saved files hash identically.
@@ -182,6 +189,9 @@ def starting_choices(
     """
     notes: list[str] = []
     cli_config_payloads, cli_config_flags = choices_from_config(config)
+    if state.get("payloads", {}).get("start") == _FORMER_DEFAULT_START:
+        state = {**state, "payloads": {**state["payloads"], "start": ""}}
+        notes.append(f"The remembered Start {_FORMER_DEFAULT_START} was the former default: now blank, the automatic start.")
 
     def combine(use_state: bool) -> Choices:
         payloads, flags = choices_from_config(PlotConfig())
@@ -410,7 +420,8 @@ class DatePicker:
 
     Year and month can be typed or stepped, so distant decades are two clicks
     away. "Blank" empties the field, which means the option's default (today,
-    for the end date).
+    for the end date; for the start, the first date on which every chosen
+    curve has data).
     """
 
     _SELECTED = "#cfe3ff"
@@ -700,6 +711,9 @@ class RatesPlotApp:
         self.data_cached = False  # True once a drawing has filled the session download cache
         self.pending: tuple[PlotConfig, Choices] | None = None
         self.shown_config: PlotConfig | None = None
+        # The shown charts' config with the automatic start filled in (the
+        # dates they were drawn for); shown_config keeps a blank start blank.
+        self.drawn_config: PlotConfig | None = None
         self.target_config: PlotConfig | None = None  # what the worker is drawing now
         self.rendering_choices: Choices | None = None
         self.drawn_choices: Choices | None = None
@@ -1139,27 +1153,32 @@ class RatesPlotApp:
         # The fetchers print "Downloading …" either way; say when the session
         # cache means nothing is actually downloaded.
         source = "reusing downloaded data" if self.data_cached else "downloading data"
+        start = "the automatic start" if config.start is None else f"{config.start:%Y-%m-%d}"
         self._append_log(
             f"--- drawing {config.width_px}x{config.height_px}, "
-            f"{config.start:%Y-%m-%d} to {config.end:%Y-%m-%d} ({source})\n"
+            f"{start} to {config.end:%Y-%m-%d} ({source})\n"
         )
         threading.Thread(target=self._render_worker, args=(config, countries), daemon=True).start()
 
     def _render_worker(self, config: PlotConfig, countries: list[Country]) -> None:
-        """Worker thread: draw each country to PNG bytes and post them. Never touches Tk."""
+        """Worker thread: draw each country to PNG bytes and post them. Never touches Tk.
+
+        A blank Start is found first, once for all the charts (``resolve_start``).
+        """
         self.stdout.worker_ident = threading.get_ident()
         try:
+            drawn = resolve_start(config)
             for country in countries:
-                figure = build_figure(country, config)
+                figure = build_figure(country, drawn)
                 buffer = io.BytesIO()
                 figure.savefig(buffer, format="png", dpi=figure.dpi, metadata=_PNG_METADATA)
                 # Measured after savefig, so the axes positions are the final rendered ones.
-                geometry = ChartGeometry.from_figure(figure, config)
+                geometry = ChartGeometry.from_figure(figure, drawn)
                 self.messages.put(("chart", country.key, buffer.getvalue(), geometry))
         except Exception as exc:  # reported in the window and log, never swallowed
             self.messages.put(("failed", config, f"{type(exc).__name__}: {exc}", traceback.format_exc()))
         else:
-            self.messages.put(("done", config))
+            self.messages.put(("done", config, drawn))
 
     def _poll(self) -> None:
         """Handle every message the worker has posted, then check again shortly."""
@@ -1172,7 +1191,7 @@ class RatesPlotApp:
                 elif kind == "chart":
                     self._show_chart(message[1], message[2], message[3])
                 elif kind == "done":
-                    self._render_finished(message[1], None)
+                    self._render_finished(message[1], None, message[2])
                 elif kind == "failed":
                     self._append_log(message[3])
                     self._render_finished(message[1], message[2])
@@ -1188,10 +1207,11 @@ class RatesPlotApp:
         self.images[key] = image
         self._refresh_view(key)
 
-    def _render_finished(self, config: PlotConfig, error: str | None) -> None:
+    def _render_finished(self, config: PlotConfig, error: str | None, drawn: PlotConfig | None = None) -> None:
         self.rendering = False
         if error is None:
             self.shown_config = config
+            self.drawn_config = drawn
             self.drawn_choices = self.rendering_choices
             self.data_cached = True
             drawn = [_TAB_TITLES.get(c.key, c.key) for c in COUNTRIES if getattr(config, c.show_field)]
@@ -1431,13 +1451,15 @@ class RatesPlotApp:
         if key is None or key not in self.pngs:
             self.status.set("Nothing drawn in this tab yet.")
             return
-        config = self.shown_config or PlotConfig()
+        # Named by the dates drawn (a blank Start as found); none if no drawing has finished yet.
+        config = self.drawn_config
+        dates = "" if config is None else f"_{config.start:%Y-%m-%d}_{config.end:%Y-%m-%d}"
         path = filedialog.asksaveasfilename(
             parent=self.root,
             title="Save chart as PNG",
             defaultextension=".png",
             filetypes=[("PNG image", "*.png")],
-            initialfile=f"{key}_rates_{config.start:%Y-%m-%d}_{config.end:%Y-%m-%d}.png",
+            initialfile=f"{key}_rates{dates}.png",
         )
         if not path:
             return
