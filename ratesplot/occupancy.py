@@ -103,23 +103,26 @@ class Raster:
             raster.mark_box(obstacle)
         return raster
 
-    def mark_points(self, points: np.ndarray) -> None:
-        """Mark the cells ``points`` (display coordinates) fall in; points outside the axes are ignored."""
+    def mark_points(self, points: np.ndarray, value: int = 1) -> None:
+        """Mark the cells ``points`` (display coordinates) fall in; points outside the axes are ignored.
+
+        ``value`` is what a marked cell counts for; the legend uses only 1.
+        """
         if not points.size:
             return
         col = ((points[:, 0] - self.x0) / CELL_PX).astype(int)
         row = ((points[:, 1] - self.y0) / CELL_PX).astype(int)
         inside = (col >= 0) & (col < self.cols) & (row >= 0) & (row < self.rows)
-        self.cells[row[inside] + self.pad, col[inside] + self.pad] = 1
+        self.cells[row[inside] + self.pad, col[inside] + self.pad] = value
 
-    def mark_box(self, obstacle: Bbox) -> None:
-        """Mark every cell a solid obstacle (a display box, such as an -l value label) touches."""
+    def mark_box(self, obstacle: Bbox, value: int = 1) -> None:
+        """Mark every cell a solid obstacle (a display box, such as an -l value label) touches, with ``value``."""
         col0 = max(0, math.floor((obstacle.x0 - self.x0) / CELL_PX))
         col1 = min(self.cols, math.ceil((obstacle.x1 - self.x0) / CELL_PX))
         row0 = max(0, math.floor((obstacle.y0 - self.y0) / CELL_PX))
         row1 = min(self.rows, math.ceil((obstacle.y1 - self.y0) / CELL_PX))
         if col0 < col1 and row0 < row1:
-            self.cells[row0 + self.pad : row1 + self.pad, col0 + self.pad : col1 + self.pad] = 1
+            self.cells[row0 + self.pad : row1 + self.pad, col0 + self.pad : col1 + self.pad] = value
 
     def cells_at(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return the unpadded ``(rows, cols)`` of the cells ``points`` fall in, and a mask of those inside the axes."""

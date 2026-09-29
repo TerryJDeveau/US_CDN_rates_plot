@@ -98,6 +98,9 @@ CASES: list[list[str]] = [
     # --cur: on by default; at least "cur", so never Canada; --no-cur turns it off.
     ["--cur"], ["--curr"], ["--current"], ["--CURRENT"], ["--no-cur"], ["--no-current"], ["--No-Cur"],
     ["--cu"], ["--cur:1"], ["current"], ["-c", "--no-cur"], ["--no-cur", "--cur"], ["--no-cur", "-l", "-u"],
+    # --reg: off by default; at least "reg", so never -r; "--re" and "--rel" are still -r.
+    ["--reg"], ["--regr"], ["--regression"], ["--REGRESSION"], ["reg"], ["-reg"], ["--no-reg"], ["--no-regression"],
+    ["--re"], ["--rel"], ["--reg:1"], ["--reg", "-r"], ["--reg", "-l", "-p", "-c"], ["--no-reg", "--reg"], ["--reg", "--no-reg"],
 ]
 
 

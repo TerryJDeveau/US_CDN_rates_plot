@@ -333,7 +333,10 @@ GROUPS: dict[str, str] = {
         "from the default set of all four:"
     ),
     "units": "Measure of debt, GDP and interest (case-insensitive; first letter only):",
-    "labels": "Line labels (case-insensitive; first letter only):",
+    "labels": (
+        "Line labels and regression segments (case-insensitive; -l by its first\n"
+        "letter; --reg needs at least \"reg\"):"
+    ),
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
     "latest": "Latest data (case-insensitive; at least \"cur\"):",
     "canvas": "Canvas size in pixels (4:3 assumed when only one dimension is given):",
@@ -392,6 +395,16 @@ OPTIONS: tuple[Option, ...] = (
         "each line's last value at its end, in\nthe line's colour; the date axis is\nwidened to make room",
         flag="--L", flag_help="label each line's end with its last value", initial="L",
         label="Last value at each line's end",
+    ),
+    # Regression segments on the right-axis curves (ratesplot.regression), in
+    # the same group, so the window keeps one panel for both. EXACT with a
+    # prefix, so "--reg…" is never -r (the first-letter rule for the measure);
+    # "--re", "--rel" and "--relative" still are.
+    Option(
+        "regression", Kind.EXACT, ("regression",), "labels", "--reg / --regression / --no-reg",
+        "each right-axis curve fitted by the fewest\nstraight pieces on its log axis, each\n"
+        "labelled with its slope in %/yr",
+        prefixes=("reg",), label="Regression segments, slope in %/yr",
     ),
     # Values. Table order is parse order, so it decides which error is reported
     # first when several values are bad; each ``check`` runs once both of its

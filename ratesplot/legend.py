@@ -7,7 +7,8 @@ lines drawn on a twin axis, so the legend is placed here instead:
    because moving the axes afterwards would invalidate everything below.
 2. Every line on every axis of the figure is sampled a few pixels apart and
    rasterised into a coarse occupancy grid covering the axes area
-   (``occupancy``). With -l the value labels at the line ends (``endlabels``)
+   (``occupancy``). With -l the value labels at the line ends (``endlabels``),
+   and with --reg the slope labels of the regression pieces (``regression``),
    fill their cells too.
 3. Candidate legend *shapes* are tried in preference order: the default two
    columns at full size, then other column counts, then the same shapes at
@@ -46,6 +47,7 @@ from .axes import apply_date_xlim
 from .config import CANVAS_DPI, LEGEND_FS, TITLE_FS, PlotConfig
 from .endlabels import ValueFormatter, add_end_labels
 from .occupancy import CELL_PX, OccupancyGrid, collect_display_samples
+from .regression import SlopeLabel, add_slope_labels
 
 # Minimum gap between the legend and the axes frame (at font scale 1).
 _EDGE_PADDING_PX = 8.0
@@ -273,6 +275,7 @@ def finish_legend_and_title(
     data_span: tuple[pd.Timestamp, pd.Timestamp] | None,
     end_labels: Sequence[tuple[Line2D, ValueFormatter]] = (),
     quote_time: pd.Timestamp | None = None,
+    slope_labels: Sequence[SlopeLabel] = (),
 ) -> None:
     """Add title and date-range subtitle, fix the layout and x-limits, label line ends, then place the legend.
 
@@ -286,6 +289,10 @@ def finish_legend_and_title(
     ``end_labels`` (-l) are the curves to label at their ends, each with the
     formatter for its value. The labels widen the date axis to the right, so
     they follow the requested limits; the legend then avoids them.
+
+    ``slope_labels`` (--reg) are the regression pieces already drawn, whose
+    slopes are written along them once the date axis is final; they avoid
+    the -l labels, and the legend avoids them too.
 
     The legend goes last: its position is chosen against the final axes
     geometry, so nothing may move after it is placed.
@@ -330,4 +337,6 @@ def finish_legend_and_title(
     apply_date_xlim(ax, config)
 
     obstacles = add_end_labels(ax, end_labels, config) if end_labels else []
+    if slope_labels:
+        obstacles += add_slope_labels(ax, slope_labels, config, obstacles)
     auto_place_legend(ax, legend_groups, scale, obstacles)

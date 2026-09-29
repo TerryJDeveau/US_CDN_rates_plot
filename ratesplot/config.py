@@ -533,6 +533,9 @@ class PlotConfig:
     # -l: print each drawn line's last value at its right-hand end, in the
     # line's colour; the date axis is widened to make room (ratesplot.endlabels).
     end_labels: bool = False
+    # --reg: fit each drawn right-axis curve with the fewest straight pieces on
+    # its log axis, each labelled with its slope in %/yr (ratesplot.regression).
+    regression: bool = False
     # --cur (on unless --no-cur): extend the regular series with the latest
     # values from faster sources, down to intraday quotes (ratesplot.latest).
     current: bool = True

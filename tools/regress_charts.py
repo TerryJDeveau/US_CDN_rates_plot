@@ -104,6 +104,17 @@ CASES: dict[str, list[str]] = {
     # A flat yield curve on a long axis: the yield labels crowd (smaller type, leader lines).
     "u_l2019": ["-u", "-l", "--e:2019-09-01"],
     "c_l2019": ["-c", "-l", "--e:2019-09-01"],
+    # --reg: regression segments with their slopes: long and short spans, each
+    # measure, levels, -l, a curve cut off by --top, a small canvas, and the
+    # crowded 1930s (short pieces, labels below their pieces).
+    "reg_default": ["--reg"],
+    "c_reg1867": ["-c", "--reg", "-s:1867"],
+    "u_reg2007_10": ["-u", "--reg", "-s:2007", "--e:2010"],
+    "u_reg_r": ["-u", "--reg", "-r"],
+    "c_reg_p": ["-c", "--reg", "-p"],
+    "c_reg_l_lv": ["-c", "--reg", "-l", "--d:fpm", "-i", "-s:1990"],
+    "u_reg_top": ["-u", "--reg", "--t:20t", "-s:2001"],
+    "u_reg800": ["-u", "--reg", "-dim:800x800", "-s:2001"],
 }
 
 

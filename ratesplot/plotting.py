@@ -5,8 +5,9 @@ axis, the three macro curves on a right log twin axis (dollars; with -r debt
 and interest as % of GDP; with -p dollars per person; see ``measures``; with
 --debt:LETTERS one debt and one interest line per level of government), an auto-placed
 legend, a title and a subtitle naming the dates the drawn data cover (which
-can be narrower than the axis), and with -l each line's last value at its
-end. Only the yield-line style differs: the Canadian pre-2001 history is
+can be narrower than the axis), with -l each line's last value at its
+end, and with --reg straight pieces fitted to the right-axis curves, each
+labelled with its slope in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
 monthly and drawn as steps.
 """
 
@@ -68,6 +69,8 @@ from .latest import (
 )
 from .legend import finish_legend_and_title
 from .measures import express
+from .regression import SlopeLabel, add_regression_segments
+from .regression import legend_entry as regression_legend_entry
 from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_population, fetch_us_yields
 
 YieldLineDrawer = Callable[[Axes, pd.DataFrame, PlotConfig], list[Line2D]]
@@ -278,6 +281,12 @@ def draw_country(
 
     apply_axes_formatting(ax_yield, ax_macro, config, metadata)
     warn_macro_limits_coverage(macro_in_range, macro_columns_drawn, config)
+    # --reg: each right-axis curve fitted by straight pieces on its log axis,
+    # drawn now that the axis limits (which set the tolerance) are known; their
+    # slope labels wait for the final layout (ratesplot.regression).
+    slope_labels: list[SlopeLabel] = []
+    if config.regression:
+        slope_labels = add_regression_segments(ax_macro, macro, zip(macro_lines, macro_columns_drawn), projected, config)
     # -l: every drawn curve gets its last value at its end, written as its
     # axis writes values: yields in percent, right-axis curves as the tick
     # labels there (dollars, or percent of GDP under -r); a projected value
@@ -297,6 +306,8 @@ def draw_country(
         steered = set(macro.attrs.get(STEERED_ATTR, [])) & set(macro_columns_drawn)
         label = PROJECTION_LABEL_STEERED if steered else PROJECTION_LABEL
         legend_macro.append(Line2D([], [], color=PROJECTION_KEY_COLOR, linewidth=width, alpha=PROJECTION_ALPHA, label=label))
+    if slope_labels:
+        legend_macro.append(regression_legend_entry(config))
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
@@ -309,6 +320,7 @@ def draw_country(
         drawn_date_span((ax_yield, ax_macro)),
         end_labels,
         quote_time if yield_lines else None,
+        slope_labels,
     )
 
 
