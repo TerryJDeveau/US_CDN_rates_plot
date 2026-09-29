@@ -1452,7 +1452,15 @@ class RatesPlotApp:
     def _close(self) -> None:
         self._remember()
         sys.stdout = self.stdout.original
-        self.root.after_cancel(self._poll_id)  # or it fires once more after the window is gone
+        # Every callback still waiting, or it fires after the window is gone
+        # ("invalid command name ..."): the poll, and a view refresh after a
+        # resize, a redraw after typing, or a zoom after the wheel stops.
+        pending = [self._poll_id, self._text_after_id, *self._resize_after_ids.values()]
+        if self._wheel is not None:
+            pending.append(self._wheel["after"])
+        for after_id in pending:
+            if after_id is not None:
+                self.root.after_cancel(after_id)
         self.root.destroy()
 
 
