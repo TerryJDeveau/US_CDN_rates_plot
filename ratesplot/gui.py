@@ -728,8 +728,7 @@ class RatesPlotApp:
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        panel = ttk.Frame(self.root, padding=8)
-        panel.grid(row=0, column=0, sticky="nsew")
+        panel = self._build_control_column()
         self._build_option_controls(panel)
         self._build_actions(panel)
         self._build_log(panel)
@@ -750,6 +749,58 @@ class RatesPlotApp:
         self.root.bind("<F5>", lambda _event: self.request_redraw(force=True))
         self.root.bind("<Control-s>", lambda _event: self._save_png())
         self.root.bind("<Alt-Left>", lambda _event: self._back())
+
+    def _build_control_column(self) -> ttk.Frame:
+        """Return the frame the controls go in: a column that scrolls when the window is too short for it.
+
+        On a laptop screen (a 972 px window) the controls filled the column
+        exactly, with the log out of sight, and one more row would have hidden
+        the Redraw and Save buttons. So the column is a canvas holding the
+        controls' frame: when the window is taller than the controls need, the
+        frame is stretched to the window and the log takes the rest, as
+        before; when it is shorter, a scroll bar appears, and the mouse wheel
+        scrolls the column while the pointer is over it (over the log, the log).
+        """
+        outer = ttk.Frame(self.root)
+        outer.grid(row=0, column=0, sticky="nsew")
+        outer.rowconfigure(0, weight=1)
+        background = ttk.Style(self.root).lookup("TFrame", "background") or None
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0, background=background)
+        canvas.grid(row=0, column=0, sticky="ns")
+        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        panel = ttk.Frame(canvas, padding=8)
+        window = canvas.create_window(0, 0, window=panel, anchor="nw")
+
+        def fit(_event=None) -> None:
+            width, needed = panel.winfo_reqwidth(), panel.winfo_reqheight()
+            height = max(needed, canvas.winfo_height())
+            canvas.configure(width=width, scrollregion=(0, 0, width, height))
+            canvas.itemconfigure(window, width=width, height=height)
+            if needed > canvas.winfo_height():
+                scroll.grid(row=0, column=1, sticky="ns")
+            else:
+                scroll.grid_remove()
+                canvas.yview_moveto(0)
+
+        def wheel(event) -> None:
+            # Only with the pointer over the column; the charts zoom with their
+            # own binding, and the log scrolls itself.
+            try:
+                widget = self.root.winfo_containing(event.x_root, event.y_root)
+            except (KeyError, tk.TclError):  # Tk's own pop-ups have no tkinter widget
+                return
+            if isinstance(widget, tk.Text) or not scroll.winfo_ismapped():
+                return
+            while widget is not None and widget is not outer:
+                widget = widget.master
+            if widget is outer:
+                canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+        canvas.bind("<Configure>", fit)
+        panel.bind("<Configure>", fit)
+        self.root.bind_all("<MouseWheel>", wheel, add="+")
+        return panel
 
     def _build_option_controls(self, panel: ttk.Frame) -> None:
         """One labelled frame per option group, one control per GUI option, all from the table."""
