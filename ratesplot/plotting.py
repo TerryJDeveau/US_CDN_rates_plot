@@ -16,14 +16,10 @@ curve has data (``resolve_start``), the same date for both countries.
 
 from __future__ import annotations
 
-import contextlib
-import io
 import math
-import sys
-import threading
 from dataclasses import dataclass, replace
 from functools import partial
-from typing import Callable, Iterable, Iterator
+from typing import Callable, Iterable
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -64,6 +60,7 @@ from .config import (
     CountryMetadata,
     PlotConfig,
 )
+from .console import this_thread_output_to
 from .endlabels import ValueFormatter
 from .frames import filter_to_date_range
 from .latest import (
@@ -435,34 +432,6 @@ def _require_start(config: PlotConfig) -> None:
         raise ValueError("the start date is automatic: call plotting.resolve_start(config) before preparing a chart")
 
 
-@contextlib.contextmanager
-def _output_of_this_thread_discarded() -> Iterator[None]:
-    """Discard what the calling thread prints meanwhile; other threads print as before.
-
-    ``contextlib.redirect_stdout`` would swallow every thread's output, and
-    the window's worker thread draws while its main thread runs (see
-    ``gui._WorkerStdout``, which this wraps there).
-    """
-    original = sys.stdout
-    caller = threading.get_ident()
-
-    class _Filter(io.TextIOBase):
-        def write(self, text: str) -> int:
-            if threading.get_ident() == caller or original is None:
-                return len(text)
-            return original.write(text)
-
-        def flush(self) -> None:
-            if original is not None:
-                original.flush()
-
-    sys.stdout = _Filter()
-    try:
-        yield
-    finally:
-        sys.stdout = original
-
-
 def curve_first_dates(
     yields: pd.DataFrame, macro: pd.DataFrame, config: PlotConfig, metadata: CountryMetadata
 ) -> dict[str, pd.Timestamp]:
@@ -508,7 +477,9 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
 
     The trial pass runs without --cur, which only adds values after the data
     end. It prints nothing: the real pass fetches the same data and prints
-    the same progress and warnings. A curve that begins within
+    the same progress and warnings. Only the calling thread's output is
+    discarded (``console``): the window's main thread, or another visitor's
+    drawing on the web page, prints as before. A curve that begins within
     ``MIN_WINDOW_DAYS`` of the end, or after it, cannot be whole in any
     window: it is left out of the choice (and said so), and drawn from where
     it begins, if at all.
@@ -517,7 +488,7 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
         return config
     trial = replace(config, start=EARLIEST_DATA_START, current=False)
     firsts: dict[tuple[str, str], pd.Timestamp] = {}  # (country, curve label) -> first date
-    with _output_of_this_thread_discarded():
+    with this_thread_output_to(None):
         for country in COUNTRIES:
             if getattr(config, country.show_field):
                 yields, macro = country.prepare(trial)

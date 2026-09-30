@@ -51,7 +51,7 @@ Threading
     Fetching and drawing run on one worker thread at a time so the window stays
     responsive during downloads. The worker never touches Tk; it posts messages
     to a queue that the window polls. Its printed progress and warnings are
-    captured into the log pane. If the choices change while a chart is being
+    captured into the log pane (``console`` routes them by thread). If the choices change while a chart is being
     drawn, the newest choices are drawn as soon as the worker is free.
 
 Downloads are cached for the session (``http.enable_download_cache``), so only
@@ -83,6 +83,7 @@ from PIL import Image, ImageTk
 
 from . import http
 from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, MIN_WINDOW_DAYS, PlotConfig
+from .console import this_thread_output_to
 from .options import (
     GROUPS,
     GROUPS_CHOSEN_TOGETHER,
@@ -357,34 +358,6 @@ def _date_range_texts(start: pd.Timestamp, end: pd.Timestamp) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Small widgets
 # ---------------------------------------------------------------------------
-
-
-class _WorkerStdout(io.TextIOBase):
-    """Stand-in for ``sys.stdout`` that sends the worker thread's output to the log pane.
-
-    The fetchers report progress and warnings with ``print``. Swapping
-    ``sys.stdout`` around the worker's run (``contextlib.redirect_stdout``)
-    would capture every thread's output for that time, since ``sys.stdout`` is
-    process-wide. This routes by thread instead: writes from the worker go to
-    the window's message queue, everything else to the original stream.
-    """
-
-    def __init__(self, messages: queue.Queue, original) -> None:
-        super().__init__()
-        self._messages = messages
-        self.original = original
-        self.worker_ident: int | None = None
-
-    def write(self, text: str) -> int:
-        if threading.get_ident() == self.worker_ident:
-            if text:
-                self._messages.put(("log", text))
-            return len(text)
-        return self.original.write(text) if self.original is not None else len(text)
-
-    def flush(self) -> None:
-        if self.original is not None:
-            self.original.flush()
 
 
 class _Tooltip:
@@ -682,8 +655,6 @@ class RatesPlotApp:
     def __init__(self, root: tk.Tk, choices: Choices, notes: list[str] | None = None, state: dict | None = None) -> None:
         self.root = root
         self.messages: queue.Queue = queue.Queue()
-        self.stdout = _WorkerStdout(self.messages, sys.stdout)
-        sys.stdout = self.stdout
         state = state or {}
 
         # Controls, keyed by option name.
@@ -1164,21 +1135,23 @@ class RatesPlotApp:
         """Worker thread: draw each country to PNG bytes and post them. Never touches Tk.
 
         A blank Start is found first, once for all the charts (``resolve_start``).
+        What this thread prints goes to the log pane (``console``); the main
+        thread's output goes to the console as before.
         """
-        self.stdout.worker_ident = threading.get_ident()
-        try:
-            drawn = resolve_start(config)
-            for country in countries:
-                figure = build_figure(country, drawn)
-                buffer = io.BytesIO()
-                figure.savefig(buffer, format="png", dpi=figure.dpi, metadata=_PNG_METADATA)
-                # Measured after savefig, so the axes positions are the final rendered ones.
-                geometry = ChartGeometry.from_figure(figure, drawn)
-                self.messages.put(("chart", country.key, buffer.getvalue(), geometry))
-        except Exception as exc:  # reported in the window and log, never swallowed
-            self.messages.put(("failed", config, f"{type(exc).__name__}: {exc}", traceback.format_exc()))
-        else:
-            self.messages.put(("done", config, drawn))
+        with this_thread_output_to(lambda text: self.messages.put(("log", text))):
+            try:
+                drawn = resolve_start(config)
+                for country in countries:
+                    figure = build_figure(country, drawn)
+                    buffer = io.BytesIO()
+                    figure.savefig(buffer, format="png", dpi=figure.dpi, metadata=_PNG_METADATA)
+                    # Measured after savefig, so the axes positions are the final rendered ones.
+                    geometry = ChartGeometry.from_figure(figure, drawn)
+                    self.messages.put(("chart", country.key, buffer.getvalue(), geometry))
+            except Exception as exc:  # reported in the window and log, never swallowed
+                self.messages.put(("failed", config, f"{type(exc).__name__}: {exc}", traceback.format_exc()))
+            else:
+                self.messages.put(("done", config, drawn))
 
     def _poll(self) -> None:
         """Handle every message the worker has posted, then check again shortly."""
@@ -1504,7 +1477,6 @@ class RatesPlotApp:
 
     def _close(self) -> None:
         self._remember()
-        sys.stdout = self.stdout.original
         # Every callback still waiting, or it fires after the window is gone
         # ("invalid command name ..."): the poll, and a view refresh after a
         # resize, a redraw after typing, or a zoom after the wheel stops.
