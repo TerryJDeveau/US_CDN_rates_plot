@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bisect
+import functools
 import math
 import warnings
 from typing import Iterable
@@ -109,12 +110,28 @@ class LogNiceLocator(ticker.Locator):
     def tick_values(self, vmin: float, vmax: float) -> list[float]:
         if not (vmin > 0 and vmax > vmin):
             return []
-
         label_px = self.label_fontsize * self.axis.get_figure().dpi / 72.0
-        px_per_decade = self._axis_length_px() / math.log10(vmax / vmin)
-        min_spacing = self._MIN_SPACING * label_px
-        max_gap = self._MAX_GAP * label_px
-        edge_clearance = self._EDGE_CLEARANCE * label_px
+        # float(): a numpy scalar converts exactly, so the ticks are the same
+        # values, and the cache sees one key for equal inputs of either type.
+        return list(self._nice_ticks(float(vmin), float(vmax), self._axis_length_px(), label_px))
+
+    # Matplotlib asks for the ticks 57 times per default chart (drawing, layout,
+    # the legend's and end labels' measurements) with only 2 distinct inputs,
+    # and the refinement pass below tries 1,600-4,100 candidates each time:
+    # 34-46 % of a drawing's time when profiled (2026-09-30). The answer depends
+    # only on these four numbers and the class constants, so it is computed once
+    # per distinct input; both default charts then draw in 2.2 s instead of
+    # 3.35 s. The cache is shared by every chart and thread (lru_cache is
+    # thread-safe) and bounded, for the long-running web server; an entry is a
+    # handful of floats.
+    @classmethod
+    @functools.lru_cache(maxsize=4096)
+    def _nice_ticks(cls, vmin: float, vmax: float, axis_px: float, label_px: float) -> tuple[float, ...]:
+        """The ticks for a view of ``vmin``–``vmax`` on an axis ``axis_px`` long, labels ``label_px`` high."""
+        px_per_decade = axis_px / math.log10(vmax / vmin)
+        min_spacing = cls._MIN_SPACING * label_px
+        max_gap = cls._MAX_GAP * label_px
+        edge_clearance = cls._EDGE_CLEARANCE * label_px
         exponents = range(math.floor(math.log10(vmin)), math.ceil(math.log10(vmax)) + 1)
 
         def in_view(values: Iterable[float]) -> list[float]:
@@ -147,11 +164,11 @@ class LogNiceLocator(ticker.Locator):
                     return
             accepted.insert(index, value)
 
-        for coefficient in self._INTEGER_ORDER:
+        for coefficient in cls._INTEGER_ORDER:
             for value in in_view(coefficient * 10.0**e for e in exponents):
                 try_add(value, require_wide_gap=False)
 
-        for step in self._REFINEMENT_STEPS:
+        for step in cls._REFINEMENT_STEPS:
             # Coefficients are built from integers (hundredths) to avoid float drift.
             hundredths = range(100, 1000, round(step * 100))
             candidates = in_view(c * 10.0 ** (e - 2) for e in exponents for c in hundredths)
@@ -159,7 +176,7 @@ class LogNiceLocator(ticker.Locator):
                 if not any(math.isclose(value, a, rel_tol=1e-9) for a in accepted):
                     try_add(value, require_wide_gap=True)
 
-        return accepted
+        return tuple(accepted)
 
 
 class _ComplementLogLocator(ticker.LogLocator):
