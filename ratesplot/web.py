@@ -60,10 +60,15 @@ Dates
     picking a day writes ``YYYY-MM-DD`` in the field, and typing ``YYYY`` or
     ``YYYY-MM`` still works (``_date_control``).
 
+Size
+    Width and height boxes and a "Preserve aspect ratio" lock, as in the
+    window: with the lock on, changing one box sets the other, so a chart
+    whose shape suits can be drawn larger or smaller by typing one number
+    (``_size_control``). The ``WxH`` text behind them stays the source of truth.
+
 Not here (the window has them)
     The wheel's zoom and the right-drag pan (the buttons move the dates),
-    the aspect-ratio lock (Size is typed as WxH), and remembered settings
-    (the address keeps the chart instead).
+    and remembered settings (the address keeps the chart instead).
 """
 
 from __future__ import annotations
@@ -169,6 +174,7 @@ _START_HINT = "start_hint"  # what the Start field's hint says now
 _HISTORY = "history"  # the choices before each zoom or pan, for Back and Unzoom
 _CHART = "chart:"     # + country key + drawing number: a chart (its dragged box)
 _CALENDAR = "calendar:"  # + option name: a date field's calendar
+_SIZE = "size:"          # + "width", "height", "lock", "ratio": the Size boxes, their lock and kept shape
 # The calendar's first day: no series starts earlier (config.EARLIEST_DATA_START).
 _CALENDAR_FIRST = EARLIEST_DATA_START.date()
 
@@ -371,6 +377,8 @@ def _load_choices(choices: Choices) -> None:
                 st.session_state[_LEVEL + letter] = letter in letters
         else:
             st.session_state[_VALUE + option.name] = payloads.get(option.name, "")
+            if option.editor == "size":
+                _size_boxes_from_text(option.name)
     for option in _gui_options(kind_is_value=False):
         st.session_state[_FLAG + option.name] = bool(flags.get(option.name, False))
 
@@ -603,6 +611,93 @@ def _date_control(where, option: Option, placeholder: str | None) -> None:
         )
 
 
+def _pixels(text: str) -> int | None:
+    text = text.strip()
+    return int(text) if text.isdigit() and int(text) > 0 else None
+
+
+def _remember_ratio() -> None:
+    """Take the boxes' shape as the one the lock keeps (width / height), if both are numbers."""
+    width = _pixels(st.session_state.get(_SIZE + "width", ""))
+    height = _pixels(st.session_state.get(_SIZE + "height", ""))
+    if width and height:
+        st.session_state[_SIZE + "ratio"] = width / height
+
+
+def _size_boxes_from_text(name: str) -> None:
+    """Show a ``WxH`` text set from elsewhere (the address, Back, Reset) in the boxes, and take its shape.
+
+    As in the window: one dimension alone means 4:3 on the command line, so
+    the other box shows the size that implies.
+    """
+    text = st.session_state.get(_VALUE + name, "").strip().lower()
+    width, height = (part.strip() for part in text.split("x", 1)) if "x" in text else (text, "")
+    if width.isdigit() and not height:
+        height = str(round(int(width) * 3 / 4))
+    elif height.isdigit() and not width:
+        width = str(round(int(height) * 4 / 3))
+    st.session_state[_SIZE + "width"] = width
+    st.session_state[_SIZE + "height"] = height
+    _remember_ratio()
+
+
+def _size_box_changed(name: str, which: str) -> None:
+    """A Size box changed: with the lock on, set the other from the kept shape; then write the ``WxH`` text."""
+    state = st.session_state
+    ratio = state.get(_SIZE + "ratio")
+    if state.get(_SIZE + "lock", True) and ratio:
+        other = "height" if which == "width" else "width"
+        value = _pixels(state[_SIZE + which])
+        if value is not None:
+            state[_SIZE + other] = str(max(1, round(value / ratio if which == "width" else value * ratio)))
+        elif not state[_SIZE + which].strip():
+            state[_SIZE + other] = ""
+    else:
+        _remember_ratio()
+    width, height = state[_SIZE + "width"].strip(), state[_SIZE + "height"].strip()
+    state[_VALUE + name] = f"{width}x{height}" if width and height else width or (f"x{height}" if height else "")
+
+
+def _size_lock_changed() -> None:
+    # Ticking the lock keeps the shape the boxes have now.
+    if st.session_state[_SIZE + "lock"]:
+        _remember_ratio()
+
+
+def _size_control(where, option: Option) -> None:
+    """Width and height boxes and a "Preserve aspect ratio" lock, as in the window (``gui._SizeEditor``).
+
+    Terry, 2026-09-30: "if you have a chart shape you like, and have saved to
+    PNG, but you need an upscaled or downscaled version of it, you can just
+    change one number and the other automatically adjusts." The option's own
+    ``WxH`` text (``_VALUE`` + name, the command-line form) stays the single
+    source of truth for drawing, the address, Back and Reset; the boxes are a
+    view of it and write it back. With the lock on (the default), changing
+    one box sets the other from the shape the pair had when the lock was
+    ticked or the size was loaded, so repeated edits do not drift; with it
+    off, each box changes alone. A blank box with the other filled keeps the
+    command line's meaning: 4:3 from the one given.
+    """
+    st.session_state.setdefault(_SIZE + "lock", True)
+    tip = _help(option, "Width and height in pixels. Blank = default.")
+    row = where.container(horizontal=True, wrap=False)
+    for which, placeholder in (("width", PlotConfig().width_px), ("height", PlotConfig().height_px)):
+        row.text_input(
+            f"{which.capitalize()} (px)",
+            key=_SIZE + which,
+            help=tip,
+            placeholder=str(placeholder),
+            on_change=_size_box_changed,
+            args=(option.name, which),
+        )
+    where.checkbox(
+        "Preserve aspect ratio",
+        key=_SIZE + "lock",
+        on_change=_size_lock_changed,
+        help="When ticked, changing one box changes the other to keep the current shape.",
+    )
+
+
 def _levels_control(where, option: Option) -> None:
     where.markdown(f"**{option.label}**", help=_help(option, "None ticked = debt and interest in total."))
     columns = where.columns(2)
@@ -647,13 +742,15 @@ def _controls() -> None:
                 if option.name == "start":
                     placeholder = st.session_state[_START_HINT] = _start_placeholder()
                 _date_control(bar, option, placeholder)
-        paired = [option for option in values if option.editor not in ("date", "levels")]
+        paired = [option for option in values if option.editor not in ("date", "levels", "size")]
         for index in range(0, len(paired), 2):
             for column, option in zip(bar.columns(2), paired[index:index + 2]):
                 _value_control(column, option)
         for option in values:
             if option.editor == "levels":
                 _levels_control(bar, option)
+            elif option.editor == "size":
+                _size_control(bar, option)
 
 
 # ---------------------------------------------------------------------------

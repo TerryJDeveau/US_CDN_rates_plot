@@ -10,8 +10,8 @@ code.
 
 - **The web page** (`ratesplot/web.py`): open the link, choose the charts in the panel on the
   left. Drag a box on a chart to zoom to it; buttons move the dates and undo a zoom; each
-  date has a calendar. The page's address holds the chart's settings, so a chart can be
-  bookmarked or sent.
+  date has a calendar; the size keeps its shape when you change one side. The page's
+  address holds the chart's settings, so a chart can be bookmarked or sent.
   To run it on your own machine: `streamlit run streamlit_app.py`.
 - **The desktop window** (`ratesplot/gui.py`): `python US_CDN_rates_plot.py`. It adds the
   mouse wheel and a right-drag pan, and remembers your last settings.
