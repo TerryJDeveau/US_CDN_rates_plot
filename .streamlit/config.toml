@@ -1,0 +1,18 @@
+# Streamlit settings for the web page (ratesplot.web), locally and on
+# Streamlit Community Cloud.
+
+[server]
+# No browser opened by the server itself, and no e-mail prompt on first run.
+headless = true
+
+[browser]
+# Do not send usage statistics to Streamlit.
+gatherUsageStats = false
+
+[client]
+# Visitors see the page, not the developer menu.
+toolbarMode = "viewer"
+
+[theme]
+# The charts are drawn on white: a light page around them.
+base = "light"

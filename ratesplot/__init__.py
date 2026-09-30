@@ -28,14 +28,16 @@ options           the option table, value parsers/formatters, choices <-> PlotCo
 frontend          what the window and the web page share without a GUI toolkit: starting
                   choices, remembered settings, option help, PNG bytes and file names
 gui               the interactive window (default; --no-gui for plain matplotlib windows)
+web               the web page (Streamlit; streamlit_app.py): the same charts in a browser
 cli               argument parsing (driven by the options table) and main()
 
 Dependency direction is strictly downward: cli -> gui -> {frontend, options,
-plotting, http}; frontend -> {options, config}; cli -> {options, plotting}; plotting -> {axes, legend, endlabels,
-regression, measures, cdn_data, us_data, latest} -> {frames, http} -> config;
-plotting, gui -> console;
+plotting, http}; web -> {cli (its token matching), frontend, options,
+plotting, http}; cli -> {options, plotting, http}; frontend -> {options,
+config}; plotting -> {axes, legend, endlabels, regression, measures, cdn_data,
+us_data, latest} -> {frames, http} -> config; plotting, gui, web -> console;
 us_data -> latest; legend -> {axes, endlabels, regression, occupancy};
-regression -> occupancy; options -> config. Data modules never
-import plotting, and nothing imports cli or gui (cli imports gui only when the
-window is opened, so --no-gui never loads tkinter).
+regression -> occupancy; options -> config. Data modules never import
+plotting. Nothing imports web or gui, and cli imports gui only when the
+window is opened, so --no-gui and the web page never load tkinter.
 """
