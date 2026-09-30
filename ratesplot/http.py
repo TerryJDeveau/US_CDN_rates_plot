@@ -32,19 +32,25 @@ T = TypeVar("T")
 # The command line turns it on for a run without --start, whose trial pass
 # (plotting.resolve_start) and drawing then share each download; it is still
 # fresh for every run.
+# The web page (ratesplot.web) serves every visitor from one process and keeps
+# running for days, so there each download is kept for a limited time only
+# (``max_age_seconds``): visitors share the downloads, and still see new data
+# within that time. Entries are stored with the time they were fetched.
 # Keyed by URL (and query parameters). Only the two download helpers below use
 # it; the StatCan WDS fallback is rare and stays uncached.
 
-_download_cache: dict[tuple, object] | None = None
+_download_cache: dict[tuple, tuple[float, object]] | None = None
+_download_cache_max_age: float | None = None  # seconds; None keeps each download for the session
 _download_cache_lock = threading.Lock()
 
 
-def enable_download_cache() -> None:
-    """Keep every download for the rest of the session (see above)."""
-    global _download_cache
+def enable_download_cache(max_age_seconds: float | None = None) -> None:
+    """Keep every download for the rest of the session, or for ``max_age_seconds`` each (see above)."""
+    global _download_cache, _download_cache_max_age
     with _download_cache_lock:
         if _download_cache is None:
             _download_cache = {}
+        _download_cache_max_age = max_age_seconds
 
 
 def clear_download_cache() -> None:
@@ -55,14 +61,21 @@ def clear_download_cache() -> None:
 
 
 def _cached(key: tuple, download: Callable[[], T]) -> T:
-    """Return the cached result for ``key``, downloading it first if needed (or if caching is off)."""
+    """Return the cached result for ``key``, downloading it first if needed (or if caching is off).
+
+    A result older than the cache's age limit is downloaded again. Two threads
+    asking for the same missing key at once both download it; the later one's
+    result is kept. That costs a duplicate download, never a wrong result.
+    """
     with _download_cache_lock:
         if _download_cache is not None and key in _download_cache:
-            return _download_cache[key]  # type: ignore[return-value]
+            fetched_at, result = _download_cache[key]
+            if _download_cache_max_age is None or time.monotonic() - fetched_at <= _download_cache_max_age:
+                return result  # type: ignore[return-value]
     result = download()
     with _download_cache_lock:
         if _download_cache is not None:
-            _download_cache[key] = result
+            _download_cache[key] = (time.monotonic(), result)
     return result
 
 
