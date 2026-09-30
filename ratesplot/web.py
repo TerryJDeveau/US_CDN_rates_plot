@@ -54,14 +54,21 @@ Zoom and dates
     options, so zooming one country's chart applies them to the other too,
     as on the command line.
 
+Dates
+    Beside each date field a 📅 button opens Streamlit's calendar (between
+    1867 and today) and a "Blank (default)" button, as the window's does:
+    picking a day writes ``YYYY-MM-DD`` in the field, and typing ``YYYY`` or
+    ``YYYY-MM`` still works (``_date_control``).
+
 Not here (the window has them)
     The wheel's zoom and the right-drag pan (the buttons move the dates),
-    the calendar button, the aspect-ratio lock (Size is typed as WxH), and
-    remembered settings (the address keeps the chart instead).
+    the aspect-ratio lock (Size is typed as WxH), and remembered settings
+    (the address keeps the chart instead).
 """
 
 from __future__ import annotations
 
+import datetime
 import functools
 import os
 import struct
@@ -112,6 +119,7 @@ from .options import (  # noqa: E402
     help_epilog,
     options_in,
     options_of,
+    parse_date_spec,
 )
 from .plotting import COUNTRIES, build_figure, resolve_start  # noqa: E402
 
@@ -160,6 +168,9 @@ _FORCE = "force_redraw"
 _START_HINT = "start_hint"  # what the Start field's hint says now
 _HISTORY = "history"  # the choices before each zoom or pan, for Back and Unzoom
 _CHART = "chart:"     # + country key + drawing number: a chart (its dragged box)
+_CALENDAR = "calendar:"  # + option name: a date field's calendar
+# The calendar's first day: no series starts earlier (config.EARLIEST_DATA_START).
+_CALENDAR_FIRST = EARLIEST_DATA_START.date()
 
 
 @dataclass(frozen=True)
@@ -533,6 +544,65 @@ def _value_control(where, option: Option, placeholder: str | None = None) -> Non
     )
 
 
+def _field_date(option: Option) -> datetime.date | None:
+    """The date a date field names now, for its calendar; None if blank, unreadable or outside the calendar's range."""
+    text = st.session_state.get(_VALUE + option.name, "").strip()
+    try:
+        date = parse_date_spec(text, kind=option.name).date() if text else None
+    except ValueError:
+        return None
+    return date if date is not None and _CALENDAR_FIRST <= date <= _today() else None
+
+
+def _today() -> datetime.date:
+    return pd.Timestamp.today().date()
+
+
+def _date_picked(name: str) -> None:
+    """A day was picked in a field's calendar: write it in the field (a cleared calendar changes nothing)."""
+    picked = st.session_state.get(_CALENDAR + name)
+    if picked is not None:
+        st.session_state[_VALUE + name] = f"{picked:%Y-%m-%d}"
+
+
+def _date_blanked(name: str) -> None:
+    st.session_state[_VALUE + name] = ""
+
+
+def _date_control(where, option: Option, placeholder: str | None) -> None:
+    """A date field with a calendar button beside it, as in the window.
+
+    Picking a day writes ``YYYY-MM-DD`` in the field, which stays the single
+    source of truth (typing ``YYYY`` or ``YYYY-MM`` still works); "Blank"
+    empties it, meaning the option's default (today for the end; for the
+    start, the first date on which every chosen curve has data). The
+    calendar opens at the field's date: it is set from the field on every
+    run, before it is drawn.
+    """
+    # One row that never wraps (st.columns would put the button under the
+    # field on a phone); the field takes the room the button leaves.
+    row = where.container(horizontal=True, wrap=False, vertical_alignment="bottom")
+    _value_control(row, option, placeholder)
+    with row.popover("📅", help="Pick a date from a calendar"):
+        st.session_state[_CALENDAR + option.name] = _field_date(option)
+        st.date_input(
+            option.label,
+            key=_CALENDAR + option.name,
+            min_value=_CALENDAR_FIRST,
+            max_value=_today(),
+            format="YYYY-MM-DD",
+            on_change=_date_picked,
+            args=(option.name,),
+        )
+        st.button(
+            "Blank (default)",
+            key=f"blank:{option.name}",
+            on_click=_date_blanked,
+            args=(option.name,),
+            help=_PLACEHOLDERS.get(option.name, _DEFAULT_PLACEHOLDER).capitalize() + " when blank.",
+        )
+
+
 def _levels_control(where, option: Option) -> None:
     where.markdown(f"**{option.label}**", help=_help(option, "None ticked = debt and interest in total."))
     columns = where.columns(2)
@@ -576,7 +646,7 @@ def _controls() -> None:
                 placeholder = None
                 if option.name == "start":
                     placeholder = st.session_state[_START_HINT] = _start_placeholder()
-                _value_control(bar, option, placeholder)
+                _date_control(bar, option, placeholder)
         paired = [option for option in values if option.editor not in ("date", "levels")]
         for index in range(0, len(paired), 2):
             for column, option in zip(bar.columns(2), paired[index:index + 2]):
