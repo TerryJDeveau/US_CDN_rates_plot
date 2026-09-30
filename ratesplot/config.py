@@ -97,7 +97,13 @@ MIN_REGRESSION_TOLERANCE_PCT = 1.0
 
 HTTP_TIMEOUT_SECONDS = 90
 HTTP_POST_TIMEOUT_SECONDS = 60
-STATCAN_TIMEOUT_SECONDS = 120
+# Statistics Canada's table ZIPs. A requests timeout is the longest silence
+# allowed (before the first byte, or between two), not the whole download.
+# Measured 2026-09-30 over 42 downloads of the 4 live and 11 archived tables:
+# the first byte came within 1.4 s and no silence lasted 0.2 s. So 30 s is
+# some twenty times the worst seen, and a request StatCan accepts and never
+# answers (one did, 2026-09-30) is retried after 30 s rather than 120.
+STATCAN_TIMEOUT_SECONDS = 30
 DEFAULT_GET_RETRIES = 4
 DEFAULT_FRED_RETRIES = 3
 RETRY_BACKOFF_BASE_SECONDS = 2
