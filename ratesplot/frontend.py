@@ -16,7 +16,8 @@ may not have it) and the two cannot drift apart:
 * zoom and pan: where the axes sit in a chart image (``ChartGeometry``) and
   the field texts a zoom to a box, a pan or a change of the dates' scale
   gives (``zoom_updates``, ``pan_updates``, ``scale_dates_updates``). The
-  window's mouse and the web page's drag and buttons use the same rules.
+  window's mouse and the web page's drag use the same rules; the page's
+  buttons move the dates by ``move_dates_updates``.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ import matplotlib.dates as mdates
 import pandas as pd
 from matplotlib.figure import Figure
 
-from .config import COMPONENT_SYNONYMS, MIN_WINDOW_DAYS, PlotConfig
+from .config import COMPONENT_SYNONYMS, EARLIEST_DATA_START, MIN_WINDOW_DAYS, PlotConfig
 from .options import (
     GROUPS,
     GROUPS_CHOSEN_TOGETHER,
@@ -384,3 +385,28 @@ def scale_dates_updates(geometry: ChartGeometry, factor: float, anchor_x: float)
     new_left = anchor_x - (anchor_x - start_x) * factor
     new_right = anchor_x + (end_x - anchor_x) * factor
     return _date_range_texts(geometry.date_at(new_left), geometry.date_at(new_right))
+
+
+def move_dates_updates(start: pd.Timestamp, end: pd.Timestamp, *, shift: float = 0.0, scale: float = 1.0) -> dict[str, str]:
+    """Return Start and End texts for the window ``start``..``end`` moved or rescaled (the web page's buttons).
+
+    ``shift`` moves the window by that fraction of its span (negative:
+    earlier); ``scale`` multiplies the span about its middle (2: zoom out).
+    The window is kept between the first data (``EARLIEST_DATA_START``) and
+    today by moving it back inside rather than cutting it, so "Later" on a
+    window that nearly reaches today keeps its span, where a pan by pixels
+    would shorten it (``_date_range_texts`` caps the end at today). Whole
+    days throughout: half a window of an odd number of days would otherwise
+    lose its half day to the date's format, and the span a day per step.
+    """
+    today = pd.Timestamp.today().normalize()
+    days = (end - start).days
+    # Never longer than all the data (a pandas Timedelta also ends at 292 years).
+    new_days = min(round(days * scale), (today - EARLIEST_DATA_START).days)
+    new_start = start + pd.Timedelta(days=round(days * shift) - (new_days - days) // 2)
+    new_end = new_start + pd.Timedelta(days=new_days)
+    if new_end > today:
+        new_start, new_end = new_start - (new_end - today), today
+    if new_start < EARLIEST_DATA_START:
+        new_start, new_end = EARLIEST_DATA_START, min(today, new_end + (EARLIEST_DATA_START - new_start))
+    return _date_range_texts(new_start, new_end)

@@ -39,15 +39,32 @@ Visitors
     - "Today", the default end, is the markets' date (Toronto) on a server,
       whatever the server's own time zone (``_use_market_time_zone``).
 
+Zoom and dates
+    As in the window, the mouse and the buttons write the fields a visitor
+    would type in, so the fields stay the single source of truth (the
+    address, the command line and the downloads all follow). Drag a box on
+    a chart to zoom to it: its width sets Start and End, its height the
+    yield Min and Max and the right axis's Top and Bottom (the window's
+    rules, ``frontend.zoom_updates``). The chart is a small in-page component
+    (``_chart_component``) because ``st.image`` reports no mouse events.
+    "◀ Earlier" and "Later ▶" move the dates by half the window, "Zoom out"
+    doubles their span (``frontend.move_dates_updates``: between 1867 and
+    today, keeping the span). "Back" undoes one zoom, move or Reset;
+    "Unzoom" returns to the charts before the first. Axis limits are shared
+    options, so zooming one country's chart applies them to the other too,
+    as on the command line.
+
 Not here (the window has them)
-    Mouse zoom and pan (type Start, End, Min, Max, Top and Bottom instead), the
-    calendar button, the aspect-ratio lock (Size is typed as WxH), and
+    The wheel's zoom and the right-drag pan (the buttons move the dates),
+    the calendar button, the aspect-ratio lock (Size is typed as WxH), and
     remembered settings (the address keeps the chart instead).
 """
 
 from __future__ import annotations
 
+import functools
 import os
+import struct
 import threading
 import time
 import traceback
@@ -65,6 +82,7 @@ from .cli import sort_tokens  # noqa: E402
 from .config import (  # noqa: E402
     COMPONENT_LETTERS,
     DEFAULT_REGRESSION_TOLERANCE_PCT,
+    EARLIEST_DATA_START,
     MARKET_TIMEZONE,
     PlotConfig,
 )
@@ -72,12 +90,15 @@ from .console import this_thread_output_to  # noqa: E402
 from .frontend import (  # noqa: E402
     LEVEL_BOXES,
     TAB_TITLES,
+    ChartGeometry,
     Choices,
     level_letters,
+    move_dates_updates,
     option_help_lines,
     png_bytes,
     saved_png_name,
     starting_choices,
+    zoom_updates,
 )
 from .options import (  # noqa: E402
     GROUPS,
@@ -117,6 +138,15 @@ _PLACEHOLDERS = {
 }
 _DEFAULT_PLACEHOLDER = "automatic"
 _DRAWING_LOCK = threading.Lock()
+# How many zoom and pan steps "Back" can undo (as in the window).
+_HISTORY_LIMIT = 50
+# The buttons move the dates by this fraction of the window, or scale it by this factor.
+_DATE_STEP_FRACTION = 0.5
+_ZOOM_OUT_FACTOR = 2.0
+_ZOOM_HINT = (
+    "Drag a box on a chart with the mouse to zoom to it: its width sets the dates, its height the "
+    "axes' limits. The buttons move the dates, and Back undoes a zoom."
+)
 
 # Session-state keys: one per control, and the page's own records.
 _FLAG = "flag:"      # + option name: a check box
@@ -128,6 +158,8 @@ _NOTICE = "notice"   # a message from a control's callback, shown once
 _DRAWING = "drawing"  # the last Drawing
 _FORCE = "force_redraw"
 _START_HINT = "start_hint"  # what the Start field's hint says now
+_HISTORY = "history"  # the choices before each zoom or pan, for Back and Unzoom
+_CHART = "chart:"     # + country key + drawing number: a chart (its dragged box)
 
 
 @dataclass(frozen=True)
@@ -137,11 +169,129 @@ class Drawing:
     config: PlotConfig  # as the controls described it (an automatic start is None)
     drawn: PlotConfig | None  # with the start found; None if the drawing failed
     pngs: dict[str, bytes]  # Country.key -> PNG bytes
+    geometry: dict[str, ChartGeometry | None]  # Country.key -> where its axes are, for zooming
     tokens: tuple[str, ...]  # the chart's command line (after the script name)
     log: str
     error: str | None
     seconds: float
     finished: pd.Timestamp
+
+    def chart_key(self, key: str) -> str:
+        """The session key of ``key``'s chart in this drawing (a new drawing, a new chart: no stale box)."""
+        return f"{_CHART}{key}:{self.finished.value}"
+
+
+# ---------------------------------------------------------------------------
+# The chart on the page: a picture that reports a box dragged over it
+# ---------------------------------------------------------------------------
+
+# Streamlit's own st.image reports no mouse events, so each chart is shown by
+# this small component (Streamlit's components v2: it runs in the page
+# itself, not in a frame, so the picture resizes with the page as st.image
+# does). It shows the PNG bytes and, while the mouse button is held down,
+# a dashed box as the window does. On release it sends the box back once,
+# as fractions of the picture (0 to 1 from the left and from the top),
+# whatever size the browser shows it at; _box_dragged turns that into the
+# fields' texts. A click, or a drag shorter than 8 screen pixels both ways,
+# sends nothing. Touch is left to scrolling the page: a finger drag on a
+# chart that fills a phone's screen would otherwise trap it there. On a
+# phone the buttons above the charts move the dates.
+#
+# Streamlit builds the component's element afresh on every run of the page
+# (measured with Streamlit 1.64: a new parent element each run, and the
+# function returned below called just before), so nothing is kept between
+# runs: the picture's object URL is released by that function, and the
+# picture is given its size from the PNG's header, so that the browser keeps
+# its place while decoding it and the page does not jump.
+_CHART_JS = """
+const MIN_DRAG = 8;
+
+export default function (component) {
+  const { data, parentElement, setTriggerValue } = component;
+  const frame = document.createElement("div");
+  frame.className = "chart";
+  frame.innerHTML = '<img alt="Chart" draggable="false"><div class="band"></div>';
+  parentElement.appendChild(frame);
+  const img = frame.querySelector("img");
+  const band = frame.querySelector(".band");
+
+  const header = new DataView(data.buffer, data.byteOffset, 24);  // PNG: IHDR width, height at 16, 20
+  img.width = header.getUint32(16);
+  img.height = header.getUint32(20);
+  const url = URL.createObjectURL(new Blob([data], { type: "image/png" }));
+  img.src = url;
+
+  let start = null;
+  const point = (event) => {
+    const rect = img.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
+      y: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+      width: rect.width,
+      height: rect.height,
+    };
+  };
+  const showBand = (a, b) => {
+    band.style.left = Math.min(a.x, b.x) + "px";
+    band.style.top = Math.min(a.y, b.y) + "px";
+    band.style.width = Math.abs(b.x - a.x) + "px";
+    band.style.height = Math.abs(b.y - a.y) + "px";
+    band.style.display = "block";
+  };
+  img.onpointerdown = (event) => {
+    if (event.pointerType === "touch" || event.button !== 0) return;
+    event.preventDefault();
+    img.setPointerCapture(event.pointerId);
+    start = point(event);
+    showBand(start, start);
+  };
+  img.onpointermove = (event) => {
+    if (start) showBand(start, point(event));
+  };
+  img.onpointerup = (event) => {
+    if (!start) return;
+    const a = start;
+    const b = point(event);
+    start = null;
+    band.style.display = "none";
+    if (Math.abs(b.x - a.x) < MIN_DRAG && Math.abs(b.y - a.y) < MIN_DRAG) return;
+    setTriggerValue("box", {
+      x0: Math.min(a.x, b.x) / b.width,
+      x1: Math.max(a.x, b.x) / b.width,
+      y0: Math.min(a.y, b.y) / b.height,
+      y1: Math.max(a.y, b.y) / b.height,
+    });
+  };
+  img.onpointercancel = () => {
+    start = null;
+    band.style.display = "none";
+  };
+  return () => URL.revokeObjectURL(url);
+}
+"""
+_CHART_CSS = """
+.chart { position: relative; line-height: 0; }
+.chart img { width: 100%; height: auto; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+.band {
+  position: absolute; display: none; box-sizing: border-box; pointer-events: none;
+  border: 2px dashed #1f5fbf; background: rgba(31, 95, 191, 0.08);
+}
+"""
+def _chart_component():
+    """Register the chart component with the running Streamlit and return the command that shows a chart.
+
+    Registration belongs to Streamlit's runtime, not to this module, so it is
+    done on every run rather than once at import: a process may start a
+    second runtime (Streamlit's AppTest does, one per test), which would not
+    know the component. Registering the same definition again is silent.
+    """
+    return st.components.v2.component("ratesplot_chart", js=_CHART_JS, css=_CHART_CSS)
+
+
+def _png_size(png: bytes) -> tuple[int, int]:
+    """Return a PNG's width and height in pixels, read from its header (the IHDR chunk)."""
+    width, height = struct.unpack(">II", png[16:24])
+    return width, height
 
 
 # ---------------------------------------------------------------------------
@@ -274,13 +424,77 @@ def _measure_changed(name: str) -> None:
         st.session_state[_VALUE + bound] = ""
 
 
+def _remember_view() -> None:
+    """Keep the controls' choices for Back and Unzoom (the last ``_HISTORY_LIMIT``)."""
+    history = st.session_state.setdefault(_HISTORY, [])
+    history.append(_snapshot())
+    del history[:-_HISTORY_LIMIT]
+
+
 def _reset() -> None:
+    _remember_view()  # as in the window, Back undoes a Reset
     _load_choices(choices_from_config(PlotConfig()))
     st.query_params.clear()
 
 
 def _force_redraw() -> None:
     st.session_state[_FORCE] = True
+
+
+def _apply_view(updates: dict[str, str]) -> None:
+    """Write a zoom's or a date move's texts into the fields, undoably (Back), as the window does.
+
+    Nothing is kept for Back when the fields already say it (e.g. Zoom out
+    from 1867 to today).
+    """
+    payloads = _snapshot()[0]
+    if all(payloads.get(name, "") == text for name, text in updates.items()):
+        return
+    _remember_view()
+    for name, text in updates.items():
+        st.session_state[_VALUE + name] = text
+
+
+def _box_dragged(key: str) -> None:
+    """A box was dragged on ``key``'s chart: zoom to it, by the window's rules (``frontend.zoom_updates``)."""
+    drawing: Drawing | None = st.session_state.get(_DRAWING)
+    if drawing is None or drawing.geometry.get(key) is None:
+        return
+    box = (st.session_state.get(drawing.chart_key(key)) or {}).get("box")
+    if not box:
+        return
+    width, height = _png_size(drawing.pngs[key])
+    _apply_view(
+        zoom_updates(
+            drawing.geometry[key],
+            drawing.drawn,
+            box["x0"] * width,
+            box["y0"] * height,
+            box["x1"] * width,
+            box["y1"] * height,
+        )
+    )
+
+
+def _move_dates(shift: float, scale: float) -> None:
+    """Move or rescale the dates drawn (``frontend.move_dates_updates``): the buttons over the charts."""
+    drawing: Drawing | None = st.session_state.get(_DRAWING)
+    if drawing is not None and drawing.drawn is not None:
+        _apply_view(move_dates_updates(drawing.drawn.start, drawing.drawn.end, shift=shift, scale=scale))
+
+
+def _back() -> None:
+    history = st.session_state.get(_HISTORY)
+    if history:
+        _load_choices(history.pop())
+
+
+def _unzoom() -> None:
+    history = st.session_state.get(_HISTORY)
+    if history:
+        first = history[0]
+        history.clear()
+        _load_choices(first)
 
 
 # ---------------------------------------------------------------------------
@@ -385,13 +599,17 @@ def _draw(config: PlotConfig, tokens: tuple[str, ...]) -> Drawing:
     lines.append(f"--- drawing {config.width_px}x{config.height_px}, {source} to {config.end:%Y-%m-%d}\n")
     drawn: PlotConfig | None = None
     pngs: dict[str, bytes] = {}
+    geometry: dict[str, ChartGeometry | None] = {}
     error: str | None = None
     with this_thread_output_to(lines.append), _DRAWING_LOCK:
         try:
             drawn = resolve_start(config)
             for country in COUNTRIES:
                 if getattr(drawn, country.show_field):
-                    pngs[country.key] = png_bytes(build_figure(country, drawn))
+                    figure = build_figure(country, drawn)
+                    pngs[country.key] = png_bytes(figure)
+                    # Measured after savefig, so the axes positions are the final rendered ones (as in the window).
+                    geometry[country.key] = ChartGeometry.from_figure(figure, drawn)
         except Exception as exc:  # shown on the page and in the log, never swallowed
             error = f"{type(exc).__name__}: {exc}"
             lines.append(traceback.format_exc())
@@ -400,6 +618,7 @@ def _draw(config: PlotConfig, tokens: tuple[str, ...]) -> Drawing:
         config=config,
         drawn=drawn,
         pngs=pngs,
+        geometry=geometry,
         tokens=tokens,
         log="".join(lines),
         error=error,
@@ -419,15 +638,42 @@ def _set_address(tokens: tuple[str, ...]) -> None:
         st.query_params.pop(ADDRESS_KEY, None)
 
 
+def _view_buttons(drawing: Drawing) -> None:
+    """Back, Unzoom and the date buttons, in one row over the charts, and how to zoom."""
+    history = st.session_state.get(_HISTORY, [])
+    drawn = drawing.drawn
+    at_first = drawn is None or drawn.start <= EARLIEST_DATA_START
+    at_today = drawn is None or drawn.end >= pd.Timestamp.today().normalize()
+    buttons = (
+        ("◀ Back", _back, (), not history, "Undo the last zoom or move of the dates."),
+        ("Unzoom", _unzoom, (), not history, "Back to the charts before the first zoom or move."),
+        ("◀ Earlier", _move_dates, (-_DATE_STEP_FRACTION, 1.0), at_first, "Move the dates back by half the window."),
+        ("Later ▶", _move_dates, (_DATE_STEP_FRACTION, 1.0), at_today, "Move the dates on by half the window, up to today."),
+        ("Zoom out", _move_dates, (0.0, _ZOOM_OUT_FACTOR), at_first and at_today, "Twice the span of dates, about its middle."),
+    )
+    # A row that wraps (not st.columns, which a phone stacks one per line,
+    # pushing the charts below the screen).
+    row = st.container(horizontal=True, wrap=True)
+    for label, callback, args, disabled, tip in buttons:
+        row.button(label, on_click=callback, args=args, disabled=disabled, help=tip)
+    st.caption(_ZOOM_HINT)
+
+
 def _show(drawing: Drawing) -> None:
     """The charts, one tab per country, each with its download button; then the command line and log."""
     if drawing.error is not None:
         st.error(f"Drawing failed: {drawing.error} (details in the log below)")
     if drawing.pngs:
+        _view_buttons(drawing)
+        show_chart = _chart_component()
         keys = [key for key in TAB_TITLES if key in drawing.pngs]
         for tab, key in zip(st.tabs([TAB_TITLES[key] for key in keys]), keys):
             with tab:
-                st.image(drawing.pngs[key], width="stretch")
+                show_chart(
+                    key=drawing.chart_key(key),
+                    data=drawing.pngs[key],
+                    on_box_change=functools.partial(_box_dragged, key),
+                )
                 st.download_button(
                     "Download this chart (PNG)",
                     data=drawing.pngs[key],
