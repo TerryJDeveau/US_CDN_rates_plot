@@ -97,6 +97,34 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def sort_tokens(raw_tokens: list[str]) -> tuple[dict[str, str], dict[str, bool], list[str], list[str]]:
+    """Sort command-line tokens into ``(payloads, flags, unmatched, misspelled)``; never exits.
+
+    Table-matched tokens are recorded (the last occurrence wins); ``unmatched``
+    are the tokens the table does not know (``--help``, or unrecognised), for
+    argparse; ``misspelled`` holds a message for each token that spells an
+    option in the wrong form (``match_token``). The web page reads a chart's
+    command line from its address with this, where exiting is not an option.
+    """
+    payloads: dict[str, str] = {}
+    flags: dict[str, bool] = {}
+    unmatched: list[str] = []
+    misspelled: list[str] = []
+    for token in raw_tokens:
+        try:
+            matched = match_token(token)
+        except ValueError as exc:
+            misspelled.append(str(exc))
+            continue
+        if matched is None:
+            unmatched.append(token)
+        elif matched[0].kind is Kind.VALUE:
+            payloads[matched[0].name] = str(matched[1])
+        else:
+            flags[matched[0].name] = bool(matched[1])
+    return payloads, flags, unmatched, misspelled
+
+
 def parse_choices(argv: list[str] | None = None) -> tuple[dict[str, str], dict[str, bool], argparse.ArgumentParser]:
     """Return what the command line explicitly chose, as ``(payloads, flags, parser)``.
 
@@ -107,25 +135,7 @@ def parse_choices(argv: list[str] | None = None) -> tuple[dict[str, str], dict[s
     """
     parser = build_parser()
     raw_tokens = list(argv) if argv is not None else sys.argv[1:]
-
-    # Sort tokens: table-matched ones are recorded (last occurrence wins),
-    # everything else goes to argparse.
-    payloads: dict[str, str] = {}
-    flags: dict[str, bool] = {}
-    argparse_tokens: list[str] = []
-    misspelled: list[str] = []
-    for token in raw_tokens:
-        try:
-            matched = match_token(token)
-        except ValueError as exc:
-            misspelled.append(str(exc))
-            continue
-        if matched is None:
-            argparse_tokens.append(token)
-        elif matched[0].kind is Kind.VALUE:
-            payloads[matched[0].name] = str(matched[1])
-        else:
-            flags[matched[0].name] = bool(matched[1])
+    payloads, flags, argparse_tokens, misspelled = sort_tokens(raw_tokens)
 
     # argparse sees only what the table did not match: it prints --help, or
     # reports unrecognised tokens, before misspelled ones and bad values.

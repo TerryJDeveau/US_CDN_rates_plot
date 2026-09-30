@@ -21,7 +21,7 @@ Controls
 Remembered settings
     The choices of the last successful drawing, the preview mode, the selected
     tab and the window size are saved to ``gui_state.json`` (see
-    ``state_path``) after every drawing and on closing, and restored at the
+    ``frontend.state_path``) after every drawing and on closing, and restored at the
     next start. Options given on the command line override the remembered ones
     they name: a value option individually; the curves, the countries or the
     measure each as a group, because naming one curve on the command line
@@ -62,9 +62,7 @@ from __future__ import annotations
 
 import calendar
 import io
-import json
 import math
-import os
 import queue
 import re
 import subprocess
@@ -73,7 +71,6 @@ import threading
 import tkinter as tk
 import traceback
 from dataclasses import dataclass
-from pathlib import Path
 from tkinter import filedialog, ttk
 
 import matplotlib.dates as mdates
@@ -82,11 +79,23 @@ from matplotlib.figure import Figure
 from PIL import Image, ImageTk
 
 from . import http
-from .config import COMPONENT_LETTERS, COMPONENT_SYNONYMS, MIN_WINDOW_DAYS, PlotConfig
+from .config import COMPONENT_LETTERS, MIN_WINDOW_DAYS, PlotConfig
 from .console import this_thread_output_to
+from .frontend import (
+    LEVEL_BOXES,
+    STATE_VERSION,
+    TAB_TITLES,
+    Choices,
+    level_letters,
+    load_state,
+    option_help_lines,
+    png_bytes,
+    save_state,
+    saved_png_name,
+    starting_choices,
+)
 from .options import (
     GROUPS,
-    GROUPS_CHOSEN_TOGETHER,
     OPTIONS,
     Kind,
     Option,
@@ -121,135 +130,11 @@ _MIN_DRAG_PX = 8
 _HISTORY_LIMIT = 50
 # The command line insists on at least seven days between start and end.
 _MIN_SPAN_DAYS = MIN_WINDOW_DAYS
-# The start date written out before it became automatic (Terry, 2026-09-29):
-# a remembered Start with this text was the old default, not a choice, and is
-# read as blank, the automatic start.
-_FORMER_DEFAULT_START = "1966-01-01"
 # Initial window size as a fraction of the screen (when nothing is remembered).
 _SCREEN_FRACTION = 0.9
-# Same PNG metadata as tools/verify_charts.py, so saved files hash identically.
-_PNG_METADATA = {"Software": None}
 _ERROR_FOREGROUND = "#b00020"
-_TAB_TITLES = {"cdn": "Canada", "us": "United States"}
-# The "By level" check boxes: letter and caption (one control for both countries).
-_LEVEL_BOXES = (("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial / state"), ("m", "Municipal / local"))
-_STATE_VERSION = 1
 _GEOMETRY_PATTERN = re.compile(r"^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$")
 _ZOOM_HINT = "Drag: zoom to box · right/middle-drag: pan · wheel: zoom dates"
-
-Choices = tuple[dict[str, str], dict[str, bool]]
-
-
-# ---------------------------------------------------------------------------
-# Remembered settings
-# ---------------------------------------------------------------------------
-
-
-def state_path() -> Path:
-    """Return where the window's settings are remembered: ``%APPDATA%\\ratesplot`` on Windows."""
-    base = os.environ.get("APPDATA")
-    return (Path(base) if base else Path.home() / ".config") / "ratesplot" / "gui_state.json"
-
-
-def load_state() -> tuple[dict, str | None]:
-    """Return the remembered state (empty if none) and a note to log if it could not be read."""
-    path = state_path()
-    if not path.exists():
-        return {}, None
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return {}, f"Remembered settings in {path} could not be read ({exc}); starting from defaults."
-    if not isinstance(state, dict) or state.get("version") != _STATE_VERSION:
-        return {}, f"Remembered settings in {path} are from another version; starting from defaults."
-    return state, None
-
-
-def save_state(state: dict) -> str | None:
-    """Write ``state`` atomically (temporary file, then replace); return an error message or None."""
-    path = state_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        os.replace(temporary, path)
-    except OSError as exc:
-        return f"Settings could not be remembered ({exc})."
-    return None
-
-
-def starting_choices(
-    config: PlotConfig, cli_payloads: dict[str, str], cli_flags: dict[str, bool], state: dict
-) -> tuple[Choices, list[str]]:
-    """Combine defaults, remembered choices and the command line; return the choices and notes to log.
-
-    ``config`` is what the command line alone describes; ``cli_payloads`` and
-    ``cli_flags`` are the options it named. If the combination is not valid
-    (e.g. a remembered start date after a new command-line end date), the
-    remembered choices are dropped and the reason logged.
-    """
-    notes: list[str] = []
-    cli_config_payloads, cli_config_flags = choices_from_config(config)
-    if state.get("payloads", {}).get("start") == _FORMER_DEFAULT_START:
-        state = {**state, "payloads": {**state["payloads"], "start": ""}}
-        notes.append(f"The remembered Start {_FORMER_DEFAULT_START} was the former default: now blank, the automatic start.")
-
-    def combine(use_state: bool) -> Choices:
-        payloads, flags = choices_from_config(PlotConfig())
-        if use_state:
-            for name, text in state.get("payloads", {}).items():
-                if name in payloads and isinstance(text, str):
-                    payloads[name] = text
-            for name, value in state.get("flags", {}).items():
-                if name in flags and isinstance(value, bool):
-                    flags[name] = value
-        for name, text in cli_payloads.items():
-            if name in payloads:
-                payloads[name] = text
-        # The levels (--debt:LETTERS, --interest:LETTERS) have one control, the
-        # debt one; and giving them names their curves, as --debt would.
-        levels_given = any(name in cli_payloads for name in ("debt-parts", "interest-parts"))
-        if levels_given:
-            payloads["debt-parts"] = cli_config_payloads["debt-parts"]
-        # Curves, and countries, are overridden as a group: on the command line
-        # "--gdp" means "GDP only", which the resolved config already reflects.
-        for group_name in GROUPS_CHOSEN_TOGETHER:
-            group = [option.name for option in options_in(group_name) if option.name in flags]
-            if any(name in cli_flags for name in group) or (group_name == "curves" and levels_given):
-                for name in group:
-                    flags[name] = cli_config_flags[name]
-        for option in OPTIONS:
-            if option.group in GROUPS_CHOSEN_TOGETHER or option.kind is Kind.VALUE:
-                continue
-            if option.name in flags and option.name in cli_flags:
-                flags[option.name] = cli_flags[option.name]
-        # A value given on the command line that turns its flag on (--reg:TOL)
-        # does so over the remembered flag too.
-        for option in options_of(Kind.VALUE):
-            if option.turns_on in flags and option.name in cli_payloads:
-                flags[option.turns_on] = cli_config_flags[option.turns_on]
-        # Remembered Top/Bottom are in the remembered measure's units (dollars,
-        # percent, dollars per person). If the command line chose a different
-        # measure they no longer apply, unless it gave them too; the other
-        # remembered settings are kept.
-        if use_state:
-            remembered = state.get("flags", {})
-            measure = [option.name for option in options_in("units") if option.name in flags]
-            if any(flags[name] != bool(remembered.get(name, False)) for name in measure):
-                for bound in ("top", "bottom"):
-                    if bound in payloads and bound not in cli_payloads:
-                        payloads[bound] = ""
-        return payloads, flags
-
-    choices = combine(use_state=bool(state))
-    if state:
-        try:
-            config_from_choices({k: v for k, v in choices[0].items() if v.strip()}, choices[1])
-            notes.append(f"Restored the settings remembered in {state_path()}.")
-        except ValueError as exc:
-            notes.append(f"Remembered settings not used ({exc}); starting from the command line and defaults.")
-            choices = combine(use_state=False)
-    return choices, notes
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +413,7 @@ class _LevelsEditor:
         """Show letters set from elsewhere (loading, Back, Reset) in the boxes."""
         if self.syncing:
             return
-        letters = {COMPONENT_SYNONYMS.get(letter, letter) for letter in self.payload.get().strip().lower()}
+        letters = level_letters(self.payload.get())
         self.syncing = True
         try:
             for letter, box in self.boxes.items():
@@ -614,12 +499,8 @@ class _SizeEditor:
 
 
 def _tooltip_text(option: Option) -> str:
-    """Return an option's group notes, its help text and its command-line spelling."""
-    return (
-        f"{' '.join(GROUPS[option.group].split())}\n"
-        f"{option.label}: {' '.join(option.help.split())}\n"
-        f"Command line: {option.usage}"
-    )
+    """Return an option's group notes, its help text and its command-line spelling, one per line."""
+    return "\n".join(option_help_lines(option))
 
 
 def _enable_windows_dpi_awareness() -> None:
@@ -874,7 +755,7 @@ class RatesPlotApp:
         box = ttk.Frame(frame)
         box.grid(row=row, column=1, columnspan=2, sticky="w", pady=1)
         tip = _tooltip_text(option) + "\nNone ticked = debt and interest in total."
-        for index, (letter, text) in enumerate(_LEVEL_BOXES):
+        for index, (letter, text) in enumerate(LEVEL_BOXES):
             check = ttk.Checkbutton(box, text=text, variable=editor.boxes[letter], command=editor.box_changed)
             check.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 8))
             _Tooltip(check, tip)
@@ -976,7 +857,7 @@ class RatesPlotApp:
             canvas.bind(f"<B{button}-Motion>", lambda event: self._drag_motion(key, event))
             canvas.bind(f"<ButtonRelease-{button}>", lambda event: self._drag_end(key, event))
         canvas.bind("<MouseWheel>", lambda event: self._wheel_turned(key, event))
-        self.notebook.add(tab, text=_TAB_TITLES.get(country.key, country.key))
+        self.notebook.add(tab, text=TAB_TITLES.get(country.key, country.key))
         self.tabs[key] = tab
         self.canvases[key] = canvas
         self.scrollbars[key] = (x_scroll, y_scroll)
@@ -1143,11 +1024,10 @@ class RatesPlotApp:
                 drawn = resolve_start(config)
                 for country in countries:
                     figure = build_figure(country, drawn)
-                    buffer = io.BytesIO()
-                    figure.savefig(buffer, format="png", dpi=figure.dpi, metadata=_PNG_METADATA)
+                    png = png_bytes(figure)
                     # Measured after savefig, so the axes positions are the final rendered ones.
                     geometry = ChartGeometry.from_figure(figure, drawn)
-                    self.messages.put(("chart", country.key, buffer.getvalue(), geometry))
+                    self.messages.put(("chart", country.key, png, geometry))
             except Exception as exc:  # reported in the window and log, never swallowed
                 self.messages.put(("failed", config, f"{type(exc).__name__}: {exc}", traceback.format_exc()))
             else:
@@ -1187,7 +1067,7 @@ class RatesPlotApp:
             self.drawn_config = drawn
             self.drawn_choices = self.rendering_choices
             self.data_cached = True
-            drawn = [_TAB_TITLES.get(c.key, c.key) for c in COUNTRIES if getattr(config, c.show_field)]
+            drawn = [TAB_TITLES.get(c.key, c.key) for c in COUNTRIES if getattr(config, c.show_field)]
             self.status.set(f"Drawn: {' and '.join(drawn)} at {config.width_px} x {config.height_px} px.")
             self._remember()
         else:
@@ -1424,15 +1304,12 @@ class RatesPlotApp:
         if key is None or key not in self.pngs:
             self.status.set("Nothing drawn in this tab yet.")
             return
-        # Named by the dates drawn (a blank Start as found); none if no drawing has finished yet.
-        config = self.drawn_config
-        dates = "" if config is None else f"_{config.start:%Y-%m-%d}_{config.end:%Y-%m-%d}"
         path = filedialog.asksaveasfilename(
             parent=self.root,
             title="Save chart as PNG",
             defaultextension=".png",
             filetypes=[("PNG image", "*.png")],
-            initialfile=f"{key}_rates{dates}.png",
+            initialfile=saved_png_name(key, self.drawn_config),
         )
         if not path:
             return
@@ -1463,7 +1340,7 @@ class RatesPlotApp:
         payloads, flags = self.drawn_choices
         error = save_state(
             {
-                "version": _STATE_VERSION,
+                "version": STATE_VERSION,
                 "payloads": payloads,
                 "flags": flags,
                 "zoom": self.zoom.get(),
