@@ -1,0 +1,11 @@
+# What the program needs to run: the command line, the window and the web page.
+# Pinned to the versions it was tested with (2026-09-30), so the web copy
+# draws exactly what the desktop draws. Streamlit is needed for the web page
+# only (streamlit run streamlit_app.py); pillow comes with it and serves the
+# window's preview. Re-baking the historical data (tools/bake_archives.py)
+# also needs pyodbc, xlrd and openpyxl; the program itself does not.
+matplotlib==3.11.2
+numpy==2.5.3
+pandas==3.0.6
+requests==2.34.2
+streamlit==1.64.0
