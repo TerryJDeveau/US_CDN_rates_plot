@@ -600,8 +600,9 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
     with this_thread_output_to(None):
         for country in COUNTRIES:
             if getattr(config, country.show_field):
-                yields, macro, rates = country.prepare(trial)
-                for label, first in curve_first_dates(yields, macro, rates, trial, country.metadata).items():
+                own = trial.for_nation(country.key)
+                yields, macro, rates = country.prepare(own)
+                for label, first in curve_first_dates(yields, macro, rates, own, country.metadata).items():
                     firsts[(country.metadata.country_name, label)] = first
 
     def named(curves: list[tuple[str, str]]) -> str:
@@ -642,6 +643,7 @@ def build_figure(country: Country, config: PlotConfig) -> Figure:
     An automatic start must be found first (``resolve_start``), once for all
     the charts drawn together.
     """
+    config = config.for_nation(country.key)  # its own choices over the shared ones
     figure = Figure(figsize=config.figsize_inches, dpi=CANVAS_DPI)
     FigureCanvasAgg(figure)
     ax_yield = figure.subplots()
@@ -652,6 +654,7 @@ def build_figure(country: Country, config: PlotConfig) -> Figure:
 
 def run_cdn(config: PlotConfig) -> None:
     """Fetch all selected Canadian inputs and show the Canadian chart in a matplotlib window."""
+    config = config.for_nation(CDN.key)
     yields, macro, rates = prepare_cdn(config)
     plot_country(yields, macro, rates, config, CDN, add_canadian_yield_lines)
     print("CDN chart finished.\n")
@@ -659,6 +662,7 @@ def run_cdn(config: PlotConfig) -> None:
 
 def run_us(config: PlotConfig) -> None:
     """Fetch all selected U.S. inputs and show the U.S. chart in a matplotlib window."""
+    config = config.for_nation(US.key)
     yields, macro, rates = prepare_us(config)
     plot_country(yields, macro, rates, config, US, add_us_yield_lines)
     print("US chart finished.\n")

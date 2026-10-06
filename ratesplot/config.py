@@ -8,7 +8,7 @@ plot functions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable
 
 import pandas as pd
@@ -325,6 +325,54 @@ DEFAULT_SPREADS = (("10y", "2y"), ("10y", "3m"), ("30y", "10y"))
 SPREAD_COLORS = ("#4b0082", "#c71585", "#000080", "#800000", "#008080")
 SPREAD_STYLE = {"linewidth": 2.5}
 SPREAD_AXIS_LABEL = "Yield and Spread (%)"
+
+
+# ---------------------------------------------------------------------------
+# Nations: what each one has (batch 2, 2026-10-06)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Nation:
+    """What one nation's chart can draw, and how the command line names it.
+
+    The capabilities decide the controls in its panel (only its own yield
+    terms and mortgage terms are offered) and what a choice made for every
+    nation means for it (a term it lacks is left off its chart, with a note).
+    Adding a nation means one of these, its CountryMetadata, its fetchers
+    and its ``plotting.Country``.
+    """
+
+    key: str  # as plotting.Country.key and CountryMetadata.key
+    name: str  # in messages and on its panel
+    codes: tuple[str, ...]  # the prefixes that name it on the command line ("--us:top:20t"), lower case
+    yield_terms: tuple[str, ...]  # the YIELD_TERMS keys it has a series for
+
+    @property
+    def mortgage_terms(self) -> tuple[str, ...]:
+        """The MORTGAGE_TERMS keys it has, in their order."""
+        return tuple(term for term, (country, _yield) in MORTGAGE_TERMS.items() if country == self.key)
+
+
+# In drawing order, as plotting.COUNTRIES. The codes are ISO 3166 two-letter
+# codes, plus the program's own "cdn".
+NATIONS: tuple[Nation, ...] = (
+    Nation("cdn", "Canada", ("ca", "cdn"), DEFAULT_YIELD_TERMS),
+    Nation("us", "United States", ("us",), tuple(YIELD_TERMS)),
+)
+
+
+def nation_by_code(code: str) -> Nation | None:
+    """Return the nation a command-line prefix names ("ca", "CDN", "us"), or None."""
+    return next((nation for nation in NATIONS if code.lower() in nation.codes), None)
+
+
+# The choices that can differ by nation (PlotConfig.for_nation): the yield
+# axis's lists, and the axis limits (Top and Bottom are in each nation's own
+# currency, so a limit right for one is wrong for the other).
+PER_NATION_FIELDS = (
+    "yield_terms", "mortgage_terms", "spread_pairs", "yield_ymin", "yield_ymax", "macro_bottom", "macro_top",
+)
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -674,11 +722,23 @@ class PlotConfig:
     # None = DEFAULT_REGRESSION_TOLERANCE_PCT. Never below
     # MIN_REGRESSION_TOLERANCE_PCT of the value (ratesplot.regression).
     regression_tolerance: float | None = None
+    # Choices for one nation only ("--us:top:20t"): (nation key, ((field,
+    # value), ...)) for each nation with any, the fields among
+    # PER_NATION_FIELDS. Every other nation, and every field not named,
+    # takes the value above. See ``for_nation``.
+    nation_settings: tuple[tuple[str, tuple[tuple[str, object], ...]], ...] = ()
     # --cur (on unless --no-cur): extend the regular series with the latest
     # values from faster sources, down to intraday quotes (ratesplot.latest).
     current: bool = True
     # Open the interactive window (ratesplot.gui) rather than plain matplotlib windows.
     gui: bool = True
+
+    def for_nation(self, key: str) -> PlotConfig:
+        """Return the config one nation's chart is drawn with: these choices, with that nation's own over them."""
+        for nation, overrides in self.nation_settings:
+            if nation == key and overrides:
+                return replace(self, **dict(overrides))
+        return self
 
     @property
     def figsize_inches(self) -> tuple[float, float]:
