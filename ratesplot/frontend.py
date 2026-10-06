@@ -10,6 +10,8 @@ may not have it) and the two cannot drift apart:
   name (see ``options``);
 * the starting choices: defaults, remembered settings and the command line
   combined (``starting_choices``), and the window's remembered settings file;
+* each nation's own controls (``NATION_OPTIONS``, under its tab in the window
+  and in its own sidebar section on the page), keyed "NATION:OPTION";
 * each option's help as the controls show it (``option_help_lines``);
 * the drawn chart as PNG bytes (``png_bytes``) and the file name it is saved
   under (``saved_png_name``); the tab titles;
@@ -33,7 +35,7 @@ import matplotlib.dates as mdates
 import pandas as pd
 from matplotlib.figure import Figure
 
-from .config import COMPONENT_SYNONYMS, EARLIEST_DATA_START, MIN_WINDOW_DAYS, PlotConfig
+from .config import COMPONENT_SYNONYMS, EARLIEST_DATA_START, MIN_WINDOW_DAYS, NATIONS, Nation, PlotConfig
 from .options import (
     GROUPS,
     GROUPS_CHOSEN_TOGETHER,
@@ -44,8 +46,11 @@ from .options import (
     choices_from_config,
     config_from_choices,
     format_dollar_bound,
+    nation_choice,
+    nation_view,
     options_in,
     options_of,
+    per_nation,
 )
 
 # The start date written out before it became automatic (Terry, 2026-09-29):
@@ -62,6 +67,10 @@ LEVEL_BOXES = (("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial / state
 STATE_VERSION = 1
 
 Choices = tuple[dict[str, str], dict[str, bool]]
+# The options each nation has its own control for (batch 2, Terry 2026-10-06:
+# the tick boxes of a nation's terms, and its axis limits, under its tab). The
+# window and the page show none of them for both charts at once.
+NATION_OPTIONS = tuple(option for option in OPTIONS if per_nation(option) and option.in_gui)
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +112,39 @@ def save_state(state: dict) -> str | None:
     return None
 
 
+def nation_text(nation: Nation, option: Option, text: str) -> str:
+    """Return a value for both charts as ``nation``'s own field shows it: its own terms and pairs only.
+
+    Blank stays blank (the default); a text that does not parse is kept as
+    it is, for the field to report.
+    """
+    if not text.strip() or option.fields[0] not in ("yield_terms", "mortgage_terms", "spread_pairs"):
+        return text
+    try:
+        value = nation_view(nation, option, option.parse(text))
+    except ValueError:
+        return text
+    return option.format((value,), PlotConfig()) if value else ""
+
+
+def spread_to_nations(payloads: dict[str, str]) -> dict[str, str]:
+    """Return ``payloads`` with each value for both charts moved into every nation's own field.
+
+    Settings remembered before there were nations ("max": "8", "yields":
+    "3m,2y,7y") become "cdn:max" and "us:max", and so on (``nation_text``);
+    a nation's own field already there is kept.
+    """
+    moved = {name: text for name, text in payloads.items() if name not in {option.name for option in NATION_OPTIONS}}
+    for option in NATION_OPTIONS:
+        for nation in NATIONS:
+            key = nation_choice(nation, option)
+            if key in payloads:
+                moved[key] = payloads[key]
+            elif option.name in payloads:
+                moved[key] = nation_text(nation, option, payloads[option.name])
+    return moved
+
+
 def starting_choices(
     config: PlotConfig, cli_payloads: dict[str, str], cli_flags: dict[str, bool], state: dict
 ) -> tuple[Choices, list[str]]:
@@ -122,8 +164,9 @@ def starting_choices(
     def combine(use_state: bool) -> Choices:
         payloads, flags = choices_from_config(PlotConfig())
         if use_state:
-            for name, text in state.get("payloads", {}).items():
-                if name in payloads and isinstance(text, str):
+            remembered = {name: text for name, text in state.get("payloads", {}).items() if isinstance(text, str)}
+            for name, text in spread_to_nations(remembered).items():
+                if name in payloads:
                     payloads[name] = text
             for name, value in state.get("flags", {}).items():
                 if name in flags and isinstance(value, bool):
@@ -141,8 +184,17 @@ def starting_choices(
         for option in options_of(Kind.VALUE):
             if option.removes and option.name in cli_payloads:
                 for shown in options_of(Kind.VALUE):
-                    if shown.in_gui and shown.fields == option.fields:
+                    if shown.in_gui and shown.fields == option.fields and shown.name in cli_config_payloads:
                         payloads[shown.name] = cli_config_payloads[shown.name]
+        # Each nation's own fields: what the command line gave for both charts
+        # (--max:8, --no-y:30), or for that nation (--us:max:8), as the
+        # resolved config has it for that nation.
+        for option in NATION_OPTIONS:
+            given = [other for other in options_of(Kind.VALUE) if other.fields == option.fields]
+            for nation in NATIONS:
+                key = nation_choice(nation, option)
+                if any(other.name in cli_payloads or nation_choice(nation, other) in cli_payloads for other in given):
+                    payloads[key] = cli_config_payloads[key]
         # Curves, and countries, are overridden as a group: on the command line
         # "--gdp" means "GDP only", which the resolved config already reflects.
         for group_name in GROUPS_CHOSEN_TOGETHER:
@@ -158,7 +210,8 @@ def starting_choices(
         # A value given on the command line that turns its flag on (--reg:TOL)
         # does so over the remembered flag too.
         for option in options_of(Kind.VALUE):
-            if option.turns_on in flags and option.name in cli_payloads:
+            named = [option.name] + [nation_choice(nation, option) for nation in NATIONS]
+            if option.turns_on in flags and any(name in cli_payloads for name in named):
                 flags[option.turns_on] = cli_config_flags[option.turns_on]
         # Remembered Top/Bottom are in the remembered measure's units (dollars,
         # percent, dollars per person). If the command line chose a different
@@ -168,8 +221,8 @@ def starting_choices(
             remembered = state.get("flags", {})
             measure = [option.name for option in options_in("units") if option.name in flags]
             if any(flags[name] != bool(remembered.get(name, False)) for name in measure):
-                for bound in ("top", "bottom"):
-                    if bound in payloads and bound not in cli_payloads:
+                for bound in bound_keys():
+                    if bound in payloads and bound not in cli_payloads and bound.split(":")[-1] not in cli_payloads:
                         payloads[bound] = ""
         return payloads, flags
 
@@ -189,6 +242,22 @@ def starting_choices(
 # ---------------------------------------------------------------------------
 
 
+def bound_keys() -> list[str]:
+    """Return the keys of the right-axis limits, whose units the measure sets: each nation's Top and Bottom."""
+    return [nation_choice(nation, by_name(bound)) for bound in ("top", "bottom") for nation in NATIONS]
+
+
+def option_of(key: str) -> Option:
+    """Return the option a choice's key names: "us:top" and "top" are both --top."""
+    return by_name(key.split(":")[-1])
+
+
+def nation_of(key: str) -> Nation | None:
+    """Return the nation a choice's key is for ("us:top"), or None for both charts."""
+    code = key.partition(":")[0] if ":" in key else ""
+    return next((nation for nation in NATIONS if nation.key == code), None)
+
+
 def level_letters(text: str) -> set[str]:
     """Return the levels a ``--debt:`` text names, synonyms resolved: ``"fs"`` -> ``{"f", "p"}``.
 
@@ -206,32 +275,49 @@ def level_letters(text: str) -> set[str]:
 # and write it back. The window and the web page share these rules.
 
 
-def choice_values(option: Option, text: str) -> list[str]:
+def choice_values(option: Option, text: str, nation: Nation | None = None) -> list[str]:
     """Return the list items ``text`` names, as the option writes them ("2", "10" -> ["2y", "10y"]).
 
-    A blank text is the option's default. Lenient, for ticking the boxes: a
-    text that does not parse names nothing here (the option's parser reports
-    it when the chart is drawn).
+    A blank text is the option's default; for a nation's own field, as far as
+    its chart draws it (``nation_view``: Canada's mortgage terms by default
+    are "5"). Lenient, for ticking the boxes: a text that does not parse
+    names nothing here (the option's parser reports it when the chart is
+    drawn).
     """
     default = PlotConfig()
     try:
         value = option.parse(text) if text.strip() else getattr(default, option.fields[0])
     except ValueError:
         return []
+    if nation is not None and not text.strip():
+        value = nation_view(nation, option, value)
     written = option.format((value,), default)
     return [item for item in written.split(",") if item]
 
 
-def choice_rows(option: Option, text: str) -> list[tuple[str, list[tuple[str, str]]]]:
+def _offers(nation: Nation, option: Option, value: str) -> bool:
+    """True when ``nation``'s chart can draw a box's item: a term it has, a spread of two of them."""
+    if option.fields[0] == "mortgage_terms":
+        return value in nation.mortgage_terms
+    terms = value.split("-") if option.fields[0] == "spread_pairs" else [value]
+    return all(term in nation.yield_terms for term in terms)
+
+
+def choice_rows(option: Option, text: str, nation: Nation | None = None) -> list[tuple[str, list[tuple[str, str]]]]:
     """Return the option's rows of boxes, ``(caption, [(value, box caption), ...])``.
 
     The offered rows (``Option.choices``), then a row "other" for any item
     ``text`` names that none of them offers (a spread typed on the command
-    line), so nothing chosen is hidden.
+    line), so nothing chosen is hidden. For a nation's own field, only the
+    boxes its chart can draw, without the rows' captions ("U.S. only",
+    "Canada"), which say whose they are.
     """
     rows = [(caption, list(boxes)) for caption, boxes in option.choices]
+    if nation is not None:
+        rows = [("", [box for box in boxes if _offers(nation, option, box[0])]) for _caption, boxes in rows]
+        rows = [row for row in rows if row[1]]
     offered = {value for _caption, boxes in rows for value, _box in boxes}
-    others = [(value, value.replace("-", "–")) for value in choice_values(option, text) if value not in offered]
+    others = [(value, value.replace("-", "–")) for value in choice_values(option, text, nation) if value not in offered]
     return rows + ([("other", others)] if others else [])
 
 

@@ -16,7 +16,10 @@ Controls
     switches (-r, -p) exclude each other: ticking one unticks the other.
     Changing the measure clears Top and Bottom, whose units it changes
     (dollars, percent, dollars per person), and under -r the GDP box is
-    greyed out, GDP being only the denominator. The controls scroll when the
+    greyed out, GDP being only the denominator. Each nation's own choices
+    (``frontend.NATION_OPTIONS``: its yield terms, spreads and mortgage terms
+    as tick boxes, and its axis limits) are in a panel under its tab, keyed
+    "NATION:OPTION". The controls scroll when the
     window is too short for them; Redraw and Save sit in a bar under them
     that does not, so they are always in sight.
 
@@ -36,8 +39,9 @@ Zoom and pan
     Start/End, its height sets the yield Min/Max and the right-axis Top/Bottom of
     whichever axes are drawn. Right- or middle-drag pans. The wheel zooms the
     dates about the pointer. "Back" undoes one zoom or pan; "Unzoom" returns to
-    the view before the first one. Axis limits are shared options, so zooming
-    one country's chart applies them to the other too, as on the command line.
+    the view before the first one. The axis limits are each nation's own (the
+    panel under its tab), so zooming one chart's axes leaves the other's; the
+    dates are shared, as on the command line.
 
 Drawing
     Each chart is drawn exactly as the command line draws it (the same
@@ -78,14 +82,16 @@ import pandas as pd
 from PIL import Image, ImageTk
 
 from . import http
-from .config import COMPONENT_LETTERS, PlotConfig
+from .config import COMPONENT_LETTERS, NATIONS, Nation, PlotConfig
 from .console import this_thread_output_to
 from .frontend import (
     LEVEL_BOXES,
+    NATION_OPTIONS,
     STATE_VERSION,
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    bound_keys,
     choice_refusal,
     choice_rows,
     choice_values,
@@ -93,6 +99,7 @@ from .frontend import (
     level_letters,
     load_state,
     option_help_lines,
+    option_of,
     pan_updates,
     png_bytes,
     save_state,
@@ -111,8 +118,8 @@ from .options import (
     command_line_tokens,
     config_from_choices,
     group_title,
+    nation_choice,
     options_in,
-    options_of,
     parse_date_spec,
 )
 from .plotting import COUNTRIES, Country, build_figure, resolve_start
@@ -331,8 +338,11 @@ class _ChoicesEditor:
     named on the command line) gets one, in a row "other".
     """
 
-    def __init__(self, option: Option, payload: tk.StringVar, frame: ttk.Frame, on_change, refuse) -> None:
+    def __init__(
+        self, option: Option, payload: tk.StringVar, frame: ttk.Frame, on_change, refuse, nation: Nation | None = None
+    ) -> None:
         self.option = option
+        self.nation = nation
         self.payload = payload
         self.frame = frame
         self.on_change = on_change
@@ -380,7 +390,7 @@ class _ChoicesEditor:
         """Show a text set from elsewhere (loading, Back, Reset) in the boxes."""
         if self.syncing:
             return
-        values = choice_values(self.option, self.payload.get())
+        values = choice_values(self.option, self.payload.get(), self.nation)
         new = [(value, value.replace("-", "–")) for value in values if value not in self.boxes]
         if new:
             self.add_row("other", new)
@@ -658,7 +668,11 @@ class RatesPlotApp:
         style.configure("Error.TLabel", foreground=_ERROR_FOREGROUND)
 
         for group in GROUPS:
-            members = [option for option in OPTIONS if (option.panel or option.group) == group and option.in_gui]
+            members = [
+                option
+                for option in OPTIONS
+                if (option.panel or option.group) == group and option.in_gui and option not in NATION_OPTIONS
+            ]
             if not members:
                 continue
             frame = ttk.LabelFrame(panel, text=group_title(group), padding=(8, 4))
@@ -712,17 +726,21 @@ class RatesPlotApp:
             # No padding: the row stays as tall as a check box.
             self._add_value_control(field, 0, value, entry_width=5, pady=0)
 
-    def _add_value_control(self, frame: ttk.Frame, row: int, option: Option, entry_width: int = 16, pady: int = 1) -> None:
+    def _add_value_control(
+        self, frame: ttk.Frame, row: int, option: Option, entry_width: int = 16, pady: int = 1, key: str | None = None
+    ) -> None:
+        """A label and a text field; ``key`` names a nation's own field ("us:max"), else the option's name."""
+        key = key or option.name
         variable = tk.StringVar()
-        self.payload_vars[option.name] = variable
+        self.payload_vars[key] = variable
         label = ttk.Label(frame, text=option.label)
         label.grid(row=row, column=0, sticky="w", padx=(0, 6), pady=pady)
         entry = ttk.Entry(frame, textvariable=variable, width=entry_width)
         entry.grid(row=row, column=1, sticky="ew", pady=pady)
         entry.bind("<Return>", lambda _event: self.request_redraw())
         variable.trace_add("write", lambda *_args: self._text_changed())
-        self.value_labels[option.name] = label
-        self.value_entries[option.name] = entry
+        self.value_labels[key] = label
+        self.value_entries[key] = entry
         for widget in (label, entry):
             _Tooltip(widget, _tooltip_text(option) + "\nBlank = default.")
         if option.editor == "date":
@@ -755,18 +773,26 @@ class RatesPlotApp:
             _Tooltip(check, tip)
         _Tooltip(label, tip)
 
-    def _add_choices_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+    def _add_choices_control(self, frame: ttk.LabelFrame, row: int, option: Option, nation: Nation | None = None) -> None:
         """A list option as tick boxes (``Option.choices``), one row of boxes per row offered.
 
         A list that belongs to a flag (mortgage terms, spreads) sits indented
         under that flag's check box, with no label of its own, and is greyed
         while the flag is off; one of its own (the yield terms) has its label
-        at the left, as the other fields do.
+        at the left, as the other fields do. A nation's own list (under its
+        tab) has its label above, and only the boxes its chart can draw.
         """
+        key = nation_choice(nation, option) if nation else option.name
         payload = tk.StringVar()
-        self.payload_vars[option.name] = payload
+        self.payload_vars[key] = payload
         box = ttk.Frame(frame)
-        if option.turns_on:
+        if nation is not None:
+            label = ttk.Label(frame, text=option.label)
+            label.grid(row=0, column=row, sticky="w", padx=(0, 12))
+            self.value_labels[key] = label
+            _Tooltip(label, _tooltip_text(option))
+            box.grid(row=1, column=row, sticky="nw", padx=(0, 12))
+        elif option.turns_on:
             box.grid(row=row, column=0, columnspan=3, sticky="w", padx=(22, 0), pady=(0, 2))
         else:
             label = ttk.Label(frame, text=option.label)
@@ -774,10 +800,10 @@ class RatesPlotApp:
             self.value_labels[option.name] = label
             _Tooltip(label, _tooltip_text(option))
             box.grid(row=row, column=1, columnspan=2, sticky="w", pady=1)
-        editor = _ChoicesEditor(option, payload, box, on_change=self.request_redraw, refuse=self.status.set)
-        for caption, boxes in choice_rows(option, ""):
+        editor = _ChoicesEditor(option, payload, box, on_change=self.request_redraw, refuse=self.status.set, nation=nation)
+        for caption, boxes in choice_rows(option, "", nation):
             editor.add_row(caption, boxes)
-        self.choice_editors[option.name] = editor
+        self.choice_editors[key] = editor
 
     def _add_size_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
         """Width and height boxes, "x" between them, and a "Preserve aspect ratio" lock.
@@ -872,10 +898,38 @@ class RatesPlotApp:
             canvas.bind(f"<B{button}-Motion>", lambda event: self._drag_motion(key, event))
             canvas.bind(f"<ButtonRelease-{button}>", lambda event: self._drag_end(key, event))
         canvas.bind("<MouseWheel>", lambda event: self._wheel_turned(key, event))
+        self._build_nation_panel(tab, next(nation for nation in NATIONS if nation.key == key))
         self.notebook.add(tab, text=TAB_TITLES.get(country.key, country.key))
         self.tabs[key] = tab
         self.canvases[key] = canvas
         self.scrollbars[key] = (x_scroll, y_scroll)
+
+    def _build_nation_panel(self, tab: ttk.Frame, nation: Nation) -> None:
+        """The nation's own controls, under its chart (``frontend.NATION_OPTIONS``).
+
+        Its yield terms, spreads and mortgage terms as tick boxes (only those
+        its chart can draw), then its axis limits. They set that chart only;
+        the curves' own boxes (yields, spreads, mortgages on or off) stay in
+        the column, for both charts (Terry, 2026-10-06: a panel under each
+        tab, ready for more nations).
+        """
+        frame = ttk.LabelFrame(tab, text=f"{nation.name} only", padding=(8, 2))
+        frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        column = 0
+        limits = ttk.Frame(frame)
+        # The spreads next to the yield terms, as in the column (Terry, 2026-10-06).
+        lists = sorted(
+            (option for option in NATION_OPTIONS if option.editor == "choices"),
+            key=lambda option: ("yield_terms", "spread_pairs", "mortgage_terms").index(option.fields[0]),
+        )
+        for option in lists:
+            self._add_choices_control(frame, column, option, nation)
+            column += 1
+        limits.grid(row=0, column=column, rowspan=2, sticky="nw")
+        for index, option in enumerate(option for option in NATION_OPTIONS if option.editor != "choices"):
+            cell = ttk.Frame(limits)
+            cell.grid(row=index % 2, column=index // 2, sticky="e", padx=(0, 10))
+            self._add_value_control(cell, 0, option, entry_width=7, pady=1, key=nation_choice(nation, option))
 
     # -- choices ------------------------------------------------------------
 
@@ -921,7 +975,7 @@ class RatesPlotApp:
             # for another: clear them without a redraw per field.
             self._loading = True
             try:
-                for bound in ("top", "bottom"):
+                for bound in bound_keys():
                     if bound in self.payload_vars:
                         self.payload_vars[bound].set("")
             finally:
@@ -936,15 +990,17 @@ class RatesPlotApp:
         relative = "relative" in self.flag_vars and self.flag_vars["relative"].get()
         if "gdp" in self.flag_boxes:
             self.flag_boxes["gdp"].state(["disabled"] if relative else ["!disabled"])
-        for option in options_of(Kind.VALUE):
+        for key in self.payload_vars:
+            option = option_of(key)
             if option.turns_on not in self.flag_vars:
                 continue
             state = ["!disabled"] if self.flag_vars[option.turns_on].get() else ["disabled"]
-            if option.name in self.value_entries:
-                self.value_entries[option.name].state(state)
-                self.value_labels[option.name].state(state)
-            if option.name in self.choice_editors:
-                self.choice_editors[option.name].set_state(state)
+            if key in self.value_entries:
+                self.value_entries[key].state(state)
+            if key in self.value_labels:
+                self.value_labels[key].state(state)
+            if key in self.choice_editors:
+                self.choice_editors[key].set_state(state)
 
     def _text_changed(self) -> None:
         if self._loading:
@@ -960,17 +1016,16 @@ class RatesPlotApp:
     def _mark_invalid_fields(self, payloads: dict[str, str]) -> list[str]:
         """Colour the label of every text field whose value its parser rejects; return the messages."""
         problems: list[str] = []
-        for option in OPTIONS:
-            if option.kind is not Kind.VALUE or option.name not in self.value_labels:
-                continue
+        for key, label in self.value_labels.items():
+            option = option_of(key)
             style = "TLabel"
-            if option.name in payloads:
+            if key in payloads:
                 try:
-                    option.parse(payloads[option.name])
+                    option.parse(payloads[key])
                 except ValueError as exc:
                     style = "Error.TLabel"
                     problems.append(str(exc))
-            self.value_labels[option.name].configure(style=style)
+            label.configure(style=style)
         return problems
 
     # -- drawing ------------------------------------------------------------
@@ -985,9 +1040,10 @@ class RatesPlotApp:
         payloads = {name: text.strip() for name, text in snapshot[0].items() if text.strip()}
         # A value whose flag is off has no effect and its field is greyed:
         # a bad one left there must not stop the drawing.
-        for option in options_of(Kind.VALUE):
+        for key in list(payloads):
+            option = option_of(key)
             if option.turns_on in snapshot[1] and not snapshot[1][option.turns_on]:
-                payloads.pop(option.name, None)
+                payloads.pop(key, None)
         problems = self._mark_invalid_fields(payloads)
         try:
             config = config_from_choices(payloads, snapshot[1])
@@ -1198,18 +1254,18 @@ class RatesPlotApp:
         geometry = self.geometry.get(key)
         if geometry is None:
             return
-        updates = zoom_updates(geometry, self.shown_config, x0, y0, x1, y1)
+        updates = zoom_updates(geometry, self._shown_for(key), x0, y0, x1, y1)
         if updates:
-            self._apply_view(updates, "Zoomed")
+            self._apply_view(updates, "Zoomed", key)
 
     def _pan(self, key: str, dx: float, dy: float) -> None:
         """Shift the view so the point under the pointer moves by (dx, dy) image pixels."""
         geometry = self.geometry.get(key)
         if geometry is None:
             return
-        updates = pan_updates(geometry, self.shown_config, dx, dy)
+        updates = pan_updates(geometry, self._shown_for(key), dx, dy)
         if updates:
-            self._apply_view(updates, "Panned")
+            self._apply_view(updates, "Panned", key)
         else:
             self._refresh_view(key)  # put the picture back where it was
 
@@ -1236,8 +1292,21 @@ class RatesPlotApp:
         factor = _WHEEL_ZOOM_FACTOR ** wheel["notches"]
         self._apply_view(scale_dates_updates(geometry, factor, wheel["x"]), "Zoomed")
 
-    def _apply_view(self, updates: dict[str, str], verb: str) -> None:
-        """Write zoom/pan results into the fields (undoably) and redraw."""
+    def _shown_for(self, key: str) -> PlotConfig | None:
+        """Return the config the chart in tab ``key`` was drawn with (its nation's own values applied)."""
+        return self.shown_config.for_nation(key) if self.shown_config is not None else None
+
+    def _apply_view(self, updates: dict[str, str], verb: str, key: str | None = None) -> None:
+        """Write zoom/pan results into the fields (undoably) and redraw.
+
+        The axis limits go into the fields of the chart's own nation (tab
+        ``key``); the dates are the same for every chart.
+        """
+        nation = next((nation for nation in NATIONS if nation.key == key), None)
+        own = {option.name for option in NATION_OPTIONS}
+        updates = {
+            nation_choice(nation, by_name(name)) if nation and name in own else name: text for name, text in updates.items()
+        }
         self.history.append(self._snapshot())
         del self.history[:-_HISTORY_LIMIT]
         self._loading = True
@@ -1246,7 +1315,8 @@ class RatesPlotApp:
                 self.payload_vars[name].set(text)
         finally:
             self._loading = False
-        changed = ", ".join(f"{by_name(name).label} {text or '(today)'}" for name, text in updates.items())
+        prefix = f"{nation.name}: " if nation and any(":" in name for name in updates) else ""
+        changed = prefix + ", ".join(f"{option_of(name).label} {text or '(today)'}" for name, text in updates.items())
         self._append_log(f"--- {verb.lower()}: {changed}\n")
         self.request_redraw()
 

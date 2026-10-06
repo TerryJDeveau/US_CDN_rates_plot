@@ -6,8 +6,8 @@ Two parts, both run by default:
 * ``charts``: for a few regression cases, the page's own drawing is hashed
   against the command line's. The page reads the case as it reads its
   address (``cli.sort_tokens``, then ``frontend.starting_choices``) and turns
-  its controls' choices into a config (``web._config_for``), which must equal
-  the command line's; then it draws with ``web._draw``. The command line
+  its controls' choices into a config (``web._config_for``), which must draw
+  what the command line's does (``options.drawn_config`` for each nation); then it draws with ``web._draw``. The command line
   renders the same case through ``tools/verify_charts.run`` into
   ``out/verify_web/NAME/``. Each chart is IDENTICAL or DIFFER: on the same
   machine the page must draw, byte for byte, what the command line and the
@@ -69,7 +69,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 from ratesplot import http, web  # noqa: E402
 from ratesplot.cli import sort_tokens  # noqa: E402
 from ratesplot.frontend import move_dates_updates, starting_choices  # noqa: E402
-from ratesplot.options import command_line_tokens, config_from_choices  # noqa: E402
+from ratesplot.options import command_line_tokens, config_from_choices, drawn_config  # noqa: E402
 
 # AppTest touches Streamlit's state before each page's first run, outside any
 # script run, and Streamlit logs "missing ScriptRunContext! This warning can be
@@ -88,6 +88,8 @@ CHART_CASES = (
     "default", "c2015", "u_reg_r", "c_lv_r", "c_l_lv", "u_reg_tol3", "c_reg1867", "c_p", "c1100",
     # Batch 1 (2026-10-06): --no-yields read from the address, and the yield axis's other curves.
     "u_noy", "all_rates",
+    # Batch 2: values for one nation's chart.
+    "nat_limits", "nat_terms",
 )
 
 VIEW_BUTTONS = ("◀ Back", "Unzoom", "◀ Earlier", "Later ▶", "Zoom out")
@@ -118,7 +120,7 @@ def check_charts(cases: tuple[str, ...], outdir: Path, verbose: bool = False) ->
         config = config_from_choices(payloads, flags)
         choices, _notes = starting_choices(config, payloads, flags, {})
         page_config, problems = web._config_for(choices)
-        if page_config != config:
+        if page_config is None or any(drawn_config(page_config, k) != drawn_config(config, k) for k in ("cdn", "us")):
             print(f"{name:12} FAIL: the page's config differs from the command line's ({problems})")
             all_same = False
             continue
@@ -217,13 +219,14 @@ def check_address_and_rules(check: Check) -> None:
     check("start placeholder shows the date found", _is_automatic_date(placeholder), placeholder)
 
     # One measure at a time; changing it clears Top and Bottom.
-    at.text_input(key="value:top").input("200%")
+    at.text_input(key="value:cdn:top").input("200%")
     at.run()
     at.checkbox(key="flag:per-capita").check()
     at.run()
     f = flags(at)
     check("ticking -p unticks -r", f["per-capita"] and not f["relative"], f)
-    check("Top cleared by the measure change", at.text_input(key="value:top").value == "", at.text_input(key="value:top").value)
+    top = at.text_input(key="value:cdn:top").value
+    check("Top cleared by the measure change", top == "", top)
     check("address follows", address(at) == "--C --per-capita --regression --end:2026-09-01", address(at))
 
     # The last country cannot be unticked.
@@ -429,32 +432,60 @@ def check_choice_boxes(check: Check) -> None:
     page = new_page("-u --e:2026-09-01 --no-y:30 --mo:15 --sp:10-2,7-1m")
     check(
         "the address's lists ticked; a pair not offered gets its own box",
-        ticked(page, "yields") == ["3m", "2y", "5y", "10y"]
-        and ticked(page, "mortgage-terms") == ["15"]
-        and ticked(page, "spread-pairs") == ["10y-2y", "7y-1m"],
-        (ticked(page, "yields"), ticked(page, "mortgage-terms"), ticked(page, "spread-pairs")),
+        ticked(page, "us:yields") == ["3m", "2y", "5y", "10y"]
+        and ticked(page, "us:mortgage-terms") == ["15"]
+        and ticked(page, "us:spread-pairs") == ["10y-2y", "7y-1m"],
+        (ticked(page, "us:yields"), ticked(page, "us:mortgage-terms"), ticked(page, "us:spread-pairs")),
     )
-    page.checkbox(key="choice:yields:7y").check()
+    page.checkbox(key="choice:us:yields:7y").check()
     page.run()
     check("ticking 7y adds it to the address", "--yields:3m,2y,5y,7y,10y" in address(page), address(page))
-    page.checkbox(key="choice:mortgage-terms:15").uncheck()
+    page.checkbox(key="choice:us:mortgage-terms:15").uncheck()
     page.run()
     check(
         "the last mortgage box cannot be unticked",
-        ticked(page, "mortgage-terms") == ["15"] and any("untick “Mortgage rates”" in str(item.value) for item in list(page.info) + list(page.warning)),
-        ticked(page, "mortgage-terms"),
+        ticked(page, "us:mortgage-terms") == ["15"] and any("untick “Mortgage rates”" in str(item.value) for item in list(page.info) + list(page.warning)),
+        ticked(page, "us:mortgage-terms"),
     )
     page.checkbox(key="flag:spreads").uncheck()
     page.run()
     check(
         "spread boxes greyed while --spreads is off, and left out of the address",
-        page.checkbox(key="choice:spread-pairs:10y-2y").disabled and "--spreads" not in address(page),
+        page.checkbox(key="choice:us:spread-pairs:10y-2y").disabled and "--spreads" not in address(page),
         address(page),
     )
 
 
+def check_nation_sections(check: Check) -> None:
+    """Batch 2: each nation's own section: only its terms, its own limits, and the address they write."""
+    page = new_page("--e:2026-09-01 --us:max:9 --cdn:y:2,10 --mo")
+    check("no exception", not page.exception, page.exception)
+    keys = {box.key for box in page.checkbox if box.key}
+    check(
+        "Canada offers its five terms and its mortgage terms only",
+        "choice:cdn:yields:30y" in keys and "choice:cdn:yields:7y" not in keys
+        and "choice:cdn:mortgage-terms:5" in keys and "choice:cdn:mortgage-terms:30" not in keys,
+        sorted(key for key in keys if key.startswith("choice:cdn:")),
+    )
+    check(
+        "the address's values in each nation's fields",
+        page.text_input(key="value:us:max").value == "9" and page.text_input(key="value:cdn:max").value == ""
+        and page.checkbox(key="choice:cdn:yields:2y").value and not page.checkbox(key="choice:cdn:yields:30y").value
+        and page.checkbox(key="choice:us:yields:30y").value,
+        (page.text_input(key="value:us:max").value, page.text_input(key="value:cdn:max").value),
+    )
+    check("address kept", address(page) == "--mortgages --cdn:yields:2y,10y --end:2026-09-01 --us:max:9", address(page))
+    page.text_input(key="value:cdn:max").input("9")
+    page.run()
+    check("the same value for both is written once", "--max:9" in address(page) and "--us:max" not in address(page), address(page))
+    page.text_input(key="value:cdn:min").input("x")
+    page.run()
+    check("a bad nation field: reported with its nation", any("Canada, Min %" in e.value for e in page.error), [e.value for e in page.error])
+
+
 PAGE_CHECKS = (
     check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
+    check_nation_sections,
 )
 
 
