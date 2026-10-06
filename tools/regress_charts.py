@@ -166,6 +166,24 @@ CASES: dict[str, list[str]] = {
     # The prime rate (batch 2), with the variable mortgage it prices and the policy rate.
     "c_prime": ["-c", "--mo:5,5v,prime", "--policy", "--no-gdp", "--no-debt", "--no-interest", "-s:2005", "-l"],
     "nat_terms": ["--us:y:7,20", "--cdn:y:2,10", "--us:sp:10-2", "--cdn:sp:30-10", "--cdn:mo:5,3", "-s:2015", "-l"],
+    # Batch 3: the UK. Its defaults (the automatic start; its own yield terms);
+    # the long history (the 10-year's monthly averages from 1935, debt and GDP
+    # from the millennium dataset); the yield axis's other curves with its
+    # own default mortgage term and spreads; every mortgage term; Bank Rate
+    # and the variable mortgage rate from 1939; each measure; the levels;
+    # --reg; all three nations; values for the UK alone; before 1867.
+    "uk_default": ["--uk"],
+    "uk1935_l": ["--uk", "-s:1935", "-l"],
+    "uk_rates": ["--uk", "--policy", "--mo", "--sp", "-l", "-s:2015"],
+    "uk_mo_all": ["--uk", "--mo:2f,3f,5f,svr", "--no-gdp", "--no-debt", "--no-interest", "-s:1990"],
+    "uk_svr1939": ["--gb", "--mo:svr", "--policy", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1939", "-l"],
+    "uk_r1900": ["--uk", "-r", "-s:1900"],
+    "uk_p1950": ["--uk", "-p", "-s:1950"],
+    "uk_lv": ["--uk", "--d:fnpm", "-i", "-s:1990", "-l"],
+    "uk_reg1946": ["--uk", "--reg", "-s:1946"],
+    "all3": ["--na:ca,us,gb", "-s:2010"],
+    "uk_nat": ["--na:gb", "--uk:y:10,20", "--uk:max:9", "--uk:top:5t", "--uk:sp:20-5", "-s:2005"],
+    "uk1700_1900": ["--uk", "--no-yield", "-s:1700", "--e:1900"],
 }
 
 
