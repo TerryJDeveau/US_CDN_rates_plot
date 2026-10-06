@@ -286,6 +286,7 @@ CHECKS: tuple[Check, ...] = (
     Check("boc_mortgage3", "Bank of Canada V80691334 posted 3-year", DAILY, _rate(partial(rates.mortgage_rate, "3"))),
     Check("boc_mortgage1", "Bank of Canada V80691333 posted 1-year", DAILY, _rate(partial(rates.mortgage_rate, "1"))),
     Check("boc_mortgage5v", "Bank of Canada BROKER_AVERAGE_5YR_VRM 5-year variable", DAILY, _rate(partial(rates.mortgage_rate, "5v"))),
+    Check("boc_prime", "Bank of Canada V80691311 prime rate", DAILY, _rate(partial(rates.mortgage_rate, "prime"))),
     Check("statcan_mortgage", "StatCan 34-10-0145 CMHC 5-year rate (monthly; before 1975)", None, _cmhc_history),
     Check("fred_t10y2y", "FRED T10Y2Y against the program's 10y-2y spread (--spreads)", DAILY, _spread_crosscheck("T10Y2Y", ("10y", "2y"))),
     Check("fred_t10y3m", "FRED T10Y3M against the program's 10y-3m spread (--spreads)", DAILY, _spread_crosscheck("T10Y3M", ("10y", "3m"))),
@@ -333,6 +334,10 @@ def main(argv: list[str]) -> int:
             print(f"{check.name:18} {check.what}")
         return 0
     checks = CHECKS if not args.only else tuple(check for check in CHECKS if check.name in args.only.split(","))
+    unknown = [name for name in (args.only or "").split(",") if name and name not in {check.name for check in CHECKS}]
+    if unknown:
+        # Checking nothing must not read as a pass (a check name from another branch).
+        parser.error(f"no such check: {', '.join(unknown)} (--list shows them)")
 
     # The program's own settings for a chart ending today, with --cur and every curve.
     config = parse_args(["--no-gui", "-c", "-u", "--d:fnpm", "--i", "--gdp", "--y", f"--s:{RECENT:%Y-%m-%d}"])

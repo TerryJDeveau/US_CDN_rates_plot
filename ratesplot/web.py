@@ -11,7 +11,10 @@ What it is
     are generated from ``options.OPTIONS`` as the window's are (options with
     ``in_gui=False`` are left out), grouped as in ``--help``, and follow the
     window's rules: at least one country stays ticked; one measure at a time,
-    and changing it clears Top and Bottom; GDP greyed out under -r; a value
+    and changing it clears Top and Bottom; GDP greyed out under -r; each
+    nation's own choices (``frontend.NATION_OPTIONS``: its yield terms,
+    spreads and mortgage terms, only those its chart can draw, and its axis
+    limits) in a sidebar section of its own; a value
     that belongs to a flag (the regression tolerance) greyed while the flag
     is off, and ignored then. A new option in the table appears here with no
     change to this module.
@@ -50,9 +53,9 @@ Zoom and dates
     "◀ Earlier" and "Later ▶" move the dates by half the window, "Zoom out"
     doubles their span (``frontend.move_dates_updates``: between 1867 and
     today, keeping the span). "Back" undoes one zoom, move or Reset;
-    "Unzoom" returns to the charts before the first. Axis limits are shared
-    options, so zooming one country's chart applies them to the other too,
-    as on the command line.
+    "Unzoom" returns to the charts before the first. The axis limits are
+    each nation's own, so zooming one chart's axes leaves the other's; the
+    dates are shared, as on the command line.
 
 Dates
     Beside each date field a 📅 button opens Streamlit's calendar (between
@@ -96,14 +99,18 @@ from .config import (  # noqa: E402
     DEFAULT_REGRESSION_TOLERANCE_PCT,
     EARLIEST_DATA_START,
     MARKET_TIMEZONE,
+    NATIONS,
+    Nation,
     PlotConfig,
 )
 from .console import this_thread_output_to  # noqa: E402
 from .frontend import (  # noqa: E402
     LEVEL_BOXES,
+    NATION_OPTIONS,
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    bound_keys,
     choice_refusal,
     choice_rows,
     choice_values,
@@ -111,6 +118,7 @@ from .frontend import (  # noqa: E402
     level_letters,
     move_dates_updates,
     option_help_lines,
+    option_of,
     png_bytes,
     saved_png_name,
     starting_choices,
@@ -126,8 +134,8 @@ from .options import (  # noqa: E402
     config_from_choices,
     group_title,
     help_epilog,
+    nation_choice,
     options_in,
-    options_of,
     parse_date_spec,
 )
 from .plotting import COUNTRIES, build_figure, resolve_start  # noqa: E402
@@ -167,10 +175,10 @@ _ZOOM_HINT = (
 
 # Session-state keys: one per control, and the page's own records.
 _FLAG = "flag:"      # + option name: a check box
-_VALUE = "value:"    # + option name: a text field
+_VALUE = "value:"    # + option name, or a nation's choice key ("us:max"): a text field
 _LEVEL = "level:"    # + letter: one of the "By level" boxes
-_CHOICE = "choice:"  # + option name + ":" + value: one tick box of a list option (Option.choices)
-_CHOICE_OTHERS = "choice_others:"  # + option name: the values given that no offered box has
+_CHOICE = "choice:"  # + choice key + ":" + value: one tick box of a list option (Option.choices)
+_CHOICE_OTHERS = "choice_others:"  # + choice key: the values given that no offered box has
 _READY = "ready"     # the controls have been set from the address
 _ADDRESS_PROBLEMS = "address_problems"
 _NOTICE = "notice"   # a message from a control's callback, shown once
@@ -350,6 +358,13 @@ def _gui_options(kind_is_value: bool) -> list[Option]:
     return [option for option in OPTIONS if option.in_gui and (option.kind is Kind.VALUE) == kind_is_value]
 
 
+def _value_keys() -> list[tuple[str, Option, Nation | None]]:
+    """Every value control: ``(choice key, option, nation)``; a nation's own (``NATION_OPTIONS``) once for each nation."""
+    shared = [(option.name, option, None) for option in _gui_options(True) if option not in NATION_OPTIONS]
+    own = [(nation_choice(nation, option), option, nation) for nation in NATIONS for option in NATION_OPTIONS]
+    return shared + own
+
+
 def _choices_from_address() -> tuple[Choices, list[str]]:
     """Return the starting choices from the address's command line, and any problems with it.
 
@@ -376,23 +391,23 @@ def _choices_from_address() -> tuple[Choices, list[str]]:
 def _load_choices(choices: Choices) -> None:
     """Set every control from ``choices``."""
     payloads, flags = choices
-    for option in _gui_options(kind_is_value=True):
+    for key, option, nation in _value_keys():
         if option.editor == "levels":
-            letters = level_letters(payloads.get(option.name, ""))
+            letters = level_letters(payloads.get(key, ""))
             for letter in COMPONENT_LETTERS:
                 st.session_state[_LEVEL + letter] = letter in letters
         elif option.editor == "choices":
-            text = payloads.get(option.name, "")
-            rows = choice_rows(option, text)
-            st.session_state[_CHOICE_OTHERS + option.name] = [value for value, _box in rows[-1][1]] if rows[-1][0] == "other" else []
-            ticked = choice_values(option, text)
+            text = payloads.get(key, "")
+            rows = choice_rows(option, text, nation)
+            st.session_state[_CHOICE_OTHERS + key] = [value for value, _box in rows[-1][1]] if rows[-1][0] == "other" else []
+            ticked = choice_values(option, text, nation)
             for _caption, boxes in rows:
                 for value, _box in boxes:
-                    st.session_state[_CHOICE + option.name + ":" + value] = value in ticked
+                    st.session_state[_CHOICE + key + ":" + value] = value in ticked
         else:
-            st.session_state[_VALUE + option.name] = payloads.get(option.name, "")
+            st.session_state[_VALUE + key] = payloads.get(key, "")
             if option.editor == "size":
-                _size_boxes_from_text(option.name)
+                _size_boxes_from_text(key)
     for option in _gui_options(kind_is_value=False):
         st.session_state[_FLAG + option.name] = bool(flags.get(option.name, False))
 
@@ -400,18 +415,16 @@ def _load_choices(choices: Choices) -> None:
 def _snapshot() -> Choices:
     """Return every control's value, blanks included, as the window's ``_snapshot`` does."""
     payloads: dict[str, str] = {}
-    for option in _gui_options(kind_is_value=True):
+    for key, option, nation in _value_keys():
         if option.editor == "levels":
-            payloads[option.name] = "".join(
-                letter for letter in COMPONENT_LETTERS if st.session_state.get(_LEVEL + letter, False)
-            )
+            payloads[key] = "".join(letter for letter in COMPONENT_LETTERS if st.session_state.get(_LEVEL + letter, False))
         elif option.editor == "choices":
             ticked = [
-                value for value in _choice_values_offered(option) if st.session_state.get(_CHOICE + option.name + ":" + value, False)
+                value for value in _choice_values_offered(key) if st.session_state.get(_CHOICE + key + ":" + value, False)
             ]
-            payloads[option.name] = choices_text(option, ticked)
+            payloads[key] = choices_text(option, ticked)
         else:
-            payloads[option.name] = st.session_state.get(_VALUE + option.name, "")
+            payloads[key] = st.session_state.get(_VALUE + key, "")
     flags = {option.name: bool(st.session_state.get(_FLAG + option.name, False)) for option in _gui_options(False)}
     return payloads, flags
 
@@ -422,16 +435,16 @@ def _config_for(choices: Choices) -> tuple[PlotConfig | None, list[str]]:
     flags = choices[1]
     # A value whose flag is off has no effect and its field is greyed: a bad
     # one left there must not stop the drawing (as in the window).
-    for option in options_of(Kind.VALUE):
-        if option.turns_on in flags and not flags[option.turns_on]:
-            payloads.pop(option.name, None)
+    for key in list(payloads):
+        if option_of(key).turns_on in flags and not flags[option_of(key).turns_on]:
+            payloads.pop(key, None)
     problems: list[str] = []
-    for option in options_of(Kind.VALUE):
-        if option.name in payloads:
+    for key, option, nation in _value_keys():
+        if key in payloads:
             try:
-                option.parse(payloads[option.name])
+                option.parse(payloads[key])
             except ValueError as exc:
-                problems.append(f"{option.label}: {exc}")
+                problems.append(f"{nation.name + ', ' if nation else ''}{option.label}: {exc}")
     try:
         return config_from_choices(payloads, flags), problems
     except ValueError as exc:
@@ -458,7 +471,7 @@ def _measure_changed(name: str) -> None:
         for other in units:
             if other != name:
                 st.session_state[_FLAG + other] = False
-    for bound in ("top", "bottom"):
+    for bound in bound_keys():
         st.session_state[_VALUE + bound] = ""
 
 
@@ -469,18 +482,18 @@ def _remember_view() -> None:
     del history[:-_HISTORY_LIMIT]
 
 
-def _choice_values_offered(option: Option) -> list[str]:
-    """Every value a list option has a box for now: those offered, then any others given (``_CHOICE_OTHERS``)."""
-    offered = [value for _caption, boxes in choice_rows(option, "") for value, _box in boxes]
-    return offered + st.session_state.get(_CHOICE_OTHERS + option.name, [])
+def _choice_values_offered(key: str) -> list[str]:
+    """Every value a list control has a box for now: those offered, then any others given (``_CHOICE_OTHERS``)."""
+    _key, option, nation = next(entry for entry in _value_keys() if entry[0] == key)
+    offered = [value for _caption, boxes in choice_rows(option, "", nation) for value, _box in boxes]
+    return offered + st.session_state.get(_CHOICE_OTHERS + key, [])
 
 
-def _choice_changed(name: str, value: str) -> None:
+def _choice_changed(key: str, value: str) -> None:
     """Keep at least one box of a list ticked: an empty list would read as the default (``choice_refusal``)."""
-    option = next(option for option in OPTIONS if option.name == name)
-    if not any(st.session_state.get(_CHOICE + name + ":" + item, False) for item in _choice_values_offered(option)):
-        st.session_state[_CHOICE + name + ":" + value] = True
-        st.session_state[_NOTICE] = choice_refusal(option)
+    if not any(st.session_state.get(_CHOICE + key + ":" + item, False) for item in _choice_values_offered(key)):
+        st.session_state[_CHOICE + key + ":" + value] = True
+        st.session_state[_NOTICE] = choice_refusal(option_of(key))
 
 
 def _reset() -> None:
@@ -493,12 +506,16 @@ def _force_redraw() -> None:
     st.session_state[_FORCE] = True
 
 
-def _apply_view(updates: dict[str, str]) -> None:
+def _apply_view(updates: dict[str, str], key: str | None = None) -> None:
     """Write a zoom's or a date move's texts into the fields, undoably (Back), as the window does.
 
     Nothing is kept for Back when the fields already say it (e.g. Zoom out
-    from 1867 to today).
+    from 1867 to today). The axis limits go into the fields of the chart's
+    own nation (``key``); the dates are the same for every chart.
     """
+    nation = next((nation for nation in NATIONS if nation.key == key), None)
+    own = {option.name for option in NATION_OPTIONS}
+    updates = {nation_choice(nation, option_of(name)) if nation and name in own else name: text for name, text in updates.items()}
     payloads = _snapshot()[0]
     if all(payloads.get(name, "") == text for name, text in updates.items()):
         return
@@ -519,12 +536,13 @@ def _box_dragged(key: str) -> None:
     _apply_view(
         zoom_updates(
             drawing.geometry[key],
-            drawing.drawn,
+            drawing.drawn.for_nation(key) if drawing.drawn is not None else None,
             box["x0"] * width,
             box["y0"] * height,
             box["x1"] * width,
             box["y1"] * height,
-        )
+        ),
+        key,
     )
 
 
@@ -574,11 +592,12 @@ def _flag_control(where, option: Option) -> None:
     )
 
 
-def _value_control(where, option: Option, placeholder: str | None = None) -> None:
+def _value_control(where, option: Option, placeholder: str | None = None, key: str | None = None) -> None:
+    """A text field; ``key`` names a nation's own field ("us:max"), else the option's name."""
     flag_off = option.turns_on is not None and not st.session_state.get(_FLAG + option.turns_on, False)
     where.text_input(
         option.label,
-        key=_VALUE + option.name,
+        key=_VALUE + (key or option.name),
         help=_help(option, "Blank = default."),
         placeholder=placeholder or _PLACEHOLDERS.get(option.name, _DEFAULT_PLACEHOLDER),
         disabled=flag_off,
@@ -739,17 +758,19 @@ def _levels_control(where, option: Option) -> None:
         columns[index % 2].checkbox(caption, key=_LEVEL + letter)
 
 
-def _choices_control(where, option: Option) -> None:
+def _choices_control(where, option: Option, nation: Nation | None = None) -> None:
     """A list option as tick boxes (``Option.choices``): a row of boxes per row offered, with its caption.
 
     One that belongs to a flag (mortgage terms, spreads) is greyed while
-    the flag is off, as its field was.
+    the flag is off, as its field was. A nation's own list has its label
+    always, and only the boxes its chart can draw (``frontend.choice_rows``).
     """
+    key = nation_choice(nation, option) if nation else option.name
     disabled = option.turns_on is not None and not st.session_state.get(_FLAG + option.turns_on, False)
-    if option.turns_on is None:
+    if option.turns_on is None or nation is not None:
         where.markdown(f"**{option.label}**", help=_help(option))
-    others = st.session_state.get(_CHOICE_OTHERS + option.name, [])
-    rows = [(caption, list(boxes)) for caption, boxes in option.choices]
+    others = st.session_state.get(_CHOICE_OTHERS + key, [])
+    rows = [row for row in choice_rows(option, "", nation)]
     if others:
         rows.append(("other", [(value, value.replace("-", "–")) for value in others]))
     width = max(len(boxes) for _caption, boxes in rows)  # boxes line up from row to row
@@ -760,11 +781,11 @@ def _choices_control(where, option: Option) -> None:
         for column, (value, text) in zip(columns, boxes):
             column.checkbox(
                 text,
-                key=_CHOICE + option.name + ":" + value,
+                key=_CHOICE + key + ":" + value,
                 help=_help(option),
                 disabled=disabled,
                 on_change=_choice_changed,
-                args=(option.name, value),
+                args=(key, value),
             )
 
 
@@ -783,7 +804,11 @@ def _controls() -> None:
     buttons[0].button("Redraw", on_click=_force_redraw, help="Draw again, with fresh intraday quotes.", width="stretch")
     buttons[1].button("Reset", on_click=_reset, help="Back to the default charts.", width="stretch")
     for group in GROUPS:
-        members = [option for option in OPTIONS if (option.panel or option.group) == group and option.in_gui]
+        members = [
+            option
+            for option in OPTIONS
+            if (option.panel or option.group) == group and option.in_gui and option not in NATION_OPTIONS
+        ]
         if not members:
             continue
         bar.subheader(group_title(group), divider="gray")
@@ -819,6 +844,24 @@ def _controls() -> None:
                 _levels_control(bar, option)
             elif option.editor == "size":
                 _size_control(bar, option)
+    for nation in NATIONS:
+        _nation_controls(bar, nation)
+
+
+def _nation_controls(bar, nation: Nation) -> None:
+    """A nation's own section (``frontend.NATION_OPTIONS``), as the panel under its tab in the window.
+
+    Its yield terms, spreads and mortgage terms (only those its chart can
+    draw), then its yield-axis Min and Max and right-axis Top and Bottom.
+    """
+    bar.subheader(f"{nation.name} only", divider="gray")
+    order = ("yield_terms", "spread_pairs", "mortgage_terms")
+    for option in sorted((o for o in NATION_OPTIONS if o.editor == "choices"), key=lambda o: order.index(o.fields[0])):
+        _choices_control(bar, option, nation)
+    limits = [option for option in NATION_OPTIONS if option.editor != "choices"]
+    for index in range(0, len(limits), 2):
+        for column, option in zip(bar.columns(2), limits[index:index + 2]):
+            _value_control(column, option, key=nation_choice(nation, option))
 
 
 # ---------------------------------------------------------------------------

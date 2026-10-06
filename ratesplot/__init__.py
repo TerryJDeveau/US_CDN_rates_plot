@@ -2,7 +2,8 @@
 
 Package layout
 --------------
-config            constants, per-country metadata, HTTP session, PlotConfig
+config            constants, per-country metadata, HTTP session, PlotConfig; the
+                  nations (Nation, NATIONS) and the choices each may have its own of
 frames            small DataFrame helpers shared by the layers below
 http              retrying GET helper, FRED CSV reader, BoC CSV parser, session download cache
 console           printed output routed by thread (the window's log; the trial pass discarded)
@@ -28,7 +29,8 @@ measures          the right-axis measure: dollars, % of GDP (-r) or per person (
 plotting          line drawing, draw_country, build_figure (no pyplot), COUNTRIES, run_cdn / run_us
 options           the option table, value parsers/formatters, choices <-> PlotConfig, --help text
 frontend          what the window and the web page share without a GUI toolkit: starting
-                  choices, remembered settings, option help, PNG bytes and file names
+                  choices, remembered settings, each nation's own controls, option
+                  help, PNG bytes and file names
 gui               the interactive window (default; --no-gui for plain matplotlib windows)
 web               the web page (Streamlit; streamlit_app.py): the same charts in a browser
 cli               argument parsing (driven by the options table) and main()

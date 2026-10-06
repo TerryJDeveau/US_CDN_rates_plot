@@ -54,6 +54,7 @@ from .config import (
     EARLIEST_DATA_START,
     MACRO_PLOT_STYLES,
     MIN_WINDOW_DAYS,
+    NATIONS,
     PROJECTION_ALPHA,
     PROJECTION_KEY_COLOR,
     PROJECTION_LABEL,
@@ -173,16 +174,20 @@ def add_macro_line(
     return line
 
 
-def _yield_style(column: str, config: PlotConfig) -> dict:
-    """Return the line style of one yield column: its term's own colour, unless the terms are the default five.
+def _yield_style(column: str, config: PlotConfig, nation_key: str) -> dict:
+    """Return the line style of one yield column: its term's own colour, unless the nation draws the default five.
 
     With the default terms (no --yields:LIST) the lines take matplotlib's
     colour cycle in drawing order, as they always have, so those charts are
     unchanged; the cycle's colours are the default terms' ``TERM_COLORS``
     when all five are drawn. With terms chosen, each term has its own
-    colour, so the 10-year is red however few are drawn.
+    colour, so the 10-year is red however few are drawn. The terms are
+    those the nation has (Canada's chart of ``--yields:3m,2,5,7,10,30`` draws
+    the default five), so a chart is coloured alike whether its terms were
+    chosen for both charts or for it alone (``options.nation_view``).
     """
-    if config.yield_terms == DEFAULT_YIELD_TERMS:
+    own = next(nation.yield_terms for nation in NATIONS if nation.key == nation_key)
+    if tuple(term for term in config.yield_terms if term in own) == DEFAULT_YIELD_TERMS:
         return YIELD_LINE_STYLE
     term = next(key for key, name in YIELD_TERMS.items() if name == column)
     return YIELD_LINE_STYLE | {"color": TERM_COLORS[term]}
@@ -214,7 +219,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
 
         if not historical.empty:
             (line,) = ax.plot(
-                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config)
+                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config, "cdn")
             )
             color = line.get_color()
             legend_lines.append(line)
@@ -224,7 +229,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
                 current.index,
                 current.values,
                 label="_nolegend_" if color is not None else label,
-                **(_yield_style(column, config) | ({"color": color} if color is not None else {})),
+                **(_yield_style(column, config, "cdn") | ({"color": color} if color is not None else {})),
             )
             if color is None:
                 legend_lines.append(line)
@@ -244,7 +249,7 @@ def add_us_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
     lines: list[Line2D] = []
     for column in config.yield_columns:
         if column in data.columns:
-            (line,) = ax.plot(data[DATE_COLUMN], data[column], label=f"{column} Yield", **_yield_style(column, config))
+            (line,) = ax.plot(data[DATE_COLUMN], data[column], label=f"{column} Yield", **_yield_style(column, config, "us"))
             lines.append(line)
     return lines
 
@@ -600,8 +605,9 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
     with this_thread_output_to(None):
         for country in COUNTRIES:
             if getattr(config, country.show_field):
-                yields, macro, rates = country.prepare(trial)
-                for label, first in curve_first_dates(yields, macro, rates, trial, country.metadata).items():
+                own = trial.for_nation(country.key)
+                yields, macro, rates = country.prepare(own)
+                for label, first in curve_first_dates(yields, macro, rates, own, country.metadata).items():
                     firsts[(country.metadata.country_name, label)] = first
 
     def named(curves: list[tuple[str, str]]) -> str:
@@ -642,6 +648,7 @@ def build_figure(country: Country, config: PlotConfig) -> Figure:
     An automatic start must be found first (``resolve_start``), once for all
     the charts drawn together.
     """
+    config = config.for_nation(country.key)  # its own choices over the shared ones
     figure = Figure(figsize=config.figsize_inches, dpi=CANVAS_DPI)
     FigureCanvasAgg(figure)
     ax_yield = figure.subplots()
@@ -652,6 +659,7 @@ def build_figure(country: Country, config: PlotConfig) -> Figure:
 
 def run_cdn(config: PlotConfig) -> None:
     """Fetch all selected Canadian inputs and show the Canadian chart in a matplotlib window."""
+    config = config.for_nation(CDN.key)
     yields, macro, rates = prepare_cdn(config)
     plot_country(yields, macro, rates, config, CDN, add_canadian_yield_lines)
     print("CDN chart finished.\n")
@@ -659,6 +667,7 @@ def run_cdn(config: PlotConfig) -> None:
 
 def run_us(config: PlotConfig) -> None:
     """Fetch all selected U.S. inputs and show the U.S. chart in a matplotlib window."""
+    config = config.for_nation(US.key)
     yields, macro, rates = prepare_us(config)
     plot_country(yields, macro, rates, config, US, add_us_yield_lines)
     print("US chart finished.\n")

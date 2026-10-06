@@ -154,6 +154,18 @@ CASES: dict[str, list[str]] = {
     "u_sp_r": ["-u", "--sp", "-r"],
     # All three together on both charts.
     "all_rates": ["--policy", "--mo", "--sp:10-2", "-l", "-s:2015"],
+    # Batch 2: values for one nation's chart (--us:..., --cdn:...).
+    "nat_limits": ["--us:top:40t", "--us:bottom:5t", "--cdn:max:12", "--min:0", "-s:2010"],
+    # Canada's chart of terms both charts were given, with one only the U.S.
+    # has: its five drawn as the default five (the 30-year purple, before the
+    # 10-year begins).
+    "c_y_us_terms": ["-c", "--y:3m,2,5,7,10,30", "-s:1936", "--e:1948"],
+    # Canada's chart of spreads given for both charts, the first with a term
+    # only the U.S. has: the 10y-2y takes the first spread colour.
+    "c_sp_us_pair": ["-c", "--sp:7-1m,10-2", "-s:2015", "--no-gdp", "--no-debt", "--no-interest", "--no-yield"],
+    # The prime rate (batch 2), with the variable mortgage it prices and the policy rate.
+    "c_prime": ["-c", "--mo:5,5v,prime", "--policy", "--no-gdp", "--no-debt", "--no-interest", "-s:2005", "-l"],
+    "nat_terms": ["--us:y:7,20", "--cdn:y:2,10", "--us:sp:10-2", "--cdn:sp:30-10", "--cdn:mo:5,3", "-s:2015", "-l"],
 }
 
 
