@@ -19,10 +19,16 @@ import requests
 # ---------------------------------------------------------------------------
 
 # Without --start the chart begins where the last of the chosen curves begins
-# (plotting.resolve_start). It is found by preparing the data from this date,
-# which no series precedes: Canadian population (1 June 1867) and federal
-# debt (31 December 1867), the oldest, begin with Confederation.
-EARLIEST_DATA_START = pd.Timestamp("1867-01-01")
+# (plotting.resolve_start). It is found by preparing the data from this date;
+# it is also the first date the page's calendar and its "Earlier" button
+# reach. Terry, 2026-10-06 (batch 3): as early as pandas allows, with a
+# small margin. pandas' timestamps (nanoseconds) begin 1677-09-21; 1680-01-01
+# leaves two years, and precedes every series: the UK's national debt (1691)
+# and GDP (1700), Canada's from Confederation (1867). Spans longer than
+# pandas' 292-year Timedelta are added as date offsets
+# (frontend.move_dates_updates). Before batch 3 it was 1867-01-01; no Canadian
+# or U.S. curve begins before that, so their automatic start is as it was.
+EARLIEST_DATA_START = pd.Timestamp("1680-01-01")
 # Without --start the chart begins no earlier than this date (Terry,
 # 2026-10-06: he kept setting the start by hand, "so maybe just making the
 # default 2000 is just as good as anything else"). The start is the later of
@@ -141,6 +147,10 @@ CANADIAN_SESSION.headers.update(_BROWSER_HEADERS)
 # disturb the Canadian downloads.
 LATEST_SESSION = requests.Session()
 LATEST_SESSION.headers.update(_BROWSER_HEADERS)
+# The UK's sources (Bank of England, ONS): a session of their own, as the
+# latest values have, with a browser's headers, which both require.
+UK_SESSION = requests.Session()
+UK_SESSION.headers.update(_BROWSER_HEADERS | {"Accept-Language": "en-GB,en;q=0.9"})
 # The quote feed is an extra: one quick try and one retry, then the chart is
 # drawn without it (with a warning).
 LATEST_QUOTE_TIMEOUT_SECONDS = 20
@@ -219,6 +229,25 @@ CENSUS_TABLES_URL = "https://www2.census.gov/programs-surveys/gov-finances/table
 US_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED U.S. ARCHIVE DATA"
 US_ARCHIVE_END_MARKER = "# END AUTO-GENERATED U.S. ARCHIVE DATA"
 
+# The UK (batch 3, 2026-10-06): the Bank of England's statistical database
+# (IADB: gilt yields, Bank Rate, quoted mortgage rates) and the Office for
+# National Statistics (debt, interest, GDP, population), both read live; the
+# Bank's "A millennium of macroeconomic data" (no longer updated) baked into
+# ``ratesplot/uk_archive_data.py``. Spans measured from Terry's laptop
+# 2026-10-06 (tools/uk_fixtures/README.md).
+BOE_IADB_URL = "https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp"
+# The database answers a request from this date; from 1950 or 1960 it
+# redirects to its error page 905 instead (measured 2026-10-06). No series
+# read from it begins before 1975.
+BOE_IADB_FROM = "01/Jan/1975"
+ONS_TIMESERIES_URL = "https://www.ons.gov.uk{path}/data"
+UK_MILLENNIUM_URL = (
+    "https://www.bankofengland.co.uk/-/media/boe/files/statistics/research-datasets/"
+    "a-millennium-of-macroeconomic-data-for-the-uk.xlsx"
+)
+UK_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED UK ARCHIVE DATA"
+UK_ARCHIVE_END_MARKER = "# END AUTO-GENERATED UK ARCHIVE DATA"
+
 # The latest values (--cur), newer than the regular series (see ratesplot.latest).
 # U.S. Treasury's daily par yield curve: the source of FRED's DGS series,
 # posted the same afternoon, where FRED follows a business day or more later.
@@ -282,6 +311,13 @@ POPULATION_COLUMN = "Population"
 CDN_INTEREST_COLUMN = "TTM Interest Payable ($)"
 US_DEBT_COLUMN = "Total Aggregate Debt ($)"
 US_INTEREST_COLUMN = "TTM Interest Payments ($)"
+UK_DEBT_COLUMN = "Total UK Debt (£)"
+# Before general government debt begins (1975), the national debt alone: a
+# curve of its own, dotted, as Canada's federal debt before 1933 is.
+UK_NATIONAL_DEBT_COLUMN = "UK National Debt (£)"
+# The UK's headline debt, beside the gross (Terry, 2026-10-06: "add net too").
+UK_NET_DEBT_COLUMN = "UK Net Debt (£)"
+UK_INTEREST_COLUMN = "TTM UK Interest Paid (£)"
 
 # ---------------------------------------------------------------------------
 # Chart styling and per-country metadata
@@ -313,9 +349,19 @@ MORTGAGE_TERMS = {
     "1": ("cdn", "1y"),
     "5v": ("cdn", "5y"),
     "prime": ("cdn", None),
+    # The UK (batch 3): the Bank of England's quoted rates for new loans at
+    # 75 % loan to value, fixed for 2, 3 or 5 years, and the standard
+    # variable rate (SVR) a fixed rate reverts to. Written with an "f" so
+    # they are not Canada's 5 and 3 (posted rates of other lenders).
+    "2f": ("uk", "2y"),
+    "3f": ("uk", None),
+    "5f": ("uk", "5y"),
+    "svr": ("uk", None),
 }
 DEFAULT_MORTGAGE_TERMS = ("30", "5")
-MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f", "prime": "#696969"}
+# The 3-year fixed has Canada's 3-year's colour (the same kind of loan, on
+# another chart); the SVR the prime rate's, a variable base rate as it is.
+MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f", "prime": "#696969", "3f": "#2f4f4f", "svr": "#696969"}
 # Dashed steps (a posted or surveyed rate holds until the next), thinner than
 # the policy rate; the variable rate dash-dotted, as it shares the 5-year's colour.
 MORTGAGE_STYLE = {"linewidth": 1.5, "linestyle": "--", "drawstyle": "steps-post"}
@@ -353,18 +399,67 @@ class Nation:
     name: str  # in messages and on its panel
     codes: tuple[str, ...]  # the prefixes that name it on the command line ("--us:top:20t"), lower case
     yield_terms: tuple[str, ...]  # the YIELD_TERMS keys it has a series for
+    adjective: str  # in messages: "no Canadian 7-Year yield"
+    # Drawn when the command line names no nation. Canada and the U.S. are,
+    # as they always were; a nation added later is drawn only when asked for
+    # (batch 3: every existing command line draws what it drew).
+    shown_by_default: bool = True
+    # Its own value of a list in PER_NATION_FIELDS, used while that list is
+    # at the default for every chart (_LIST_DEFAULTS), where the default
+    # would draw little or nothing on its chart: (field, value) pairs. With
+    # none, the default is simply viewed as far as its chart has the terms.
+    own_defaults: tuple[tuple[str, object], ...] = ()
 
     @property
     def mortgage_terms(self) -> tuple[str, ...]:
         """The MORTGAGE_TERMS keys it has, in their order."""
         return tuple(term for term, (country, _yield) in MORTGAGE_TERMS.items() if country == self.key)
 
+    @property
+    def show_field(self) -> str:
+        """The PlotConfig field that chooses its chart ("show_cdn")."""
+        return f"show_{self.key}"
+
+    def view(self, field: str, value: object) -> object:
+        """Return what a list in ``field`` draws on this nation's chart: the yield and mortgage terms it has, the spreads of them.
+
+        A term or pair it lacks is left off its chart (with a note), so two
+        lists with the same view draw the same chart (a spread's colour goes
+        by its place among those drawn, ``rates.yield_spreads``). The
+        default list for every chart draws the nation's own default where it
+        has one (``own_defaults``). Any other field is its value.
+        """
+        own = dict(self.own_defaults)
+        if field in own and value == _LIST_DEFAULTS[field]:
+            return own[field]
+        if field == "yield_terms":
+            return tuple(term for term in value if term in self.yield_terms)
+        if field == "mortgage_terms":
+            return tuple(term for term in value if term in self.mortgage_terms)
+        if field == "spread_pairs":
+            return tuple(pair for pair in value if all(term in self.yield_terms for term in pair))
+        return value
+
 
 # In drawing order, as plotting.COUNTRIES. The codes are ISO 3166 two-letter
 # codes, plus the program's own "cdn".
 NATIONS: tuple[Nation, ...] = (
-    Nation("cdn", "Canada", ("ca", "cdn"), DEFAULT_YIELD_TERMS),
-    Nation("us", "United States", ("us",), tuple(YIELD_TERMS)),
+    Nation("cdn", "Canada", ("ca", "cdn"), DEFAULT_YIELD_TERMS, "Canadian"),
+    Nation("us", "United States", ("us",), tuple(YIELD_TERMS), "U.S."),
+    # Batch 3: drawn only when asked for, so every existing command line
+    # draws what it drew. Its own defaults, since the defaults for every
+    # chart would draw two of its three yield terms, none of its mortgage
+    # terms and none of its spreads: all three terms, the standard variable
+    # rate (Terry, 2026-10-06: its history runs from 1939), the 10y-5y and
+    # 20y-10y spreads.
+    Nation(
+        "uk", "United Kingdom", ("gb", "uk"), ("5y", "10y", "20y"), "UK", shown_by_default=False,
+        own_defaults=(
+            ("yield_terms", ("5y", "10y", "20y")),
+            ("mortgage_terms", ("svr",)),
+            ("spread_pairs", (("10y", "5y"), ("20y", "10y"))),
+        ),
+    ),
 )
 
 
@@ -373,12 +468,23 @@ def nation_by_code(code: str) -> Nation | None:
     return next((nation for nation in NATIONS if code.lower() in nation.codes), None)
 
 
+def nation_by_key(key: str) -> Nation | None:
+    """Return the nation with this key ("cdn"), or None."""
+    return next((nation for nation in NATIONS if nation.key == key), None)
+
+
 # The choices that can differ by nation (PlotConfig.for_nation): the yield
 # axis's lists, and the axis limits (Top and Bottom are in each nation's own
 # currency, so a limit right for one is wrong for the other).
 PER_NATION_FIELDS = (
     "yield_terms", "mortgage_terms", "spread_pairs", "yield_ymin", "yield_ymax", "macro_bottom", "macro_top",
 )
+# The defaults of the lists a nation may have its own default of (Nation.own_defaults).
+_LIST_DEFAULTS = {
+    "yield_terms": DEFAULT_YIELD_TERMS,
+    "mortgage_terms": DEFAULT_MORTGAGE_TERMS,
+    "spread_pairs": DEFAULT_SPREADS,
+}
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -406,6 +512,9 @@ MACRO_PLOT_STYLES = {
     "federal_debt": {"color": "black", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": ":"},
     "gdp": {"color": "darkgreen", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "-."},
     "interest": {"color": "darkred", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "--"},
+    # Net debt (the UK's, batch 3), drawn with gross debt: solid as debt is,
+    # in slate grey, a colour no other right-axis curve has.
+    "net_debt": {"color": "#708090", "linewidth": 2.5, "drawstyle": "steps-post"},
 }
 
 # Components of debt and interest (--debt:LETTERS / --interest:LETTERS): f
@@ -505,6 +614,10 @@ class CountryMetadata:
     federal_debt_column: str | None = None
     federal_debt_label: str = ""
     federal_debt_title: str = ""
+    # Net debt, drawn with the (gross) debt curve (None: no such curve).
+    net_debt_column: str | None = None
+    net_debt_label: str = ""
+    net_debt_title: str = ""
     # Components (--debt:LETTERS): the name of each level, and the wording
     # around a name ("{}" is replaced by it, or in a title by nothing).
     level_names: tuple[tuple[str, str], ...] = (
@@ -552,6 +665,9 @@ class CountryMetadata:
             ("gdp", config.draws_gdp, self.gdp_column, self.gdp_label),
             ("interest", config.include_interest, self.interest_column, self.interest_label),
         ]
+        if self.net_debt_column is not None:
+            # Chosen with the debt curve; listed after it.
+            specs.insert(1, ("net_debt", config.include_debt, self.net_debt_column, self.net_debt_label))
         if self.federal_debt_column is not None:
             # Chosen with the debt curve; listed straight after it.
             specs.insert(1, ("federal_debt", config.include_debt, self.federal_debt_column, self.federal_debt_label))
@@ -578,6 +694,7 @@ class CountryMetadata:
         macro_titles = {
             "debt": self.debt_title,
             "federal_debt": self.federal_debt_title,
+            "net_debt": self.net_debt_title,
             "gdp": self.gdp_title,
             "interest": self.interest_title,
         }
@@ -660,6 +777,38 @@ US = CountryMetadata(
     component_debt_title="{} US Public Debt",
 )
 
+UK = CountryMetadata(
+    key="uk",
+    country_name="United Kingdom",
+    currency_prefix="£",
+    currency_label="Nominal Units (GBP – Log Scale)",
+    per_capita_label="Nominal Units per Capita (GBP – Log Scale)",
+    # The Bank of England's fitted par yields (monthly averages of gilt
+    # redemption yields before them): the title says which kind they are.
+    yield_title="UK Gilt Yields (fitted par)",
+    debt_column=UK_DEBT_COLUMN,
+    debt_label="UK General Government Gross Debt",
+    debt_title="UK General Government Gross Debt",
+    interest_column=UK_INTEREST_COLUMN,
+    # ONS NMYX: interest (and the odd dividend) the government sector pays
+    # outside itself, so consolidated as the other aggregates are.
+    interest_label="TTM Interest Paid (consolidated)",
+    federal_debt_column=UK_NATIONAL_DEBT_COLUMN,
+    federal_debt_label="UK National Debt (pre-1975)",
+    federal_debt_title="UK National Debt",
+    # ONS HF6W: public sector net debt excluding the public sector banks,
+    # the UK's own headline measure, beside gross general government debt.
+    net_debt_column=UK_NET_DEBT_COLUMN,
+    net_debt_label="UK Public Sector Net Debt (ex banks)",
+    net_debt_title="Net Debt",
+    # Central and local government only: the devolved governments are inside
+    # central government in the UK accounts, so there is no "p" level, and
+    # the non-central level "n" is local government (ratesplot.uk_data).
+    level_names=(("f", "Central"), ("n", "Local"), ("p", "Devolved"), ("m", "Local")),
+    component_debt_label="{} UK Public Debt",
+    component_debt_title="{} UK Public Debt",
+)
+
 
 # ---------------------------------------------------------------------------
 # Runtime configuration
@@ -708,6 +857,8 @@ class PlotConfig:
     include_interest: bool = True
     show_cdn: bool = True
     show_us: bool = True
+    # The UK's chart (batch 3): only when asked for (--uk, --nations:gb).
+    show_uk: bool = False
     # --debt:LETTERS / --interest:LETTERS: the levels of government to split
     # debt and interest into, as letters from COMPONENT_LETTERS in that order
     # ("" = the aggregate lines).
@@ -740,11 +891,20 @@ class PlotConfig:
     gui: bool = True
 
     def for_nation(self, key: str) -> PlotConfig:
-        """Return the config one nation's chart is drawn with: these choices, with that nation's own over them."""
+        """Return the config one nation's chart is drawn with: these choices, with that nation's own over them.
+
+        A list still at the default for every chart takes the nation's own
+        default, if it has one (``Nation.own_defaults``).
+        """
+        own: dict[str, object] = {}
         for nation, overrides in self.nation_settings:
             if nation == key and overrides:
-                return replace(self, **dict(overrides))
-        return self
+                own = dict(overrides)
+        nation = nation_by_key(key)
+        for field_name, value in nation.own_defaults if nation is not None else ():
+            if field_name not in own and getattr(self, field_name) == _LIST_DEFAULTS[field_name]:
+                own[field_name] = value
+        return replace(self, **own) if own else self
 
     @property
     def figsize_inches(self) -> tuple[float, float]:

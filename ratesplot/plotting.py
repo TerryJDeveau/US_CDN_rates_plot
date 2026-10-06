@@ -63,6 +63,7 @@ from .config import (
     SPREAD_AXIS_LABEL,
     SPREAD_INVERSION_ALPHA,
     TERM_COLORS,
+    UK,
     US,
     YIELD_LINE_STYLE,
     YIELD_TERMS,
@@ -72,6 +73,7 @@ from .config import (
 from .console import this_thread_output_to
 from .endlabels import ValueFormatter
 from .frames import filter_to_date_range
+from .joins import align_macro
 from .latest import (
     PROJECTION_ATTR,
     QUOTE_TIME_ATTR,
@@ -87,6 +89,16 @@ from .measures import express
 from .rates import RateCurve, in_window, rate_curves
 from .regression import SlopeLabel, add_regression_segments
 from .regression import legend_entry as regression_legend_entry
+from .uk_data import (
+    YIELD_HISTORY_ATTR,
+    fetch_uk_components,
+    fetch_uk_debt,
+    fetch_uk_gdp,
+    fetch_uk_interest,
+    fetch_uk_population,
+    fetch_uk_yields,
+    uk_series_earliest,
+)
 from .us_data import fetch_us_macro, fetch_us_population, fetch_us_yields, us_series_earliest
 
 YieldLineDrawer = Callable[[Axes, pd.DataFrame, PlotConfig], list[Line2D]]
@@ -196,9 +208,30 @@ def _yield_style(column: str, config: PlotConfig, nation_key: str) -> dict:
 def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> list[Line2D]:
     """Plot Canadian yield curves: monthly history as steps, daily live data as lines.
 
-    ``yields`` is date-indexed. Each tenor is split at ``CANADIAN_YIELD_HIST_END``;
-    the live segment reuses the history segment's colour and is hidden from the
-    legend so each tenor appears once.
+    ``yields`` is date-indexed. Each tenor is split at ``CANADIAN_YIELD_HIST_END``
+    (``add_stepped_yield_lines``).
+    """
+    return add_stepped_yield_lines(ax, yields, config, "cdn", lambda _column: CANADIAN_YIELD_HIST_END)
+
+
+def add_uk_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> list[Line2D]:
+    """Plot the UK's yields: each term's monthly history as steps, then its daily par yield (``uk_data.fetch_uk_yields``)."""
+    through = dict(yields.attrs.get(YIELD_HISTORY_ATTR, {}))
+    return add_stepped_yield_lines(ax, yields, config, "uk", through.get)
+
+
+def add_stepped_yield_lines(
+    ax: Axes,
+    yields: pd.DataFrame,
+    config: PlotConfig,
+    nation_key: str,
+    history_through: Callable[[str], pd.Timestamp | None],
+) -> list[Line2D]:
+    """Plot one nation's date-indexed yields: each column's monthly history as steps, its daily data as a line.
+
+    ``history_through(column)`` is the last date of that column's monthly
+    history (None: it has none). The daily segment reuses the history
+    segment's colour and is hidden from the legend so each tenor appears once.
     """
     if not config.yield_columns or yields.empty:
         return []
@@ -212,14 +245,15 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
         if column not in data.columns:
             continue
         series = data[column].dropna()
-        historical = series.loc[:CANADIAN_YIELD_HIST_END]
-        current = series.loc[series.index > CANADIAN_YIELD_HIST_END]
+        through = history_through(column)
+        historical = series.loc[:through] if through is not None else series.iloc[:0]
+        current = series.loc[series.index > through] if through is not None else series
         label = f"{column} Yield"
         color = None
 
         if not historical.empty:
             (line,) = ax.plot(
-                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config, "cdn")
+                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config, nation_key)
             )
             color = line.get_color()
             legend_lines.append(line)
@@ -229,7 +263,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
                 current.index,
                 current.values,
                 label="_nolegend_" if color is not None else label,
-                **(_yield_style(column, config, "cdn") | ({"color": color} if color is not None else {})),
+                **(_yield_style(column, config, nation_key) | ({"color": color} if color is not None else {})),
             )
             if color is None:
                 legend_lines.append(line)
@@ -504,6 +538,41 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     return yields, expressed, rates
 
 
+def prepare_uk(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[RateCurve]]:
+    """Fetch and align all selected UK inputs, in the configured measure; return ``(yields, macro, rates)``.
+
+    As ``prepare_cdn``: date-indexed yields (each term's monthly history
+    recorded in ``attrs[uk_data.YIELD_HISTORY_ATTR]``), run on with --cur
+    to the day's quotes; the macro curves aligned on their dates and
+    projected to a chart's last day as a debt clock is (no market debt
+    steers the UK's).
+    """
+    _require_start(config)
+    warn_series_coverage(config.start, uk_series_earliest(config))
+    yields, quote_time = extend_cdn_yields(fetch_uk_yields(config), config, "uk", "UK")
+    rates = rate_curves("uk", yields, config)
+    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates if not curve.spread})
+    if config.components:
+        series = (fetch_uk_components(config), fetch_uk_gdp(config))
+    else:
+        series = (fetch_uk_debt(config), fetch_uk_gdp(config), fetch_uk_interest(config))
+    parts = [part for part in series if part is not None]
+    observed = {column: observed_through(part[column].dropna().index) for part in parts for column in part.columns}
+    history = pd.concat(parts, axis=1) if parts else pd.DataFrame()
+    aligned = align_macro(yields, series, config)
+    # The national debt alone is kept only until general government debt
+    # begins, as Canada's federal debt is (cdn_data.align_cdn_macro).
+    if UK.federal_debt_column in aligned.columns and UK.debt_column in aligned.columns:
+        aligned.loc[aligned[UK.debt_column].notna(), UK.federal_debt_column] = np.nan
+    macro = project_to_now(aligned, observed, config, history)
+    projected = macro.attrs.get(PROJECTION_ATTR, {})
+    population = fetch_uk_population() if config.per_capita else None
+    yields.attrs[QUOTE_TIME_ATTR] = quote_time
+    expressed = express(macro, config, UK, population)
+    expressed.attrs[PROJECTION_ATTR] = projected
+    return yields, expressed, rates
+
+
 @dataclass(frozen=True)
 class Country:
     """Everything needed to produce one country's chart."""
@@ -515,10 +584,11 @@ class Country:
     draw_yield_lines: YieldLineDrawer
 
 
-# In drawing order (Canadian, then U.S.), as the command line always has.
+# In drawing order (Canadian, then U.S., then the UK's), as the command line always has.
 COUNTRIES: tuple[Country, ...] = (
     Country("cdn", "show_cdn", CDN, prepare_cdn, add_canadian_yield_lines),
     Country("us", "show_us", US, prepare_us, add_us_yield_lines),
+    Country("uk", "show_uk", UK, prepare_uk, add_uk_yield_lines),
 )
 
 
@@ -671,3 +741,11 @@ def run_us(config: PlotConfig) -> None:
     yields, macro, rates = prepare_us(config)
     plot_country(yields, macro, rates, config, US, add_us_yield_lines)
     print("US chart finished.\n")
+
+
+def run_uk(config: PlotConfig) -> None:
+    """Fetch all selected UK inputs and show the UK's chart in a matplotlib window."""
+    config = config.for_nation(UK.key)
+    yields, macro, rates = prepare_uk(config)
+    plot_country(yields, macro, rates, config, UK, add_uk_yield_lines)
+    print("UK chart finished.\n")

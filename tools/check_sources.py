@@ -19,6 +19,9 @@ Two checks are of a different kind:
   give a yield, a time and the day's change in the form
   ``latest.intraday_yields_after`` reads; if not, fix that function (the
   symbols and fields are in the us-cdn-rates-plot skill, section 3).
+* ``uk_joins`` measures where the UK's baked history meets its live series
+  (the 10- and 20-year yields, debt in 1975, GDP 1955-1994), for the
+  judgement calls of batch 3; a note, never a failure.
 * The Census publishes each fiscal year of state and local government
   finances about a year and a half after it ends. When a year newer than the
   one baked into ``us_archive_data`` is listed, the line says so: run
@@ -50,16 +53,20 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot import bake, cdn_data, latest, rates, us_data  # noqa: E402
+from ratesplot import bake, cdn_data, latest, rates, uk_archive_data, uk_data, us_data  # noqa: E402
 from ratesplot.cli import parse_args  # noqa: E402
 from ratesplot.config import (  # noqa: E402
     CDN_DEBT_COLUMN,
     CDN_INTEREST_COLUMN,
     GDP_COLUMN,
     MARKET_TIMEZONE,
+    UK_DEBT_COLUMN,
+    UK_INTEREST_COLUMN,
+    UK_NET_DEBT_COLUMN,
     YIELD_COLUMNS,
     YIELD_TERMS,
     PlotConfig,
+    component_column,
 )
 from ratesplot.frames import at_quarter_end  # noqa: E402
 from ratesplot.http import fetch_fred_csv  # noqa: E402
@@ -77,6 +84,9 @@ QUOTES = 4  # Friday's last quotes on the Tuesday after a long weekend
 QUARTERLY = 200
 # The spread cross-checks fail when more than this share of days disagree.
 _SPREAD_MISMATCH_LIMIT = 0.001
+# The Bank of England's monthly quoted mortgage rates, dated here by the
+# month's first day: a month is published early in the month after next.
+MONTHLY = 100
 # BEA's annual state and local interest: a calendar year is published the
 # following autumn and stays the newest for another year.
 ANNUAL = 700
@@ -248,6 +258,66 @@ def _cmhc_history(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     return None, f"{len(history)} months, {history.index[0]:%Y-%m} to {history.index[-1]:%Y-%m}"
 
 
+# ---------------------------------------------------------------------------
+# The UK (batch 3)
+# ---------------------------------------------------------------------------
+
+
+def _uk_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    chosen = replace(config, yield_terms=uk_data.UK_YIELD_TERMS)
+    frame = uk_data.fetch_uk_yields(chosen)
+    columns = tuple(uk_data.UK_YIELD_SERIES)
+    return _last(_all_yields(frame, columns)), ", ".join(f"{column} {frame[column].dropna().iloc[-1]:.4f}" for column in columns)
+
+
+def _uk_ons(fetch: Callable[[PlotConfig], pd.DataFrame | None], column: str, *, components: str = "") -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+    """One of the UK's ONS-based curves, through its own fetcher; the note gives its newest value."""
+
+    def run(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+        frame = fetch(replace(config, components=components) if components else config)
+        series = None if frame is None or column not in frame.columns else frame[column].dropna()
+        if series is None or series.empty:
+            return None, "no values"
+        return _last(series), f"£{series.iloc[-1] / 1e9:,.1f} billion, from {series.index[0]:%Y-%m-%d}"
+
+    return run
+
+
+def _uk_population(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    people = uk_data.fetch_uk_population()
+    return _last(people), f"{people.iloc[-1] / 1e6:.2f} million; a quarter dated by its middle"
+
+
+def _uk_joins(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    """Where the baked UK history meets the live series: measured, for the PR's open questions (batch 3).
+
+    The 10- and 20-year: the baked monthly averages against the monthly
+    averages of the daily par yields over the months both have. Debt: the
+    national debt and general government debt at 31 March 1975. GDP: the
+    ratio of ONS's four-quarter sums to the annual history at each year end
+    1955-1994 (what joins.chain scales the history by). A note, not a pass
+    or fail: the numbers decide whether the joins are good enough.
+    """
+    notes = []
+    for column, rows in (("10-Year", uk_archive_data.EMBEDDED_UK_10Y_HISTORY), ("20-Year", uk_archive_data.EMBEDDED_UK_20Y_HISTORY)):
+        baked = pd.Series({pd.Timestamp(date): value for date, value in rows})
+        daily = uk_data.iadb_series(uk_data.UK_YIELD_SERIES[column])
+        monthly = daily.groupby(daily.index.to_period("M")).mean()
+        monthly.index = monthly.index.start_time
+        gap = (baked - monthly).dropna()
+        notes.append(f"{column} baked less par: mean {gap.mean():+.3f}, largest {gap.abs().max():.3f} over {len(gap)} months")
+    national = dict(uk_archive_data.EMBEDDED_UK_DEBT_HISTORY).get("1975-03-31")
+    gross = uk_data.ons_series(uk_data.UK_DEBT_SERIES, "quarters").get(pd.Timestamp("1975-03-31"))
+    if national and gross:
+        notes.append(f"debt 1975-03-31: general government {gross / 1e9:.1f} bn, national {national / 1e9:.1f} bn (x{gross / national:.3f})")
+    history = pd.Series({pd.Timestamp(date): value for date, value in uk_archive_data.EMBEDDED_UK_GDP_HISTORY})
+    live = uk_data.ttm_sum(uk_data.ons_series(uk_data.UK_GDP_SERIES, "quarters"))
+    ratio = (live / history).dropna()
+    ratio = ratio.loc[ratio.index.year <= 1994]
+    notes.append(f"GDP ONS / history 1955-1994: median {ratio.median():.4f}, {ratio.min():.4f} to {ratio.max():.4f}")
+    return None, "; ".join(notes)
+
+
 def _census(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     baked = max(pd.Timestamp(date).year for date, _value in EMBEDDED_US_DEBT_BY_LEVEL["p"])
     listed = [year for year in (baked + 1, baked + 2) if bake.census_estimates_url(year)]
@@ -296,6 +366,28 @@ CHECKS: tuple[Check, ...] = (
     Check("cnbc_us", "CNBC quote feed, U.S. yields (unofficial)", QUOTES, _quotes("us")),
     Check("cnbc_us_more", "CNBC quote feed, U.S. 1m 6m 1y 7y 20y (unofficial)", QUOTES, _quotes("us", EXTRA_US_COLUMNS)),
     Check("census", "U.S. Census state and local finances: a year newer than baked?", None, _census),
+    # The UK (batch 3).
+    Check("boe_yields", "Bank of England par yields IUDSNPY, IUDMNPY, IUDLNPY (5, 10, 20 years)", DAILY, _uk_yields),
+    Check("boe_bank_rate", "Bank of England Bank Rate IUDBEDR (--policy)", DAILY, _rate(rates.uk_policy_rate)),
+    Check("boe_mortgage2f", "Bank of England IUMBV34 quoted 2-year fixed", MONTHLY, _rate(partial(rates.mortgage_rate, "2f"))),
+    Check("boe_mortgage3f", "Bank of England IUMBV37 quoted 3-year fixed", MONTHLY, _rate(partial(rates.mortgage_rate, "3f"))),
+    Check("boe_mortgage5f", "Bank of England IUMBV42 quoted 5-year fixed", MONTHLY, _rate(partial(rates.mortgage_rate, "5f"))),
+    Check("boe_mortgage_svr", "Bank of England IUMTLMV standard variable rate", MONTHLY, _rate(partial(rates.mortgage_rate, "svr"))),
+    Check("ons_debt", "ONS BKPX general government gross debt (monthly)", QUARTERLY, _uk_ons(uk_data.fetch_uk_debt, UK_DEBT_COLUMN)),
+    Check("ons_net_debt", "ONS HF6W public sector net debt ex banks (monthly)", QUARTERLY, _uk_ons(uk_data.fetch_uk_debt, UK_NET_DEBT_COLUMN)),
+    Check("ons_gdp", "ONS YBHA GDP (four-quarter sums)", QUARTERLY, _uk_ons(uk_data.fetch_uk_gdp, GDP_COLUMN)),
+    Check("ons_interest", "ONS NMYX general government interest (four-quarter sums)", QUARTERLY, _uk_ons(uk_data.fetch_uk_interest, UK_INTEREST_COLUMN)),
+    Check("ons_central", "ONS BKPW central government debt (monthly)", QUARTERLY,
+          _uk_ons(uk_data.fetch_uk_components, component_column("debt", "f"), components="fm")),
+    Check("ons_local", "ONS MDYT local government debt", QUARTERLY,
+          _uk_ons(uk_data.fetch_uk_components, component_column("debt", "m"), components="fm")),
+    Check("ons_int_central", "ONS NMFX central government interest", QUARTERLY,
+          _uk_ons(uk_data.fetch_uk_components, component_column("interest", "f"), components="fm")),
+    Check("ons_int_local", "ONS NUGW local government interest", QUARTERLY,
+          _uk_ons(uk_data.fetch_uk_components, component_column("interest", "m"), components="fm")),
+    Check("ons_population", "ONS EBAQ UK population", QUARTERLY, _uk_population),
+    Check("cnbc_uk", "CNBC quote feed, UK gilt yields, 5 10 20 years (unofficial)", QUOTES, _quotes("uk", tuple(uk_data.UK_YIELD_SERIES))),
+    Check("uk_joins", "UK history against the live series where they meet (a measurement)", None, _uk_joins),
 )
 
 

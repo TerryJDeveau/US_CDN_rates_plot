@@ -59,7 +59,7 @@ from .options import (
 _FORMER_DEFAULT_START = "1966-01-01"
 # Same PNG metadata as tools/verify_charts.py, so saved files hash identically.
 PNG_METADATA = {"Software": None}
-TAB_TITLES = {"cdn": "Canada", "us": "United States"}
+TAB_TITLES = {nation.key: nation.name for nation in NATIONS}
 # The "By level" check boxes: letter and caption (one control for both countries,
 # since --debt: and --interest: take the same letters).
 LEVEL_BOXES = (("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial / state"), ("m", "Municipal / local"))
@@ -556,10 +556,11 @@ def move_dates_updates(start: pd.Timestamp, end: pd.Timestamp, *, shift: float =
     """
     today = pd.Timestamp.today().normalize()
     days = (end - start).days
-    # Never longer than all the data (a pandas Timedelta also ends at 292 years).
+    # Never longer than all the data. Days are added as a date offset, not a
+    # pandas Timedelta, which ends at 292 years (the data reach back 326).
     new_days = min(round(days * scale), (today - EARLIEST_DATA_START).days)
-    new_start = start + pd.Timedelta(days=round(days * shift) - (new_days - days) // 2)
-    new_end = new_start + pd.Timedelta(days=new_days)
+    new_start = start + pd.offsets.Day(round(days * shift) - (new_days - days) // 2)
+    new_end = new_start + pd.offsets.Day(new_days)
     if new_end > today:
         new_start, new_end = new_start - (new_end - today), today
     if new_start < EARLIEST_DATA_START:

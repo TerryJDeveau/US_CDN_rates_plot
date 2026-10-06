@@ -68,6 +68,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 
 from ratesplot import http, web  # noqa: E402
 from ratesplot.cli import sort_tokens  # noqa: E402
+from ratesplot.config import NATIONS  # noqa: E402
 from ratesplot.frontend import move_dates_updates, starting_choices  # noqa: E402
 from ratesplot.options import command_line_tokens, config_from_choices, drawn_config  # noqa: E402
 
@@ -90,8 +91,11 @@ CHART_CASES = (
     "u_noy", "all_rates",
     # Batch 2: values for one nation's chart.
     "nat_limits", "nat_terms",
+    # Batch 3: the UK, alone with its curves, with its own values, and all three nations.
+    "uk_rates", "uk_nat", "all3",
 )
 
+NATION_KEYS = tuple(nation.key for nation in NATIONS)  # in drawing order, as the page's tabs
 VIEW_BUTTONS = ("◀ Back", "Unzoom", "◀ Earlier", "Later ▶", "Zoom out")
 
 Check = Callable[..., None]
@@ -120,7 +124,10 @@ def check_charts(cases: tuple[str, ...], outdir: Path, verbose: bool = False) ->
         config = config_from_choices(payloads, flags)
         choices, _notes = starting_choices(config, payloads, flags, {})
         page_config, problems = web._config_for(choices)
-        if page_config is None or any(drawn_config(page_config, k) != drawn_config(config, k) for k in ("cdn", "us")):
+        # Every nation drawn by default (as before batch 3), and any other the case draws: a
+        # nation drawn only when asked for, and not asked for, keeps fields the page does not write.
+        compared = [n.key for n in NATIONS if n.shown_by_default or getattr(config, n.show_field)]
+        if page_config is None or any(drawn_config(page_config, k) != drawn_config(config, k) for k in compared):
             print(f"{name:12} FAIL: the page's config differs from the command line's ({problems})")
             all_same = False
             continue
@@ -132,7 +139,7 @@ def check_charts(cases: tuple[str, ...], outdir: Path, verbose: bool = False) ->
         output = io.StringIO()
         with contextlib.nullcontext() if verbose else contextlib.redirect_stdout(output):
             written = verify_charts.run(outdir / name, tokens)
-        keys = [key for key in ("cdn", "us") if key in drawing.pngs]
+        keys = [key for key in NATION_KEYS if key in drawing.pngs]
         verdicts = []
         if len(keys) != len(written):
             verdicts.append(f"FAIL: the page drew {len(keys)} chart(s), the command line {len(written)}")
@@ -214,7 +221,7 @@ def check_address_and_rules(check: Check) -> None:
     check("one chart drawn", charts_shown(at) == 1, charts_shown(at))
     check("address kept", address(at) == "--C --relative --regression --end:2026-09-01", address(at))
     code = [c.value for c in at.code]
-    check("command line shown", any(v.startswith("python US_CDN_rates_plot.py --C --relative") for v in code), code[:1])
+    check("command line shown", any(v.startswith("python ratesplot.py --C --relative") for v in code), code[:1])
     placeholder = at.text_input(key="value:start").placeholder
     check("start placeholder shows the date found", _is_automatic_date(placeholder), placeholder)
 
@@ -350,7 +357,8 @@ def check_calendars(check: Check) -> None:
     cal.button(key="blank:start").click()
     cal.run()
     check("Blank empties the field", cal.text_input(key="value:start").value == "" and "--start" not in address(cal), address(cal))
-    cal.text_input(key="value:start").input("1700")
+    # Before the calendar's first day (config.EARLIEST_DATA_START, 1680 since batch 3).
+    cal.text_input(key="value:start").input("1679")
     cal.run()
     check(
         "a date outside the calendar leaves it empty, no error",
@@ -483,9 +491,36 @@ def check_nation_sections(check: Check) -> None:
     check("a bad nation field: reported with its nation", any("Canada, Min %" in e.value for e in page.error), [e.value for e in page.error])
 
 
+def check_uk(check: Check) -> None:
+    """Batch 3: the UK's chart from the address; its section with its own terms and defaults; a second nation ticked."""
+    page = new_page("--uk --e:2026-09-01 --uk:max:9")
+    check("no exception", not page.exception, page.exception)
+    f = flags(page)
+    check("address: the UK only", f["uk"] and not f["cdn"] and not f["us"], f)
+    check("one chart drawn", charts_shown(page) == 1, charts_shown(page))
+    keys = {box.key for box in page.checkbox if box.key}
+    check(
+        "the UK offers its three terms and its mortgage terms only",
+        {"choice:uk:yields:5y", "choice:uk:yields:20y", "choice:uk:mortgage-terms:2f", "choice:uk:mortgage-terms:svr"} <= keys
+        and "choice:uk:yields:2y" not in keys and "choice:uk:mortgage-terms:5" not in keys,
+        sorted(key for key in keys if key.startswith("choice:uk:")),
+    )
+    check(
+        "its own defaults ticked: all three terms, the standard variable rate",
+        all(page.checkbox(key=f"choice:uk:yields:{term}").value for term in ("5y", "10y", "20y"))
+        and page.checkbox(key="choice:uk:mortgage-terms:svr").value and not page.checkbox(key="choice:uk:mortgage-terms:2f").value,
+    )
+    check("its value in its own field", page.text_input(key="value:uk:max").value == "9", page.text_input(key="value:uk:max").value)
+    check("address kept", address(page) == "--UK --end:2026-09-01 --uk:max:9", address(page))
+    page.checkbox(key="flag:cdn").check()
+    page.run()
+    check("Canada ticked too: two charts", charts_shown(page) == 2, charts_shown(page))
+    check("address names both", address(page) == "--C --UK --end:2026-09-01 --uk:max:9", address(page))
+
+
 PAGE_CHECKS = (
     check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
-    check_nation_sections,
+    check_nation_sections, check_uk,
 )
 
 

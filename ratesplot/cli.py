@@ -29,7 +29,7 @@ from .options import (
     spells,
 )
 from .http import enable_download_cache
-from .plotting import resolve_start, run_cdn, run_us
+from .plotting import resolve_start, run_cdn, run_uk, run_us
 
 
 # ---------------------------------------------------------------------------
@@ -246,4 +246,6 @@ def main(argv: list[str] | None = None) -> None:
         run_cdn(config)
     if config.show_us:
         run_us(config)
+    if config.show_uk:
+        run_uk(config)
     print("All requested charts finished.")

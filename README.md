@@ -1,10 +1,11 @@
-# Canadian and U.S. Bond Yields and Public Debt
+# ratesplot: bond yields and public debt
 
 Government bond yields against public debt, TTM GDP and interest outlays, for Canada and the
-United States, on one two-axis chart per country. The data come from their sources each time:
-Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury and the U.S. Census Bureau, with
-the history before the sources' own series (back to 1867 for Canadian federal debt) built into the
-code.
+United States, and when asked for the United Kingdom, on one two-axis chart per country. The data
+come from their sources each time: Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury
+and the U.S. Census Bureau; the Bank of England and the Office for National Statistics for the UK.
+The history before the sources' own series (back to 1867 for Canadian federal debt, to about 1700
+for the UK's national debt and GDP) is built into the code.
 
 ## Three ways to run it
 
@@ -14,10 +15,10 @@ code.
   one side. The page's address holds the chart's settings, so a chart can be bookmarked or
   sent.
   To run it on your own machine: `streamlit run streamlit_app.py`.
-- **The desktop window** (`ratesplot/gui.py`): `python US_CDN_rates_plot.py`. It adds the
+- **The desktop window** (`ratesplot/gui.py`): `python ratesplot.py`. It adds the
   mouse wheel and a right-drag pan, and remembers your last settings.
-- **The command line**: `python US_CDN_rates_plot.py --no-gui [options]`, or any options with the
-  window. `python US_CDN_rates_plot.py --help` lists them all; the web page shows the same list.
+- **The command line**: `python ratesplot.py --no-gui [options]`, or any options with the
+  window. `python ratesplot.py --help` lists them all; the web page shows the same list.
 
 All three draw the same charts from the same code (`plotting.build_figure`).
 
@@ -33,12 +34,12 @@ python -m pip install -r requirements.txt
 
 | | |
 |---|---|
-| `-c`, `-u` | Canada or the United States only (both by default) |
+| `-c`, `-u`, `--uk` | Canada, the United States or the United Kingdom only (Canada and the U.S. by default; `--nations:ca,us,gb` for several) |
 | `-r`, `-p` | debt and interest as % of GDP, or GDP, debt and interest per person |
 | `--debt:fnpm` | debt and interest by level of government |
-| `--yields:2,10`, `--no-yields:30` | the yield terms drawn (U.S. also 1m, 6m, 1, 7 and 20 years), or those dropped |
-| `--policy`, `--mortgages`, `--spreads` | policy rates, mortgage rates (`--mo:30,15`), yield spreads (`--sp:10-2`), on the yield axis |
-| `--us:max:8`, `--cdn:yields:2,10` | a value for one country's chart only (its code in front: `ca` or `cdn`, `us`); in the window and on the page each country's terms and axis limits have their own panel |
+| `--yields:2,10`, `--no-yields:30` | the yield terms drawn (U.S. also 1m, 6m, 1, 7 and 20 years; the UK 5, 10 and 20), or those dropped |
+| `--policy`, `--mortgages`, `--spreads` | policy rates, mortgage rates (`--mo:30,15`; the UK's `2f`, `3f`, `5f`, `svr`), yield spreads (`--sp:10-2`), on the yield axis |
+| `--us:max:8`, `--cdn:yields:2,10` | a value for one country's chart only (its code in front: `ca` or `cdn`, `us`, `gb` or `uk`); in the window and on the page each country's terms and axis limits have their own panel |
 | `-l` | each line's last value at its end |
 | `--reg` | each right-axis curve fitted by straight pieces, labelled with its growth in %/yr |
 | `-s:1990`, `-e:2020` | the date window (without `-s` it starts in 2000, or where the chosen curves all have data if later; the year is `DEFAULT_START_FLOOR` in `ratesplot/config.py`) |

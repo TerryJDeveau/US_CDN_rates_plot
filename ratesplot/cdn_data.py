@@ -8,7 +8,7 @@ date it by the first (``frames.at_quarter_end``), and a year-end one by
 daily yield dates for plotting.
 
 Debt, GDP and interest are each a chain of sources, joined oldest to newest
-with ``_splice_archived_series`` (the newer source is never modified):
+with ``joins.splice_archived_series`` (the newer source is never modified):
 
 * older history baked from terminated sources (``cdn_archive_data``): GDP and
   interest from 1926, debt of all governments from 1933;
@@ -29,7 +29,6 @@ from its own history (see there).
 from __future__ import annotations
 
 import io
-import warnings
 import zipfile
 from typing import Iterable
 
@@ -53,8 +52,6 @@ from .cdn_archive_data import (
 )
 from .cdn_hist_yields import build_cdn_hist_yields
 from .config import (
-    ARCHIVE_CALIBRATION_END_YEAR,
-    ARCHIVE_SPLICE_YEARS,
     BOC_GROUP_URL,
     BOC_SERIES_URL,
     BOC_START_DATE,
@@ -79,8 +76,8 @@ from .config import (
     PlotConfig,
     component_column,
 )
-from .frames import at_quarter_end, normalize_date_column, rows_to_frame
 from .http import canadian_get, fetch_fred_csv, parse_boc_csv
+from .joins import align_macro, chain, dated_by_quarter_end, embedded_frame
 
 # Bank of Canada Valet series codes -> chart column names. The 3-month T-bill
 # is not part of the benchmark group, so it is fetched as a separate series.
@@ -203,119 +200,6 @@ def _statcan_quarterly(table: pd.DataFrame, mask: pd.Series, column: str) -> pd.
 
 
 # ---------------------------------------------------------------------------
-# Archive splicing
-# ---------------------------------------------------------------------------
-
-
-def embedded_frame(rows: list[tuple[str, float]], column: str) -> pd.DataFrame | None:
-    """Return a baked list as a date-indexed frame, or ``None`` when it is empty.
-
-    A list is empty only if the bake has never filled it; callers
-    then fall back to the remaining sources.
-    """
-    return rows_to_frame(rows, column) if rows else None
-
-
-def _chain(sources: Iterable[pd.DataFrame | None], column: str, *, annual_historical: bool) -> pd.DataFrame | None:
-    """Join ``sources`` (oldest first) pairwise with ``_splice_or_fallback``; missing ones are skipped.
-
-    Each newer source is authoritative over the older ones where it exists.
-    ``annual_historical`` is passed to every join (True when the older
-    sources are year-end observations, as for debt).
-    """
-    result: pd.DataFrame | None = None
-    for source in sources:
-        result = _splice_or_fallback(result, source, column, annual_historical=annual_historical)
-    return result
-
-
-def _splice_archived_series(
-    historical: pd.DataFrame,
-    current: pd.DataFrame,
-    value_column: str,
-    *,
-    calibration_end_year: int = ARCHIVE_CALIBRATION_END_YEAR,
-    transition_years: int = ARCHIVE_SPLICE_YEARS,
-    annual_historical: bool = False,
-) -> pd.DataFrame:
-    """Join the baked archive to the live series with a smooth level bridge.
-
-    The archived and live sources use related but not identical accounting
-    definitions, so their levels differ by a roughly constant factor. That
-    factor is estimated as the median ``current / historical`` ratio over the
-    overlap window (from the live series' start through ``calibration_end_year``).
-    The final ``transition_years`` of the archive are then scaled by a
-    geometric ramp from 1 toward the ratio, so the archive meets the live
-    series without a step. Live observations are never modified.
-
-    Args:
-        annual_historical: True when the archive holds year-end observations
-            (debt); the live quarterly series is then compared year-end to
-            year-end when estimating the ratio.
-    """
-    historical = historical[[value_column]].dropna().sort_index()
-    current = current[[value_column]].dropna().sort_index()
-    if historical.empty:
-        return current
-    if current.empty:
-        return historical
-
-    # --- 1. estimate the level ratio over the calibration overlap ------------
-    overlap_start = max(historical.index.min(), current.index.min())
-    overlap_end = min(historical.index.max(), current.index.max(), pd.Timestamp(year=calibration_end_year, month=12, day=31))
-
-    hist_overlap = historical.loc[overlap_start:overlap_end, value_column]
-    current_for_ratio = current.resample("YE").last() if annual_historical else current
-    current_overlap = current_for_ratio.loc[overlap_start:overlap_end, value_column]
-    if annual_historical:
-        # Year-end dates differ slightly between sources; match on year instead.
-        hist_overlap = hist_overlap.set_axis(hist_overlap.index.year)
-        current_overlap = current_overlap.set_axis(current_overlap.index.year)
-
-    ratios = (current_overlap / hist_overlap).replace([np.inf, -np.inf], np.nan).dropna()
-    ratios = ratios[ratios > 0]
-    scale_ratio = float(ratios.median()) if not ratios.empty else 1.0
-
-    # --- 2. keep only archive rows that precede the live series --------------
-    historical_part = historical.loc[historical.index < current.index.min()].copy()
-    if historical_part.empty:
-        return current
-
-    # --- 3. geometric ramp over the last ``transition_years`` of the archive --
-    # weight goes 0 -> 1 linearly by calendar year, so scale goes 1 -> ratio
-    # geometrically. Scaling multiplicatively keeps the series positive.
-    years = historical_part.index.year.to_numpy(dtype=float)
-    transition_start_year = years.max() - transition_years + 1
-    weights = np.clip((years - transition_start_year) / max(transition_years - 1, 1), 0.0, 1.0)
-    historical_part[value_column] *= np.power(scale_ratio, weights)
-
-    return pd.concat([historical_part, current]).sort_index()
-
-
-def _splice_or_fallback(
-    archive: pd.DataFrame | None, modern: pd.DataFrame | None, column: str, *, annual_historical: bool
-) -> pd.DataFrame | None:
-    """Combine whichever of the archive and live series are available."""
-    if archive is None:
-        return modern
-    if modern is None:
-        return archive
-    return _splice_archived_series(archive, modern, column, annual_historical=annual_historical)
-
-
-def _dated_by_quarter_end(series: pd.DataFrame | pd.Series | None) -> pd.DataFrame | pd.Series | None:
-    """Return a joined macro series with each quarter-start date moved to its quarter's end (``frames.at_quarter_end``).
-
-    Done after the joins, which compare the sources on their own dates; it
-    moves every date within its year, so the joins are the same either way.
-    Year-end debt stays on 31 December.
-    """
-    if series is None:
-        return None
-    return series.set_axis(at_quarter_end(series.index))
-
-
-# ---------------------------------------------------------------------------
 # Per-curve fetchers
 # ---------------------------------------------------------------------------
 
@@ -403,7 +287,7 @@ def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
             print(f"  Warning: WDS fallback failed ({exc2}); using the baked history only (to 1994).")
             modern = None
 
-    aggregate = _chain(
+    aggregate = chain(
         (
             embedded_frame(EMBEDDED_CDN_EARLY_DEBT_HISTORY, CDN_DEBT_COLUMN),
             embedded_frame(EMBEDDED_CDN_DEBT_HISTORY, CDN_DEBT_COLUMN),
@@ -413,7 +297,7 @@ def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:
         annual_historical=True,
     )
     federal_only = embedded_frame(EMBEDDED_CDN_FEDERAL_DEBT_HISTORY, CDN_FEDERAL_DEBT_COLUMN)
-    parts = [_dated_by_quarter_end(part) for part in (aggregate, federal_only) if part is not None]
+    parts = [dated_by_quarter_end(part) for part in (aggregate, federal_only) if part is not None]
     return pd.concat(parts, axis=1).sort_index() if parts else None
 
 
@@ -426,7 +310,7 @@ def fetch_cdn_gdp(config: PlotConfig) -> pd.DataFrame | None:
     live = _fetch_live_cdn_gdp()
     if live is None and history is not None:
         print("  Warning: using the baked GDP history only (to 1994).")
-    return _dated_by_quarter_end(_chain((history, live), GDP_COLUMN, annual_historical=False))
+    return dated_by_quarter_end(chain((history, live), GDP_COLUMN, annual_historical=False))
 
 
 def _fetch_live_cdn_gdp() -> pd.DataFrame | None:
@@ -469,8 +353,8 @@ def fetch_cdn_interest(config: PlotConfig) -> pd.DataFrame | None:
         print(f"  Warning: StatCan interest table failed ({exc}); using the baked history only (to 1994).")
         modern = None
 
-    return _dated_by_quarter_end(
-        _chain(
+    return dated_by_quarter_end(
+        chain(
             (
                 embedded_frame(EMBEDDED_CDN_EARLY_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
                 embedded_frame(EMBEDDED_CDN_INTEREST_HISTORY, CDN_INTEREST_COLUMN),
@@ -558,7 +442,7 @@ def fetch_cdn_components(config: PlotConfig) -> pd.DataFrame | None:
         archive = _embedded_levels(EMBEDDED_CDN_DEBT_HISTORY_BY_LEVEL, CDN_DEBT_COLUMN)
         live = _gfs_levels(table, _GFS_DEBT_ITEMS, CDN_DEBT_COLUMN) if table is not None else {}
         for letter in letters:
-            chained = _chain(
+            chained = chain(
                 (early.get(letter), archive.get(letter), live.get(letter)), CDN_DEBT_COLUMN, annual_historical=True
             )
             if chained is not None:
@@ -572,14 +456,14 @@ def fetch_cdn_components(config: PlotConfig) -> pd.DataFrame | None:
             quarterly = _gfs_levels(table, ("Interest",), CDN_INTEREST_COLUMN)
             live = {key: frame[CDN_INTEREST_COLUMN].rolling(4).sum().to_frame() for key, frame in quarterly.items() if frame is not None}
         for letter in letters:
-            chained = _chain(
+            chained = chain(
                 (early.get(letter), archive.get(letter), live.get(letter)), CDN_INTEREST_COLUMN, annual_historical=False
             )
             if chained is not None:
                 columns.append(chained[CDN_INTEREST_COLUMN].rename(component_column("interest", letter)))
     # Each series is moved before they are put side by side: interest dated
     # 1 October and debt dated 31 December would otherwise share a row twice.
-    return pd.concat([_dated_by_quarter_end(column) for column in columns], axis=1).sort_index() if columns else None
+    return pd.concat([dated_by_quarter_end(column) for column in columns], axis=1).sort_index() if columns else None
 
 
 def fetch_cdn_population() -> pd.Series | None:
@@ -614,39 +498,12 @@ def fetch_cdn_population() -> pd.Series | None:
 def align_cdn_macro(
     yields_all: pd.DataFrame, series: Iterable[pd.DataFrame | None], config: PlotConfig
 ) -> pd.DataFrame:
-    """Forward-fill the macro series (frames of one or more columns; None = absent) onto the yield dates.
-
-    Returns a frame with a ``DATE`` column plus one column per available series.
-    When yields are deselected a daily calendar over the window is used instead.
-
-    Where the window starts before the first yield, the window start and the
-    macro series' own dates up to that first yield are added, so a curve
-    that begins before any yield (federal debt from 1867, GDP from 1926; the
-    oldest yield is 1919) is drawn from the window start, as it would be
-    with yields deselected.
+    """Forward-fill the Canadian macro series onto the yield dates (``joins.align_macro``).
 
     Federal debt alone is kept only until the aggregate begins: forward
     filling would otherwise carry its 1932 value on for ever.
     """
-    if yields_all.empty:
-        plot_index = pd.date_range(config.start, config.end, freq="D")
-    else:
-        plot_index = pd.DatetimeIndex(yields_all.index)
-    parts = [part for part in series if part is not None]
-    if not parts:
-        return pd.DataFrame({DATE_COLUMN: plot_index})
-
-    with warnings.catch_warnings():
-        # pandas warns about concatenating frames with differing index dtypes/names.
-        warnings.simplefilter("ignore", FutureWarning)
-        macro = pd.concat(parts, axis=1, sort=False)
-        first_yield = plot_index.min()
-        if not yields_all.empty and config.start < first_yield:
-            before_yields = macro.index[(macro.index > config.start) & (macro.index < first_yield)]
-            plot_index = plot_index.union(before_yields).union(pd.DatetimeIndex([config.start]))
-        aligned = (
-            macro.reindex(macro.index.union(plot_index)).sort_index().ffill().reindex(plot_index)
-        )
+    aligned = align_macro(yields_all, series, config)
     if CDN_FEDERAL_DEBT_COLUMN in aligned.columns and CDN_DEBT_COLUMN in aligned.columns:
         aligned.loc[aligned[CDN_DEBT_COLUMN].notna(), CDN_FEDERAL_DEBT_COLUMN] = np.nan
-    return normalize_date_column(aligned.rename_axis(DATE_COLUMN).reset_index())
+    return aligned

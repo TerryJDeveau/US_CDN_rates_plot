@@ -21,7 +21,7 @@ What it is
 
 The chart's address
     The page's address carries the chart's command line: ``?chart=-c+-r+--reg``
-    holds the same tokens ``python US_CDN_rates_plot.py -c -r --reg`` takes
+    holds the same tokens ``python ratesplot.py -c -r --reg`` takes
     (``options.command_line_tokens``). Opening such a link draws that chart;
     after each drawing the address is updated, so a chart can be bookmarked
     or sent to someone. An address the program cannot read is reported, and
@@ -51,7 +51,7 @@ Zoom and dates
     rules, ``frontend.zoom_updates``). The chart is a small in-page component
     (``_chart_component``) because ``st.image`` reports no mouse events.
     "◀ Earlier" and "Later ▶" move the dates by half the window, "Zoom out"
-    doubles their span (``frontend.move_dates_updates``: between 1867 and
+    doubles their span (``frontend.move_dates_updates``: between 1680 and
     today, keeping the span). "Back" undoes one zoom, move or Reset;
     "Unzoom" returns to the charts before the first. The axis limits are
     each nation's own, so zooming one chart's axes leaves the other's; the
@@ -59,7 +59,7 @@ Zoom and dates
 
 Dates
     Beside each date field a 📅 button opens Streamlit's calendar (between
-    1867 and today) and a "Blank (default)" button, as the window's does:
+    1680 and today) and a "Blank (default)" button, as the window's does:
     picking a day writes ``YYYY-MM-DD`` in the field, and typing ``YYYY`` or
     ``YYYY-MM`` still works (``_date_control``).
 
@@ -140,13 +140,15 @@ from .options import (  # noqa: E402
 )
 from .plotting import COUNTRIES, build_figure, resolve_start  # noqa: E402
 
-PAGE_TITLE = "Canadian and U.S. Bond Yields and Public Debt"
+PAGE_TITLE = "Bond Yields and Public Debt"
 PAGE_SUMMARY = (
     "Government bond yields against public debt, GDP and interest outlays, for Canada and the "
     "United States, from Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury and the "
-    "U.S. Census Bureau. Choose the charts in the panel on the left (the » button on a phone); each change redraws them."
+    "U.S. Census Bureau; and, when ticked, for the United Kingdom, from the Bank of England and the "
+    "Office for National Statistics. Choose the charts in the panel on the left (the » button on a phone); "
+    "each change redraws them."
 )
-_SCRIPT_NAME = "US_CDN_rates_plot.py"
+_SCRIPT_NAME = "ratesplot.py"
 # The query parameter that holds the chart's command line.
 ADDRESS_KEY = "chart"
 # How long a download is kept for every visitor. The regular sources publish
@@ -510,7 +512,7 @@ def _apply_view(updates: dict[str, str], key: str | None = None) -> None:
     """Write a zoom's or a date move's texts into the fields, undoably (Back), as the window does.
 
     Nothing is kept for Back when the fields already say it (e.g. Zoom out
-    from 1867 to today). The axis limits go into the fields of the chart's
+    from 1680 to today). The axis limits go into the fields of the chart's
     own nation (``key``); the dates are the same for every chart.
     """
     nation = next((nation for nation in NATIONS if nation.key == key), None)

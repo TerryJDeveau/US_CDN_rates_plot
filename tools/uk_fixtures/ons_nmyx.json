@@ -1,0 +1,354 @@
+{
+ "description": {
+  "title": "GG: Current exp: Interest & dividends paid to private sector and RoW: \u00a3m CPNSA",
+  "unit": "m",
+  "preUnit": "\u00a3",
+  "cdid": "NMYX",
+  "datasetId": "PUSF",
+  "nextRelease": "21 October 2026",
+  "releaseDate": "2026-09-21T23:00:00.000Z"
+ },
+ "years": [
+  {
+   "date": "1946",
+   "value": "543",
+   "year": "1946",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1947",
+   "value": "574",
+   "year": "1947",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1948",
+   "value": "564",
+   "year": "1948",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1949",
+   "value": "562",
+   "year": "1949",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2016",
+   "value": "49245",
+   "year": "2016",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2017",
+   "value": "56535",
+   "year": "2017",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2018",
+   "value": "53819",
+   "year": "2018",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2019",
+   "value": "49413",
+   "year": "2019",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2020",
+   "value": "42503",
+   "year": "2020",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2021",
+   "value": "63017",
+   "year": "2021",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2022",
+   "value": "108558",
+   "year": "2022",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2023",
+   "value": "87086",
+   "year": "2023",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2024",
+   "value": "82885",
+   "year": "2024",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025",
+   "value": "98975",
+   "year": "2025",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  }
+ ],
+ "quarters": [
+  {
+   "date": "1946 Q1",
+   "value": "135",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1946 Q2",
+   "value": "136",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1946 Q3",
+   "value": "136",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q3",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1946 Q4",
+   "value": "136",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q4",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2024 Q1",
+   "value": "15385",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2024 Q2",
+   "value": "25990",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2024 Q3",
+   "value": "19475",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q3",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2024 Q4",
+   "value": "22035",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q4",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025 Q1",
+   "value": "18860",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025 Q2",
+   "value": "34222",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025 Q3",
+   "value": "24909",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q3",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025 Q4",
+   "value": "20984",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q4",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 Q1",
+   "value": "17853",
+   "year": "2026",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 Q2",
+   "value": "33518",
+   "year": "2026",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF"
+  }
+ ],
+ "months": [
+  {
+   "date": "1997 APR",
+   "value": "1722",
+   "year": "1997",
+   "month": "April",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1997 MAY",
+   "value": "1907",
+   "year": "1997",
+   "month": "May",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1997 JUN",
+   "value": "3740",
+   "year": "1997",
+   "month": "June",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "1997 JUL",
+   "value": "2257",
+   "year": "1997",
+   "month": "July",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025 NOV",
+   "value": "3273",
+   "year": "2025",
+   "month": "November",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2025 DEC",
+   "value": "9203",
+   "year": "2025",
+   "month": "December",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 JAN",
+   "value": "1563",
+   "year": "2026",
+   "month": "January",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 FEB",
+   "value": "13020",
+   "year": "2026",
+   "month": "February",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 MAR",
+   "value": "3270",
+   "year": "2026",
+   "month": "March",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 APR",
+   "value": "9808",
+   "year": "2026",
+   "month": "April",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 MAY",
+   "value": "11780",
+   "year": "2026",
+   "month": "May",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 JUN",
+   "value": "11930",
+   "year": "2026",
+   "month": "June",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 JUL",
+   "value": "8108",
+   "year": "2026",
+   "month": "July",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  },
+  {
+   "date": "2026 AUG",
+   "value": "8860",
+   "year": "2026",
+   "month": "August",
+   "quarter": "",
+   "sourceDataset": "PUSF"
+  }
+ ],
+ "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf"
+}

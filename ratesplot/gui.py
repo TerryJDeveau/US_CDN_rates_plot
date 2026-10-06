@@ -125,7 +125,7 @@ from .options import (
 from .plotting import COUNTRIES, Country, build_figure, resolve_start
 
 WINDOW_TITLE = "Rates plot: yields, public debt, GDP & interest"
-_SCRIPT_NAME = "US_CDN_rates_plot.py"
+_SCRIPT_NAME = "ratesplot.py"
 # Pause after the last keystroke in a text field before the chart is redrawn,
 # so typing "2001" does not try to draw 2, 20 and 200 on the way.
 _TEXT_REDRAW_DELAY_MS = 700
@@ -1143,7 +1143,8 @@ class RatesPlotApp:
             self.drawn_choices = self.rendering_choices
             self.data_cached = True
             drawn = [TAB_TITLES.get(c.key, c.key) for c in COUNTRIES if getattr(config, c.show_field)]
-            self.status.set(f"Drawn: {' and '.join(drawn)} at {config.width_px} x {config.height_px} px.")
+            names = drawn[0] if len(drawn) == 1 else f"{', '.join(drawn[:-1])} and {drawn[-1]}"
+            self.status.set(f"Drawn: {names} at {config.width_px} x {config.height_px} px.")
             self._remember()
         else:
             self.status.set(f"Drawing failed: {error} (details in the log)")

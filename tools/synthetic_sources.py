@@ -14,7 +14,9 @@ source's own format (FRED frames, Valet CSV, StatCan table ZIPs), so:
   reachable. They are never evidence about the data themselves.
 
 ``synth(key)`` answers one ``ratesplot.http._cached`` key: ``("fred", ID)``
--> DataFrame; ``("canadian", url, params)`` -> Response. A source with no
+-> DataFrame; ``("canadian", url, params)`` and ``("uk", url, params)`` ->
+Response (the UK's: the Bank of England database's CSV and the ONS's JSON,
+in the layouts saved from the laptop in tools/uk_fixtures; batch 3). A source with no
 synthetic answer (the Treasury, CNBC) raises, as a failed download would,
 and the program falls back with its usual warning. The series end in
 September 2026, past the regression set's pinned end, so a pinned chart
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import pickle
 import sys
 import zipfile
@@ -273,6 +276,71 @@ def statcan(table_id: str) -> bytes:
     raise KeyError(f"no synthetic StatCan table {table_id}")
 
 
+# The UK (batch 3): gilt yields run this far above the U.S. ones; the Bank
+# of England's database series: code -> (first day, "B" daily or "ME" month
+# end, term in years (0: the short rate, Bank Rate), margin above it).
+_UK_OFFSET = 0.6
+_IADB_SERIES = {
+    "IUDSNPY": ("1993-12-01", "B", 5, 0.0),
+    "IUDMNPY": ("1993-11-01", "B", 10, 0.0),
+    "IUDLNPY": ("2000-01-04", "B", 20, 0.0),
+    "IUDBEDR": ("1975-01-02", "B", 0, 0.25),
+    "IUMBV34": ("1995-01-31", "ME", 2, 1.2),
+    "IUMBV37": ("1995-01-31", "ME", 3, 1.25),
+    "IUMBV42": ("1995-01-31", "ME", 5, 1.3),
+    "IUMTLMV": ("1995-01-31", "ME", 0, 3.0),
+}
+# ONS series: CDID -> (unit as its description gives it, first period,
+# "stock" or "flow", first and last value in that unit, and whether it has
+# months). Flows are per quarter; stocks at the period's end.
+_ONS_SERIES = {
+    "BKPX": ("m", "1975-01-01", "stock", 53_670, 3_195_774, True),
+    "BKPW": ("m", "1975-01-01", "stock", 41_319, 3_181_031, True),
+    "MDYT": ("", "1966-01-01", "stock", 7_832, 138_883, False),
+    "HF6W": ("bn", "1975-01-01", "stock", 52.1, 2_985.5, True),
+    "NMYX": ("m", "1946-01-01", "flow", 135, 33_518, False),
+    "NMFX": ("m", "1946-01-01", "flow", 124, 33_146, False),
+    "NUGW": ("m", "1946-01-01", "flow", 11, 372, False),
+    "YBHA": ("m", "1955-01-01", "flow", 4_645, 787_197, False),
+    "EBAQ": (",000", "1955-01-01", "stock", 50_901, 69_628, False),
+}
+
+
+def iadb(params: tuple) -> bytes:
+    """A Bank of England database CSV (``CSVF=TN``): DATE, then the series asked for, dates "01 Sep 2026"."""
+    code = dict(params)["SeriesCodes"]
+    first, freq, years, margin = _IADB_SERIES[code]
+    dates = pd.bdate_range(first, "2026-10-02") if freq == "B" else pd.date_range(first, "2026-08-31", freq="ME")
+    if years == 0:
+        values = np.round(np.maximum(_anchors(_SHORT, dates) + _UK_OFFSET - 0.5, 0.1) + margin, 2)
+    else:
+        values = np.round(_yield_path("uk" + code, dates, years, _UK_OFFSET) + margin, 4)
+    lines = [f"DATE,{code}"] + [f"{day:%d %b %Y},{value:g}" for day, value in zip(dates, values)]
+    return "\n".join(lines).encode()
+
+
+def ons(cdid: str) -> bytes:
+    """An ONS time series's JSON: its description (with the unit) and lists of months, quarters and years."""
+    unit, first, kind, low, high, has_months = _ONS_SERIES[cdid]
+    quarters = pd.date_range(first, "2026-04-01", freq="QS")
+    values = _growth(quarters, low, high, "uk" + cdid)
+
+    def row(date: str, value: float) -> dict:
+        return {"date": date, "value": f"{value:.1f}" if unit == "bn" else f"{value:.0f}", "label": date}
+
+    data = {
+        "description": {"title": f"synthetic {cdid}", "unit": unit, "cdid": cdid},
+        "quarters": [row(f"{d.year} Q{d.quarter}", v) for d, v in zip(quarters, values)],
+        "months": [],
+        "years": [],
+    }
+    if has_months:
+        months = pd.date_range(first, "2026-08-01", freq="MS")
+        monthly = _growth(months, low, high * 1.004, "ukm" + cdid)
+        data["months"] = [row(f"{d.year} {d:%b}".upper(), v) for d, v in zip(months, monthly)]
+    return json.dumps(data).encode()
+
+
 def synth(key: tuple):
     """Return the synthetic answer to one download-cache key; KeyError for a source with none."""
     if key[0] == "fred":
@@ -282,6 +350,10 @@ def synth(key: tuple):
         return _response(valet(url, params))
     if "statcan.gc.ca/n1/tbl/csv/" in url:
         return _response(statcan(url.rsplit("/", 1)[-1].split("-")[0]))
+    if "bankofengland.co.uk/boeapps/database" in url:
+        return _response(iadb(params))
+    if "ons.gov.uk" in url:
+        return _response(ons(url.split("/timeseries/")[1].split("/")[0].upper()))
     raise KeyError(f"no synthetic source for {key!r}")
 
 

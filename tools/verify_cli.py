@@ -158,6 +158,16 @@ CASES: list[list[str]] = [
     # --nations:LIST (batch 2): the charts by the nations' codes; the same as their switches.
     ["--nations:us"], ["--na:ca,us"], ["--nations:CDN"], ["--nations:us", "-c"], ["--nations:uk"], ["--nations:"],
     ["--nations"], ["--n:us"], ["--us:nations:us"], ["--no-nations:us"], ["--nations:us", "--gdp"],
+    # The UK (batch 3): a switch spelled with at least "uk" or "gb" ("-u" stays the U.S., "-g" GDP),
+    # drawn only when named; its codes gb and uk; its terms, mortgage terms and own defaults.
+    ["--uk"], ["--UK"], ["--gb"], ["uk"], ["--u"], ["--un"], ["--g"], ["--gbp"], ["--uk:1"], ["--no-uk"],
+    ["--uk", "-c"], ["--uk", "-c", "-u"], ["--nations:gb"], ["--na:ca,us,gb"], ["--nations:UK,us"], ["--nations:gb,uk"],
+    ["--uk:top:5t"], ["--gb:y:10,20"], ["--UK:max:8"], ["--uk:y:2"], ["--uk:y:3m,10"], ["--uk:no-y:20"],
+    ["--uk:no-y:5,10,20"], ["--uk:mo:svr,2f"], ["--uk:mo:5"], ["--cdn:mo:2f"], ["--us:mo:svr"], ["--mo:2f,3f,5f,svr"],
+    ["--mo:2F,SVR"], ["--mo:svry"], ["--mo:2"], ["--uk:sp:20-5"], ["--uk:sp:10-2"], ["--sp:20-5", "--uk"],
+    ["--y:2,10", "--uk"], ["--uk", "-r", "--uk:top:150%"], ["--uk", "-r", "--uk:top:5t"], ["--uk", "--d:fp"],
+    ["--uk:min:3", "--uk:max:2"], ["--uk:dim:800"], ["--g:top:5t"], ["--u:max:8"], ["--uk:start:2000"], ["--gb:"],
+    ["--uk", "--policy", "--mo", "--sp", "-l"], ["--uk", "--yields:5,10,20"], ["--uk", "--yields:3m,2,5,10,30"],
 ]
 
 
