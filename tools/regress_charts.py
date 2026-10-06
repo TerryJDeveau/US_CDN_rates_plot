@@ -123,6 +123,11 @@ CASES: dict[str, list[str]] = {
     "u_y_all_l": ["-u", "--yields:1m,3m,6m,1,2,5,7,10,20,30", "-l", "-s:2001"],
     "u_noy": ["-u", "--no-y:30,3m", "--yield", "-s:2019"],
     "y7_10": ["--yields:7,10", "-l"],
+    # --policy: with the default curves and -l; alone over its whole span (the
+    # Bank Rate from 1935, CORRA from 1997); the U.S. one with the yields.
+    "policy_l": ["--policy", "-l"],
+    "c_policy_only": ["-c", "--policy", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1935", "-l"],
+    "u_policy_y1990": ["-u", "--policy", "--yield", "-s:1990"],
 }
 
 

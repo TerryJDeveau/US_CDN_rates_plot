@@ -384,7 +384,12 @@ def draw_country(
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
-    title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn, config=config)
+    title = metadata.title_for(
+        yields_drawn=bool(yield_lines),
+        macro_keys_drawn=macro_keys_drawn,
+        config=config,
+        rate_titles=[curve.title for _line, curve in rate_lines],
+    )
     finish_legend_and_title(
         ax_yield,
         [yield_lines + [line for line, _curve in rate_lines], legend_macro],

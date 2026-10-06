@@ -288,8 +288,14 @@ US_INTEREST_COLUMN = "TTM Interest Payments ($)"
 # ---------------------------------------------------------------------------
 
 YIELD_LINE_STYLE = {"linewidth": 1.2, "alpha": 0.9}
-# The left axis's label (PlotConfig.left_axis_label).
+# The left axis's label (PlotConfig.left_axis_label): with the yields drawn,
+# or else with only other rates on it (--policy, --mortgages).
 YIELD_AXIS_LABEL = "Bond Yield (%)"
+RATE_AXIS_LABEL = "Rate (%)"
+# --policy (ratesplot.rates): a step line, as a policy rate holds until it is
+# changed; dark gold, a colour no yield term has, a little thicker than the
+# yields so it reads as the anchor of the curve.
+POLICY_RATE_STYLE = {"color": "#b8860b", "linewidth": 1.8, "drawstyle": "steps-post"}
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -468,7 +474,9 @@ class CountryMetadata:
             specs.insert(1, ("federal_debt", config.include_debt, self.federal_debt_column, self.federal_debt_label))
         return tuple((key, enabled, column, _with_suffix(label, suffix)) for key, enabled, column, label in specs)
 
-    def title_for(self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str], config: PlotConfig) -> str:
+    def title_for(
+        self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str], config: PlotConfig, rate_titles: Iterable[str] = ()
+    ) -> str:
         """Compose the chart title from the series that were actually drawn.
 
         Parts are joined with commas and a final ampersand, e.g.
@@ -477,7 +485,9 @@ class CountryMetadata:
         Under -r and -p the macro phrase is qualified and set off from the
         yields by a semicolon, since the qualifier does not apply to them:
         ``"CDN Benchmark Yields; Aggregate CDN Public Debt & Interest Outlays
-        as % of TTM GDP"``.
+        as % of TTM GDP"``. ``rate_titles`` name the yield axis's other
+        curves drawn (``ratesplot.rates``), after the yields: "U.S. Treasury
+        Yields, Policy Rate, Aggregate US Public Debt …".
         """
         drawn = set(macro_keys_drawn)
         if "debt" in drawn:
@@ -510,7 +520,7 @@ class CountryMetadata:
                 macro_titles[kind] = templates[kind].format(names[kind]).strip()
             macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
         levels_suffix = LEVELS_TITLE_SUFFIX if by_level else ""
-        yield_parts = [self.yield_title] if yields_drawn else []
+        yield_parts = ([self.yield_title] if yields_drawn else []) + list(dict.fromkeys(rate_titles))
         title_suffix = _measure_suffixes(config)[1]
         if title_suffix and macro_parts:
             macro_phrase = _join_title_parts(macro_parts) + title_suffix + ("," if levels_suffix else "") + levels_suffix
@@ -594,6 +604,9 @@ class PlotConfig:
     macro_bottom: float | None = None
     macro_top: float | None = None
     include_yield: bool = True
+    # --policy: each country's policy rate on the yield axis (ratesplot.rates);
+    # additive, not under the curve rule.
+    policy_rates: bool = False
     # --yields:LIST / --no-yields:LIST: the yield terms drawn, as keys of
     # YIELD_TERMS in that order. A term a country has no series for is
     # simply not drawn on its chart (Canada has the five default terms).
@@ -668,12 +681,12 @@ class PlotConfig:
     @property
     def has_left_axis_series(self) -> bool:
         """True when at least one curve on the left (yield) axis is chosen: the yields, or a curve of ``ratesplot.rates``."""
-        return self.include_yield
+        return self.include_yield or self.policy_rates
 
     @property
     def left_axis_label(self) -> str:
-        """Return the left axis's label for the curves chosen on it."""
-        return YIELD_AXIS_LABEL
+        """Return the left axis's label for the curves chosen on it: "Rate (%)" when the yields are not among them."""
+        return YIELD_AXIS_LABEL if self.include_yield else RATE_AXIS_LABEL
 
     @property
     def draws_gdp(self) -> bool:

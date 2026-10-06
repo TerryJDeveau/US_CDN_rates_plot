@@ -416,6 +416,7 @@ GROUPS: dict[str, str] = {
         "Curve selection (naming any curve positively shows *only* the named curves;\n"
         "``--no-`` forms hide curves from the default set of all four):"
     ),
+    "rates": 'Rates on the yield axis, each only when asked for (--policy needs at least "po"):',
     "units": "Measure of debt, GDP and interest:",
     "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
@@ -472,6 +473,15 @@ OPTIONS: tuple[Option, ...] = (
         "no-yields", Kind.VALUE, ("yield_terms",), "curves", "--no-yields:LIST / --no-y:LIST",
         "drop these terms from the default five\n(or from --yields:LIST)",
         names=("yields",), parse=partial(parse_terms, kind="--no-yields"), removes=True, in_gui=False,
+    ),
+    # The yield axis's other curves (ratesplot.rates). Flags, not curves under
+    # the curve rule: each adds its curve and hides nothing. At least "po", so
+    # "-p" stays per capita.
+    Option(
+        "policy", Kind.FLAG, ("policy_rates",), "rates", "--policy / --no-policy",
+        "each country's policy rate: the effective\nfed funds rate; the Bank Rate, then\n"
+        "CORRA from 1997 (a quarter point lower)",
+        names=("policy-rates",), shortest=2, label="Policy rate",
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.

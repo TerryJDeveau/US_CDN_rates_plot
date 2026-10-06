@@ -49,7 +49,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot import bake, cdn_data, latest, us_data  # noqa: E402
+from ratesplot import bake, cdn_data, latest, rates, us_data  # noqa: E402
 from ratesplot.cli import parse_args  # noqa: E402
 from ratesplot.config import (  # noqa: E402
     CDN_DEBT_COLUMN,
@@ -193,6 +193,18 @@ def _quotes(country: str, columns: tuple[str, ...] | None = None) -> Callable[[P
     return run
 
 
+def _rate(fetch: Callable[[], rates.RateCurve | None]) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+    """A curve of ``ratesplot.rates``, through its own fetcher; its label is the note (it names a join)."""
+
+    def run(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+        curve = fetch()
+        if curve is None:
+            return None, "not fetched"
+        return _last(curve.values), f"{curve.label}, from {curve.first:%Y-%m-%d}"
+
+    return run
+
+
 def _census(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     baked = max(pd.Timestamp(date).year for date, _value in EMBEDDED_US_DEBT_BY_LEVEL["p"])
     listed = [year for year in (baked + 1, baked + 2) if bake.census_estimates_url(year)]
@@ -223,6 +235,8 @@ CHECKS: tuple[Check, ...] = (
     Check("fred_interest_p", "FRED W756RC1A027NBEA state interest (annual)", ANNUAL, _fred("W756RC1A027NBEA", quarterly=False)),
     Check("fred_interest_m", "FRED W856RC1A027NBEA local interest (annual)", ANNUAL, _fred("W856RC1A027NBEA", quarterly=False)),
     Check("fred_population", "FRED B230RC0Q173SBEA population", QUARTERLY, _fred("B230RC0Q173SBEA", quarterly=True)),
+    Check("fred_dff", "FRED DFF effective federal funds rate (--policy)", DAILY, _rate(rates.us_policy_rate)),
+    Check("boc_policy", "Bank of Canada Bank Rate V122530, CORRA AVG.INTWO (--policy)", DAILY, _rate(rates.cdn_policy_rate)),
     Check("treasury_yields", "U.S. Treasury daily par yield curve (all ten terms)", DAILY, _treasury_yields),
     Check("debt_to_penny", "U.S. Treasury Debt to the Penny", DAILY, _debt_to_penny),
     Check("cnbc_cdn", "CNBC quote feed, Canadian yields (unofficial)", QUOTES, _quotes("cdn")),

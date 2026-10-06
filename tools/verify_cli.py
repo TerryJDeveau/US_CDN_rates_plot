@@ -127,6 +127,10 @@ CASES: list[list[str]] = [
     ["--no-y:"], ["--no-y:x"], ["--yields:7,1m,10", "--no-y:10"], ["--yields:7", "--no-y:7"],
     ["--no-y:30", "--yields:10"], ["--y:10", "--no-yield"], ["--y:10", "-c"], ["--y:10", "--gdp"],
     ["--no-debt:fp"], ["--no-dim:1100"], ["--no-reg:2"], ["--no-s:2001"], ["--yieldsx:10"],
+    # --policy: a flag, off by default, adds its curve; at least "po", so "-p" stays per capita.
+    ["--policy"], ["--po"], ["--pol"], ["--policy-rates"], ["--policyrates"], ["policy"], ["--no-policy"], ["--no-po"],
+    ["--policy", "--no-policy"], ["--policy", "--gdp"], ["--policy", "-c", "--no-yield"], ["--policy", "-p"],
+    ["--po:1"], ["--policyx"], ["--no-p"], ["--p"], ["--pe"],
 ]
 
 
