@@ -454,6 +454,9 @@ class Option:
     # field plus calendar button; "size" = width and height boxes with an
     # aspect-ratio lock (for a "WxH" option such as the canvas size).
     editor: str | None = None
+    # GUI: the width in characters of a VALUE option's field on its flag's
+    # row (``turns_on``); None: 5, enough for a tolerance.
+    entry_width: int | None = None
 
 
 # Help-listing sections, in display order: key -> heading (and any notes).
@@ -464,7 +467,7 @@ GROUPS: dict[str, str] = {
         "Curve selection (naming any curve positively shows *only* the named curves;\n"
         "``--no-`` forms hide curves from the default set of all four):"
     ),
-    "rates": 'Rates and spreads on the yield axis, each only when asked for (at least "po", "mo", "sp"):',
+    "rates": 'Rates on the yield axis (policy, mortgages, spreads; each only when asked for; at least "po", "mo", "sp"):',
     "units": "Measure of debt, GDP and interest:",
     "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
@@ -543,7 +546,7 @@ OPTIONS: tuple[Option, ...] = (
         "the terms: 30 15 (U.S.), 5 3 1 5v\n(Canada; 5v variable, broker average);\n"
         f"default {','.join(DEFAULT_MORTGAGE_TERMS)}; turns --mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
-        label="terms", format=format_terms,
+        label="terms", format=format_terms, entry_width=9,
     ),
     # At least "sp": "--s:" stays the start date.
     Option(
@@ -556,7 +559,7 @@ OPTIONS: tuple[Option, ...] = (
         "pairs of yield terms, the first less the\nsecond (default "
         f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())});\nturns --spreads on",
         names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
-        label="pairs", format=format_spreads,
+        label="pairs", format=format_spreads, entry_width=14,
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.

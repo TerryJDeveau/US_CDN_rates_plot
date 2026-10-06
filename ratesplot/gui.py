@@ -16,7 +16,9 @@ Controls
     switches (-r, -p) exclude each other: ticking one unticks the other.
     Changing the measure clears Top and Bottom, whose units it changes
     (dollars, percent, dollars per person), and under -r the GDP box is
-    greyed out, GDP being only the denominator.
+    greyed out, GDP being only the denominator. The controls scroll when the
+    window is too short for them; Redraw and Save sit in a bar under them
+    that does not, so they are always in sight.
 
 Remembered settings
     The choices of the last successful drawing, the preview mode, the selected
@@ -494,9 +496,9 @@ class RatesPlotApp:
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        panel = self._build_control_column()
+        panel, pinned = self._build_control_column()
         self._build_option_controls(panel)
-        self._build_actions(panel)
+        self._build_actions(panel, pinned)
         self._build_log(panel)
 
         self.notebook = ttk.Notebook(self.root)
@@ -516,8 +518,8 @@ class RatesPlotApp:
         self.root.bind("<Control-s>", lambda _event: self._save_png())
         self.root.bind("<Alt-Left>", lambda _event: self._back())
 
-    def _build_control_column(self) -> ttk.Frame:
-        """Return the frame the controls go in: a column that scrolls when the window is too short for it.
+    def _build_control_column(self) -> tuple[ttk.Frame, ttk.Frame]:
+        """Return the frames the controls go in: a column that scrolls when the window is too short, and a bar below it.
 
         On a laptop screen (a 972 px window) the controls filled the column
         exactly, with the log out of sight, and one more row would have hidden
@@ -526,10 +528,16 @@ class RatesPlotApp:
         frame is stretched to the window and the log takes the rest, as
         before; when it is shorter, a scroll bar appears, and the mouse wheel
         scrolls the column while the pointer is over it (over the log, the log).
+        The bar under it does not scroll: Redraw and Save go there, so they
+        are always in sight however many controls there are (Terry,
+        2026-10-06; batch 1 added a panel, and the buttons fell below the
+        fold at 1728x972).
         """
         outer = ttk.Frame(self.root)
         outer.grid(row=0, column=0, sticky="nsew")
         outer.rowconfigure(0, weight=1)
+        pinned = ttk.Frame(outer, padding=(8, 4, 8, 8))
+        pinned.grid(row=1, column=0, columnspan=2, sticky="ew")
         background = ttk.Style(self.root).lookup("TFrame", "background") or None
         canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0, background=background)
         canvas.grid(row=0, column=0, sticky="ns")
@@ -566,7 +574,7 @@ class RatesPlotApp:
         canvas.bind("<Configure>", fit)
         panel.bind("<Configure>", fit)
         self.root.bind_all("<MouseWheel>", wheel, add="+")
-        return panel
+        return panel, pinned
 
     def _build_option_controls(self, panel: ttk.Frame) -> None:
         """One labelled frame per option group, one control per GUI option, all from the table."""
@@ -580,9 +588,10 @@ class RatesPlotApp:
             frame = ttk.LabelFrame(panel, text=group_title(group), padding=(8, 4))
             frame.pack(fill="x", pady=(0, 6))
             frame.columnconfigure(1, weight=1)
-            # A value that belongs to a flag (the regression tolerance) goes on
-            # the flag's own row: on a 972 px window one more row would put the
-            # Redraw and Save buttons below the fold.
+            # A value that belongs to a flag (the regression tolerance, the
+            # mortgage terms) goes on the flag's own row, which keeps the
+            # column short (before Redraw and Save were pinned, one more row
+            # put them below the fold of a 972 px window).
             attached = {option.turns_on: option for option in members if option.kind is Kind.VALUE and option.turns_on}
             rows = [option for option in members if option not in attached.values()]
             for row, option in enumerate(rows):
@@ -609,7 +618,7 @@ class RatesPlotApp:
             field = ttk.Frame(frame)
             field.grid(row=row, column=1, columnspan=2, sticky="e")
             # No padding: the row stays as tall as a check box.
-            self._add_value_control(field, 0, value, entry_width=5, pady=0)
+            self._add_value_control(field, 0, value, entry_width=value.entry_width or 5, pady=0)
 
     def _add_value_control(self, frame: ttk.Frame, row: int, option: Option, entry_width: int = 16, pady: int = 1) -> None:
         variable = tk.StringVar()
@@ -692,7 +701,8 @@ class RatesPlotApp:
             _Tooltip(widget, tip)
         _Tooltip(lock, "When ticked, changing one box changes the other to keep the current shape.")
 
-    def _build_actions(self, panel: ttk.Frame) -> None:
+    def _build_actions(self, panel: ttk.Frame, pinned: ttk.Frame) -> None:
+        """The Preview panel and the Reload and Reset buttons in the column; Redraw and Save in the ``pinned`` bar."""
         preview = ttk.LabelFrame(panel, text="Preview", padding=(8, 4))
         preview.pack(fill="x", pady=(0, 6))
         preview.columnconfigure((0, 1), weight=1)
@@ -706,19 +716,15 @@ class RatesPlotApp:
             row=2, column=0, columnspan=2, sticky="w", pady=(2, 0)
         )
 
-        buttons = ttk.Frame(panel)
-        buttons.pack(fill="x", pady=(0, 6))
-        actions = (
-            ("Redraw (F5)", lambda: self.request_redraw(force=True)),
-            ("Save PNG… (Ctrl+S)", self._save_png),
-            ("Reload data", self._reload_data),
-            ("Reset to defaults", self._reset),
-        )
-        for index, (text, command) in enumerate(actions):
-            ttk.Button(buttons, text=text, command=command).grid(
-                row=index // 2, column=index % 2, sticky="ew", padx=1, pady=1
-            )
-        buttons.columnconfigure((0, 1), weight=1)
+        for frame, actions in (
+            (pinned, (("Redraw (F5)", lambda: self.request_redraw(force=True)), ("Save PNG… (Ctrl+S)", self._save_png))),
+            (panel, (("Reload data", self._reload_data), ("Reset to defaults", self._reset))),
+        ):
+            buttons = ttk.Frame(frame)
+            buttons.pack(fill="x", pady=(0, 6) if frame is panel else 0)
+            for column, (text, command) in enumerate(actions):
+                ttk.Button(buttons, text=text, command=command).grid(row=0, column=column, sticky="ew", padx=1, pady=1)
+            buttons.columnconfigure((0, 1), weight=1)
 
     def _build_log(self, panel: ttk.Frame) -> None:
         frame = ttk.LabelFrame(panel, text="Log", padding=4)
