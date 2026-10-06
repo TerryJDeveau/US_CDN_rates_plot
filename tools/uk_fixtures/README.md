@@ -4,10 +4,14 @@ Cloud sessions cannot reach the data sources, so the UK sources were measured fr
 before batch 3 moved to the cloud. Every file in this folder is a real response (or a faithful
 extract of one) saved that day, for writing and testing parsers offline.
 
-**Before the pull request is merged:** keep only the small files a test actually reads (move
-them wherever the tests live) and delete the rest. The batch pull requests are squash-merged,
-so files deleted on the branch never reach `main`'s history. The laptop runs the real fetches
-(`tools/check_sources.py`) and the bake when it verifies the branch.
+**What is kept here (pruned in batch 3, before the merge):** only the small responses
+`tools/check_uk_parsers.py` reads: the Bank of England database's CSVs (daily, monthly, the
+described layout, the error-page redirect), CNBC's UK quotes, and five ONS series (BKPX, MDYT,
+EBAQ, YBHA, NMYX), each trimmed to its description and value lists. The rest (the fitted-curve
+workbook and its month-end CSV, the millennium extract, four more ONS series) served the build
+and was deleted; the sections below still record what they held. The millennium extract is what
+`ratesplot/uk_archive_data.py` was first baked from (through a rebuilt workbook; the module's
+header says so); the laptop's real bake (`python tools/bake_archives.py --only uk`) replaces it.
 
 Spans below are what the sources served on 2026-10-06. "q" quarterly, "m" monthly, "d" daily.
 
@@ -73,7 +77,8 @@ yields are the Bank's fitted curves, not one benchmark gilt's yield.
 JSON with `years`, `quarters`, `months` lists of `{"date", "value", "year", "quarter", "month",
 "sourceDataset", "updateDate", ...}`; values are strings and `""` where there is none. Dates read
 `1975 Q1`, `1975 MAR`, `1993`. `description` holds `title`, `unit`, `preUnit`, `nextRelease`.
-The `ons_*.json` files here keep each list's first 4 and last 10 entries only. Units differ by
+The `ons_*.json` files here keep each list's first 4 and last 10 entries only (and, since the
+pruning, only the description and the lists). Units differ by
 series: £m for most, **£bn for HF6W**, thousands for EBAQ. PUSF is monthly (next release
 21 October 2026); UKEA and EDP are quarterly (next 22 December 2026).
 

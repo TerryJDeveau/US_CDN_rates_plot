@@ -1,583 +1,241 @@
 {
+ "description": {
+  "title": "UK resident population: mid-year estimates (Qtly data interpolated)",
+  "unit": ",000",
+  "preUnit": "",
+  "cdid": "EBAQ",
+  "datasetId": "UKEA",
+  "nextRelease": "22 December 2026",
+  "releaseDate": "2026-09-29T23:00:00.000Z"
+ },
  "years": [
   {
    "date": "1955",
    "value": "50946",
-   "label": "1955",
    "year": "1955",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "1956",
    "value": "51184",
-   "label": "1956",
    "year": "1956",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "1957",
    "value": "51430",
-   "label": "1957",
    "year": "1957",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "1958",
    "value": "51653",
-   "label": "1958",
    "year": "1958",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2016",
    "value": "65606",
-   "label": "2016",
    "year": "2016",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2025-12-22T00:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2017",
    "value": "65964",
-   "label": "2017",
    "year": "2017",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2025-12-22T00:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2018",
    "value": "66287",
-   "label": "2018",
    "year": "2018",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2025-12-22T00:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2019",
    "value": "66628",
-   "label": "2019",
    "year": "2019",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2025-12-22T00:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2020",
    "value": "66740",
-   "label": "2020",
    "year": "2020",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2025-12-22T00:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2021",
    "value": "66978",
-   "label": "2021",
    "year": "2021",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2025-12-22T00:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2022",
    "value": "67680",
-   "label": "2022",
    "year": "2022",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2023",
    "value": "68588",
-   "label": "2023",
    "year": "2023",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2024",
    "value": "69256",
-   "label": "2024",
    "year": "2024",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2025",
    "value": "69487",
-   "label": "2025",
    "year": "2025",
    "month": "",
    "quarter": "",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   }
  ],
  "quarters": [
   {
    "date": "1955 Q1",
    "value": "50901",
-   "label": "1955 Q1",
    "year": "1955",
    "month": "",
    "quarter": "Q1",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "1955 Q2",
    "value": "50946",
-   "label": "1955 Q2",
    "year": "1955",
    "month": "",
    "quarter": "Q2",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "1955 Q3",
    "value": "51005",
-   "label": "1955 Q3",
    "year": "1955",
    "month": "",
    "quarter": "Q3",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "1955 Q4",
    "value": "51065",
-   "label": "1955 Q4",
    "year": "1955",
    "month": "",
    "quarter": "Q4",
-   "sourceDataset": "UKEA",
-   "updateDate": "2015-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2024 Q1",
    "value": "69089",
-   "label": "2024 Q1",
    "year": "2024",
    "month": "",
    "quarter": "Q1",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2024 Q2",
    "value": "69256",
-   "label": "2024 Q2",
    "year": "2024",
    "month": "",
    "quarter": "Q2",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2024 Q3",
    "value": "69314",
-   "label": "2024 Q3",
    "year": "2024",
    "month": "",
    "quarter": "Q3",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2024 Q4",
    "value": "69372",
-   "label": "2024 Q4",
    "year": "2024",
    "month": "",
    "quarter": "Q4",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2025 Q1",
    "value": "69429",
-   "label": "2025 Q1",
    "year": "2025",
    "month": "",
    "quarter": "Q1",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2025 Q2",
    "value": "69487",
-   "label": "2025 Q2",
    "year": "2025",
    "month": "",
    "quarter": "Q2",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2025 Q3",
    "value": "69522",
-   "label": "2025 Q3",
    "year": "2025",
    "month": "",
    "quarter": "Q3",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2025 Q4",
    "value": "69557",
-   "label": "2025 Q4",
    "year": "2025",
    "month": "",
    "quarter": "Q4",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2026 Q1",
    "value": "69592",
-   "label": "2026 Q1",
    "year": "2026",
    "month": "",
    "quarter": "Q1",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   },
   {
    "date": "2026 Q2",
    "value": "69628",
-   "label": "2026 Q2",
    "year": "2026",
    "month": "",
    "quarter": "Q2",
-   "sourceDataset": "UKEA",
-   "updateDate": "2026-09-29T23:00:00.000Z"
+   "sourceDataset": "UKEA"
   }
  ],
  "months": [],
- "sourceDatasets": [],
- "relatedDatasets": [
-  {
-   "uri": "/economy/grossdomesticproductgdp/datasets/unitedkingdomeconomicaccounts"
-  }
- ],
- "relatedDocuments": [],
- "relatedData": [],
- "versions": [
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v1",
-   "updateDate": "2016-03-31T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v1"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v2",
-   "updateDate": "2016-06-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v2"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v3",
-   "updateDate": "2016-09-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v3"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v4",
-   "updateDate": "2016-12-23T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v4"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v5",
-   "updateDate": "2017-03-31T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v5"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v6",
-   "updateDate": "2017-06-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v6"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v7",
-   "updateDate": "2017-09-29T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v7"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v8",
-   "updateDate": "2017-10-23T15:01:30.169Z",
-   "correctionNotice": "",
-   "label": "v8"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v9",
-   "updateDate": "2017-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v9"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v10",
-   "updateDate": "2018-03-29T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v10"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v11",
-   "updateDate": "2018-06-29T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v11"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v12",
-   "updateDate": "2018-09-28T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v12"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v13",
-   "updateDate": "2018-12-21T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v13"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v14",
-   "updateDate": "2019-03-29T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v14"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v15",
-   "updateDate": "2019-06-28T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v15"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v16",
-   "updateDate": "2019-09-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v16"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v17",
-   "updateDate": "2019-12-20T07:42:35.303Z",
-   "correctionNotice": "",
-   "label": "v17"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v18",
-   "updateDate": "2020-03-31T06:00:00.000Z",
-   "correctionNotice": "",
-   "label": "v18"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v19",
-   "updateDate": "2020-06-30T08:57:00.667Z",
-   "correctionNotice": "",
-   "label": "v19"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v20",
-   "updateDate": "2020-09-30T06:00:00.000Z",
-   "correctionNotice": "",
-   "label": "v20"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v21",
-   "updateDate": "2020-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v21"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v22",
-   "updateDate": "2020-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v22"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v23",
-   "updateDate": "2021-06-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v23"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v24",
-   "updateDate": "2021-09-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v24"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v25",
-   "updateDate": "2021-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v25"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v26",
-   "updateDate": "2022-03-31T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v26"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v27",
-   "updateDate": "2022-06-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v27"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v28",
-   "updateDate": "2022-09-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v28"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v29",
-   "updateDate": "2022-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v29"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v30",
-   "updateDate": "2023-03-31T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v30"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v31",
-   "updateDate": "2023-06-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v31"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v32",
-   "updateDate": "2023-09-29T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v32"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v33",
-   "updateDate": "2023-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v33"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v34",
-   "updateDate": "2024-03-28T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v34"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v35",
-   "updateDate": "2024-06-28T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v35"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v36",
-   "updateDate": "2024-09-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v36"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v37",
-   "updateDate": "2024-12-23T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v37"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v38",
-   "updateDate": "2025-03-28T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v38"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v39",
-   "updateDate": "2025-06-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v39"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v40",
-   "updateDate": "2025-09-30T08:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v40"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v41",
-   "updateDate": "2025-12-22T09:30:00.000Z",
-   "correctionNotice": "",
-   "label": "v41"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v42",
-   "updateDate": "2026-03-31T06:00:00.000Z",
-   "correctionNotice": "",
-   "label": "v42"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v43",
-   "updateDate": "2026-06-30T06:00:00.000Z",
-   "correctionNotice": "",
-   "label": "v43"
-  },
-  {
-   "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea/previous/v44",
-   "updateDate": "2026-09-30T06:00:00.000Z",
-   "correctionNotice": "",
-   "label": "v44"
-  }
- ],
- "type": "timeseries",
- "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea",
- "description": {
-  "title": "UK resident population: mid-year estimates (Qtly data interpolated)",
-  "contact": {
-   "email": "sector.accounts@ons.gov.uk",
-   "name": "Sector Accounts team",
-   "telephone": "+44 1633 456366"
-  },
-  "releaseDate": "2026-09-29T23:00:00.000Z",
-  "nextRelease": "22 December 2026",
-  "datasetId": "UKEA",
-  "datasetUri": "/economy/grossdomesticproductgdp/datasets/unitedkingdomeconomicaccounts",
-  "cdid": "EBAQ",
-  "unit": ",000",
-  "preUnit": "",
-  "source": "",
-  "date": "2026 Q2",
-  "number": "69628",
-  "keyNote": "Mid-year estimates",
-  "sampleSize": "0"
- }
+ "uri": "/economy/grossdomesticproductgdp/timeseries/ebaq/ukea"
 }
