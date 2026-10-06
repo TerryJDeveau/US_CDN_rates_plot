@@ -1160,6 +1160,10 @@ class _MillenniumColumn:
     count: int  # how many dated values it holds (checked)
     plausible: tuple[float, float]  # every value lies in this range, in the source's unit
     header: str  # what the column is, for the data module's comment
+    # Keep only the values that differ from the one before (the days a rate
+    # changed): D1 writes Bank Rate on every day, 67,518 rows (Terry's bake,
+    # 2026-10-06), of which 821 are changes. ``count`` counts those kept.
+    changes_only: bool = False
 
 
 _UK_MILLENNIUM = {
@@ -1196,6 +1200,7 @@ _UK_MILLENNIUM = {
         "D1", 3, 9, "day", "1833-01-01", 821, (0.0, 20.0),
         "D1 col 3: Bank Rate (1833-1972), Minimum Lending Rate (1972-81) and their successors, "
         "percent, on each day it changed",
+        changes_only=True,
     ),
     "mortgage": _MillenniumColumn(
         "M12", 17, 135, "month", "1939-09-01", 931, (0.0, 25.0),
@@ -1288,6 +1293,8 @@ def _extract_millennium_column(workbook, name: str, spec: _MillenniumColumn) -> 
         values.append(float(value))
         last_dated_row = row_number
     series = pd.Series(values, index=pd.DatetimeIndex(dates, name=DATE_COLUMN), dtype=float)
+    if spec.changes_only:
+        series = series[series.ne(series.shift())]
     problems = []
     if series.empty or series.index[0] != pd.Timestamp(spec.first):
         problems.append(f"its first value is dated {series.index[0].date() if len(series) else None}, not {spec.first}")
