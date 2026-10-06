@@ -156,6 +156,10 @@ CASES: dict[str, list[str]] = {
     "all_rates": ["--policy", "--mo", "--sp:10-2", "-l", "-s:2015"],
     # Batch 2: values for one nation's chart (--us:..., --cdn:...).
     "nat_limits": ["--us:top:40t", "--us:bottom:5t", "--cdn:max:12", "--min:0", "-s:2010"],
+    # Canada's chart of terms both charts were given, with one only the U.S.
+    # has: its five drawn as the default five (the 30-year purple, before the
+    # 10-year begins).
+    "c_y_us_terms": ["-c", "--y:3m,2,5,7,10,30", "-s:1936", "--e:1948"],
     "nat_terms": ["--us:y:7,20", "--cdn:y:2,10", "--us:sp:10-2", "--cdn:sp:30-10", "--cdn:mo:5,3", "-s:2015", "-l"],
 }
 
