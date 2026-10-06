@@ -467,7 +467,10 @@ GROUPS: dict[str, str] = {
         "Curve selection (naming any curve positively shows *only* the named curves;\n"
         "``--no-`` forms hide curves from the default set of all four):"
     ),
-    "rates": 'Rates on the yield axis (policy, mortgages, spreads; each only when asked for; at least "po", "mo", "sp"):',
+    "rates": (
+        'Rates on the yield axis (policy, mortgages, spreads; each only when asked\n'
+        'for, hiding nothing; at least "po", "mo", "sp"):'
+    ),
     "units": "Measure of debt, GDP and interest:",
     "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
@@ -536,7 +539,7 @@ OPTIONS: tuple[Option, ...] = (
     ),
     # At least "mo": "--m:" stays ambiguous (--min or --max).
     Option(
-        "mortgages", Kind.FLAG, ("mortgages",), "rates", "--mortgages / --mo / --no-mortgages",
+        "mortgages", Kind.FLAG, ("mortgages",), "rates", "--mortgages / --no-mortgages",
         "mortgage rates, dashed in the colour of\nthe yield of their term: U.S. survey\n"
         "averages; Canadian posted rates",
         names=("mortgages",), shortest=2, label="Mortgage rates",
@@ -550,7 +553,7 @@ OPTIONS: tuple[Option, ...] = (
     ),
     # At least "sp": "--s:" stays the start date.
     Option(
-        "spreads", Kind.FLAG, ("spreads",), "rates", "--spreads / --sp / --no-spreads",
+        "spreads", Kind.FLAG, ("spreads",), "rates", "--spreads / --no-spreads",
         "yield spreads in percentage points, drawn\nthick, their inverted stretches shaded",
         names=("spreads",), shortest=2, label="Yield spreads",
     ),
