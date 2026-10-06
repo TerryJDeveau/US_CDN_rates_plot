@@ -357,7 +357,8 @@ def check_calendars(check: Check) -> None:
     cal.button(key="blank:start").click()
     cal.run()
     check("Blank empties the field", cal.text_input(key="value:start").value == "" and "--start" not in address(cal), address(cal))
-    cal.text_input(key="value:start").input("1700")
+    # Before the calendar's first day (config.EARLIEST_DATA_START, 1680 since batch 3).
+    cal.text_input(key="value:start").input("1679")
     cal.run()
     check(
         "a date outside the calendar leaves it empty, no error",
