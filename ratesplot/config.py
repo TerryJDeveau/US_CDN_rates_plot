@@ -23,6 +23,15 @@ import requests
 # which no series precedes: Canadian population (1 June 1867) and federal
 # debt (31 December 1867), the oldest, begin with Confederation.
 EARLIEST_DATA_START = pd.Timestamp("1867-01-01")
+# Without --start the chart begins no earlier than this date (Terry,
+# 2026-10-06: he kept setting the start by hand, "so maybe just making the
+# default 2000 is just as good as anything else"). The start is the later of
+# this date and the first date on which every chosen curve has data, so a
+# curve that begins after it is still not cut at the left. A chart ending
+# before this date takes the automatic start alone. Any date before
+# EARLIEST_DATA_START (e.g. "1500-01-01") restores the fully automatic start
+# of 2026-09-29, as Terry asked: a setting, not a hard-coded year.
+DEFAULT_START_FLOOR = pd.Timestamp("2000-01-01")
 # The shortest window: --end at least this many days after --start.
 MIN_WINDOW_DAYS = 7
 DEFAULT_CANVAS_PX = (2048, 1536)
@@ -530,9 +539,10 @@ class PlotConfig:
     mutable global state to find out what the user asked for.
     """
 
-    # None: the first date on which every chosen curve has a value (Terry,
-    # 2026-09-29), found from the data by plotting.resolve_start before the
-    # charts are prepared; nothing downstream of it sees None.
+    # None: DEFAULT_START_FLOOR, or the first date on which every chosen
+    # curve has a value if that is later (Terry, 2026-09-29 and 2026-10-06),
+    # found from the data by plotting.resolve_start before the charts are
+    # prepared; nothing downstream of it sees None.
     start: pd.Timestamp | None = None
     end: pd.Timestamp = field(default_factory=_today)
     width_px: int = DEFAULT_CANVAS_PX[0]

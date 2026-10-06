@@ -38,7 +38,7 @@ python -m pip install -r requirements.txt
 | `--debt:fnpm` | debt and interest by level of government |
 | `-l` | each line's last value at its end |
 | `--reg` | each right-axis curve fitted by straight pieces, labelled with its growth in %/yr |
-| `-s:1990`, `-e:2020` | the date window (the start is automatic without `-s`) |
+| `-s:1990`, `-e:2020` | the date window (without `-s` it starts in 2000, or where the chosen curves all have data if later; the year is `DEFAULT_START_FLOOR` in `ratesplot/config.py`) |
 | `--no-cur` | without the latest daily and intraday values |
 
 Intraday yield quotes (from CNBC's quote feed) and the projection of each curve to today are

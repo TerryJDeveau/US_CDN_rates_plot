@@ -45,7 +45,8 @@ Drawing
     real output, not a screenshot of the preview. A blank Start is the
     automatic start, found for the charts drawn together
     (``plotting.resolve_start``) each time they are drawn, so it follows the
-    chosen curves; the log names it.
+    chosen curves (no earlier than ``config.DEFAULT_START_FLOOR``); the log
+    names it.
 
 Threading
     Fetching and drawing run on one worker thread at a time so the window stays
@@ -170,8 +171,8 @@ class DatePicker:
 
     Year and month can be typed or stepped, so distant decades are two clicks
     away. "Blank" empties the field, which means the option's default (today,
-    for the end date; for the start, the first date on which every chosen
-    curve has data).
+    for the end date; for the start, ``config.DEFAULT_START_FLOOR`` or the
+    first date on which every chosen curve has data, if later).
     """
 
     _SELECTED = "#cfe3ff"

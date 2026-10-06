@@ -583,7 +583,8 @@ def _date_control(where, option: Option, placeholder: str | None) -> None:
     Picking a day writes ``YYYY-MM-DD`` in the field, which stays the single
     source of truth (typing ``YYYY`` or ``YYYY-MM`` still works); "Blank"
     empties it, meaning the option's default (today for the end; for the
-    start, the first date on which every chosen curve has data). The
+    start, ``config.DEFAULT_START_FLOOR`` or the first date on which every
+    chosen curve has data, if later). The
     calendar opens at the field's date: it is set from the field on every
     run, before it is drawn.
     """

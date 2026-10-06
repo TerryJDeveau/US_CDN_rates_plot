@@ -183,6 +183,18 @@ def png_size_bytes(width: int, height: int) -> bytes:
     return width.to_bytes(4, "big") + height.to_bytes(4, "big")
 
 
+def _is_automatic_date(placeholder: str) -> bool:
+    """``automatic: YYYY-MM-DD``, any date (the year follows config.DEFAULT_START_FLOOR)."""
+    prefix = "automatic: "
+    if not placeholder.startswith(prefix):
+        return False
+    try:
+        datetime.date.fromisoformat(placeholder.removeprefix(prefix))
+    except ValueError:
+        return False
+    return True
+
+
 def check_address_and_rules(check: Check) -> None:
     """A chart in the address; the rules between controls; a bad field; levels and tolerance; Reset."""
     at = new_page("-c -r --reg --e:2026-09-01")
@@ -196,7 +208,7 @@ def check_address_and_rules(check: Check) -> None:
     code = [c.value for c in at.code]
     check("command line shown", any(v.startswith("python US_CDN_rates_plot.py --C --relative") for v in code), code[:1])
     placeholder = at.text_input(key="value:start").placeholder
-    check("start placeholder shows the date found", placeholder.startswith("automatic: 1"), placeholder)
+    check("start placeholder shows the date found", _is_automatic_date(placeholder), placeholder)
 
     # One measure at a time; changing it clears Top and Bottom.
     at.text_input(key="value:top").input("200%")

@@ -10,8 +10,9 @@ end, and with --reg straight pieces fitted to the right-axis curves, each
 labelled with its growth in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
 monthly and drawn as steps.
 
-Without --start the charts begin on the first date on which every chosen
-curve has data (``resolve_start``), the same date for both countries.
+Without --start the charts begin on ``config.DEFAULT_START_FLOOR``, or
+on the first date on which every chosen curve has data if that is later
+(``resolve_start``), the same date for both countries.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from .config import (
     CANVAS_DPI,
     CDN,
     DATE_COLUMN,
+    DEFAULT_START_FLOOR,
     EARLIEST_DATA_START,
     MACRO_PLOT_STYLES,
     MIN_WINDOW_DAYS,
@@ -472,8 +474,18 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
     both countries' together. So each chosen country is prepared from
     ``EARLIEST_DATA_START``, the first date of each curve it would draw is
     read off (``curve_first_dates``), and the start is the latest of them.
-    The charts are then prepared from that date exactly as with -s set to it
-    (the command line and the window keep the downloads for that second pass).
+    Terry, 2026-10-06: the start is then no earlier than
+    ``DEFAULT_START_FLOOR``, unless the chart ends less than
+    ``MIN_WINDOW_DAYS`` after that date; set to a date before
+    ``EARLIEST_DATA_START``, the floor never applies and this is the rule of
+    2026-09-29. The charts are then
+    prepared from the start exactly as with -s set to it (the command line
+    and the window keep the downloads for that second pass).
+
+    The trial pass still begins at ``EARLIEST_DATA_START``, not at the floor:
+    prepared from the floor, every curve would seem to begin there (the frames
+    open with a row carrying the value then in effect), and the U.S. yields on
+    the first trading day after it.
 
     The trial pass runs without --cur, which only adds values after the data
     end. It prints nothing: the real pass fetches the same data and prints
@@ -510,8 +522,16 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
         print(f"  Warning: no chosen curve begins by {latest_start:%Y-%m-%d}; the chart shows the last {MIN_WINDOW_DAYS} days{left_out}.")
         return replace(config, start=latest_start)
     start = max(whole.values())
+    if start < DEFAULT_START_FLOOR <= latest_start:
+        print(f"Start {DEFAULT_START_FLOOR:%Y-%m-%d}, the default start; every chosen curve has data by then{left_out}.")
+        return replace(config, start=DEFAULT_START_FLOOR)
+    # The curves begin after the floor, or the chart ends too soon after it.
+    before_floor = ""
+    if DEFAULT_START_FLOOR > latest_start:
+        when = "before" if DEFAULT_START_FLOOR > config.end else f"less than {MIN_WINDOW_DAYS} days after"
+        before_floor = f" (the chart ends {when} the default start, {DEFAULT_START_FLOOR:%Y-%m-%d})"
     last = [curve for curve, first in whole.items() if first == start]
-    print(f"Start {start:%Y-%m-%d}, the first date on which every chosen curve has data; the last to begin: {named(last)}{left_out}.")
+    print(f"Start {start:%Y-%m-%d}, the first date on which every chosen curve has data{before_floor}; the last to begin: {named(last)}{left_out}.")
     return replace(config, start=start)
 
 

@@ -49,6 +49,8 @@ from .config import (
     COMPONENT_LETTERS,
     COMPONENT_SYNONYMS,
     DEFAULT_REGRESSION_TOLERANCE_PCT,
+    DEFAULT_START_FLOOR,
+    EARLIEST_DATA_START,
     MIN_CANVAS_PX,
     MIN_REGRESSION_TOLERANCE_PCT,
     MIN_WINDOW_DAYS,
@@ -59,6 +61,14 @@ _DOLLAR_SUFFIX_MULTIPLIERS = {"t": 1e12, "b": 1e9, "m": 1e6, "k": 1e3}
 _DEFAULT_DOLLAR_MULTIPLIER = 1e9
 
 _DATE_SPEC = re.compile(r"^(\d{4})(?:[-/](\d{1,2})(?:[-/](\d{1,2}))?)?$")
+
+# --start's help, from the floor (plotting.resolve_start); a floor before the
+# data begin never applies, and the help then reads as before 2026-10-06.
+_START_HELP = (
+    "first date (default: the first date on\nwhich every chosen curve has data)"
+    if DEFAULT_START_FLOOR < EARLIEST_DATA_START
+    else f"first date (default: {DEFAULT_START_FLOOR:%Y-%m-%d}, or the\nfirst date on which every chosen curve\nhas data, if later)"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +487,7 @@ OPTIONS: tuple[Option, ...] = (
     ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE",
-        "first date (default: the first date on\nwhich every chosen curve has data)",
+        _START_HELP,
         names=("start",), parse=partial(parse_date_spec, kind="start"), label="Start", format=format_date,
         editor="date",
     ),
