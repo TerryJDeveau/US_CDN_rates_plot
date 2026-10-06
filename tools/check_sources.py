@@ -386,7 +386,7 @@ CHECKS: tuple[Check, ...] = (
     Check("ons_int_local", "ONS NUGW local government interest", QUARTERLY,
           _uk_ons(uk_data.fetch_uk_components, component_column("interest", "m"), components="fm")),
     Check("ons_population", "ONS EBAQ UK population", QUARTERLY, _uk_population),
-    Check("cnbc_uk", "CNBC quote feed, UK gilt yields (unofficial)", QUOTES, _quotes("uk")),
+    Check("cnbc_uk", "CNBC quote feed, UK gilt yields, 5 10 20 years (unofficial)", QUOTES, _quotes("uk", tuple(uk_data.UK_YIELD_SERIES))),
     Check("uk_joins", "UK history against the live series where they meet (a measurement)", None, _uk_joins),
 )
 
