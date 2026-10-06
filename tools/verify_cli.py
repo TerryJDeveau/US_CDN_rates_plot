@@ -141,6 +141,8 @@ CASES: list[list[str]] = [
     ["--sp:2-10"], ["--sp:10-2,10y-2y"], ["--sp:10-10"], ["--sp:10"], ["--sp:10-2-1"], ["--sp:10-4"], ["--sp:"], ["--sp:-"],
     ["--sp:10-2", "--no-sp"], ["--sp", "--no-yield"], ["--sp:7-1m", "-u"], ["--sp", "--gdp"], ["--s"], ["--s:2001", "--sp"],
     ["--spreadsx"], ["--no-sp:10-2"], ["--po", "--mo", "--sp"],
+    # Yield-axis bounds may be negative since 2026-10-06 (spreads invert), above -100.
+    ["--min:-0.5"], ["--min:-1", "--max:2"], ["--min:-100"], ["--max:-1"], ["--min:1", "--max:-1"],
 ]
 
 

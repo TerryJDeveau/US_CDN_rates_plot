@@ -135,7 +135,11 @@ def parse_dimensions_spec(spec: str) -> tuple[int, int]:
 
 
 def parse_yield_bound(spec: str, *, kind: str) -> float:
-    """Parse a yield-axis bound in percent, allowed range ``[0, 100)``."""
+    """Parse a yield-axis bound in percent, allowed range ``(-100, 100)``.
+
+    Negative since 2026-10-06 (Terry): spreads (--spreads) go below zero
+    when the curve inverts, and some yields have, so a zoom must reach there.
+    """
     value = spec.strip()
     if not value:
         raise ValueError(f"empty {kind} yield bound")
@@ -143,8 +147,8 @@ def parse_yield_bound(spec: str, *, kind: str) -> float:
         parsed = float(value)
     except ValueError:
         raise ValueError(f"invalid {kind} yield bound {spec!r}: must be a decimal number") from None
-    if not 0 <= parsed < 100:
-        raise ValueError(f"{kind} yield bound must be non-negative and < 100, got {parsed}")
+    if not -100 < parsed < 100:
+        raise ValueError(f"{kind} yield bound must be above -100 and below 100, got {parsed}")
     return parsed
 
 

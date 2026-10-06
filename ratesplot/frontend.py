@@ -295,8 +295,9 @@ class ChartGeometry:
 
 
 def _format_percent(value: float) -> str:
-    """Two decimals at most, no trailing zeros: 2.5, 3.14, 4."""
-    return f"{value:.2f}".rstrip("0").rstrip(".")
+    """Two decimals at most, no trailing zeros: 2.5, 3.14, 4, -0.5 (and 0, never "-0")."""
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
 
 
 def _format_dollars(value: float) -> str:
@@ -340,7 +341,8 @@ def axis_updates(geometry: ChartGeometry, config: PlotConfig | None, top_y: floa
     if config is None:
         return updates
     if config.has_left_axis_series:
-        low = max(0.0, geometry.value_at(bottom_y, "left"))
+        # Below zero too: a spread (--spreads) is negative where the curve inverts.
+        low = max(-99.99, geometry.value_at(bottom_y, "left"))
         high = min(99.99, geometry.value_at(top_y, "left"))
         if high - low >= 0.01:
             updates.update({"min": _format_percent(low), "max": _format_percent(high)})
