@@ -57,8 +57,8 @@ _VALET_FROM = "1900-01-01"
 # Canada's monthly CMHC conventional 5-year lending rate (table 34-10-0145);
 # and the 5-year variable rate, the brokers' average, from 2011. Spans
 # measured by Terry 2026-10-06. The chartered banks' prime rate, weekly on
-# Valet: V80691311 (found by a web search, 2026-10-06, not yet fetched: the
-# cloud could not reach the Bank of Canada; tools/check_sources.py boc_prime).
+# Valet from 1975: V80691311 (found by a web search; fetched by
+# tools/check_sources.py boc_prime on Terry's machine, 2026-10-06).
 US_MORTGAGE_SERIES = {"30": "MORTGAGE30US", "15": "MORTGAGE15US"}
 CDN_MORTGAGE_SERIES = {"5": "V80691335", "3": "V80691334", "1": "V80691333", "5v": "BROKER_AVERAGE_5YR_VRM", "prime": "V80691311"}
 CDN_MORTGAGE_HISTORY_TABLE = "34100145"

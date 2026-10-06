@@ -286,7 +286,7 @@ CHECKS: tuple[Check, ...] = (
     Check("boc_mortgage3", "Bank of Canada V80691334 posted 3-year", DAILY, _rate(partial(rates.mortgage_rate, "3"))),
     Check("boc_mortgage1", "Bank of Canada V80691333 posted 1-year", DAILY, _rate(partial(rates.mortgage_rate, "1"))),
     Check("boc_mortgage5v", "Bank of Canada BROKER_AVERAGE_5YR_VRM 5-year variable", DAILY, _rate(partial(rates.mortgage_rate, "5v"))),
-    Check("boc_prime", "Bank of Canada V80691311 prime rate (series id from a search)", DAILY, _rate(partial(rates.mortgage_rate, "prime"))),
+    Check("boc_prime", "Bank of Canada V80691311 prime rate", DAILY, _rate(partial(rates.mortgage_rate, "prime"))),
     Check("statcan_mortgage", "StatCan 34-10-0145 CMHC 5-year rate (monthly; before 1975)", None, _cmhc_history),
     Check("fred_t10y2y", "FRED T10Y2Y against the program's 10y-2y spread (--spreads)", DAILY, _spread_crosscheck("T10Y2Y", ("10y", "2y"))),
     Check("fred_t10y3m", "FRED T10Y3M against the program's 10y-3m spread (--spreads)", DAILY, _spread_crosscheck("T10Y3M", ("10y", "3m"))),
