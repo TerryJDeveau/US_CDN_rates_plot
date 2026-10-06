@@ -334,6 +334,10 @@ def main(argv: list[str]) -> int:
             print(f"{check.name:18} {check.what}")
         return 0
     checks = CHECKS if not args.only else tuple(check for check in CHECKS if check.name in args.only.split(","))
+    unknown = [name for name in (args.only or "").split(",") if name and name not in {check.name for check in CHECKS}]
+    if unknown:
+        # Checking nothing must not read as a pass (a check name from another branch).
+        parser.error(f"no such check: {', '.join(unknown)} (--list shows them)")
 
     # The program's own settings for a chart ending today, with --cur and every curve.
     config = parse_args(["--no-gui", "-c", "-u", "--d:fnpm", "--i", "--gdp", "--y", f"--s:{RECENT:%Y-%m-%d}"])
