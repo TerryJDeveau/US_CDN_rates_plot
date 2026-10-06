@@ -141,6 +141,10 @@ CANADIAN_SESSION.headers.update(_BROWSER_HEADERS)
 # disturb the Canadian downloads.
 LATEST_SESSION = requests.Session()
 LATEST_SESSION.headers.update(_BROWSER_HEADERS)
+# The UK's sources (Bank of England, ONS): a session of their own, as the
+# latest values have, with a browser's headers, which both require.
+UK_SESSION = requests.Session()
+UK_SESSION.headers.update(_BROWSER_HEADERS | {"Accept-Language": "en-GB,en;q=0.9"})
 # The quote feed is an extra: one quick try and one retry, then the chart is
 # drawn without it (with a warning).
 LATEST_QUOTE_TIMEOUT_SECONDS = 20
@@ -219,6 +223,25 @@ CENSUS_TABLES_URL = "https://www2.census.gov/programs-surveys/gov-finances/table
 US_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED U.S. ARCHIVE DATA"
 US_ARCHIVE_END_MARKER = "# END AUTO-GENERATED U.S. ARCHIVE DATA"
 
+# The UK (batch 3, 2026-10-06): the Bank of England's statistical database
+# (IADB: gilt yields, Bank Rate, quoted mortgage rates) and the Office for
+# National Statistics (debt, interest, GDP, population), both read live; the
+# Bank's "A millennium of macroeconomic data" (no longer updated) baked into
+# ``ratesplot/uk_archive_data.py``. Spans measured from Terry's laptop
+# 2026-10-06 (tools/uk_fixtures/README.md).
+BOE_IADB_URL = "https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp"
+# The database answers a request from this date; from 1950 or 1960 it
+# redirects to its error page 905 instead (measured 2026-10-06). No series
+# read from it begins before 1975.
+BOE_IADB_FROM = "01/Jan/1975"
+ONS_TIMESERIES_URL = "https://www.ons.gov.uk{path}/data"
+UK_MILLENNIUM_URL = (
+    "https://www.bankofengland.co.uk/-/media/boe/files/statistics/research-datasets/"
+    "a-millennium-of-macroeconomic-data-for-the-uk.xlsx"
+)
+UK_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED UK ARCHIVE DATA"
+UK_ARCHIVE_END_MARKER = "# END AUTO-GENERATED UK ARCHIVE DATA"
+
 # The latest values (--cur), newer than the regular series (see ratesplot.latest).
 # U.S. Treasury's daily par yield curve: the source of FRED's DGS series,
 # posted the same afternoon, where FRED follows a business day or more later.
@@ -282,6 +305,8 @@ POPULATION_COLUMN = "Population"
 CDN_INTEREST_COLUMN = "TTM Interest Payable ($)"
 US_DEBT_COLUMN = "Total Aggregate Debt ($)"
 US_INTEREST_COLUMN = "TTM Interest Payments ($)"
+UK_DEBT_COLUMN = "Total UK Debt (£)"
+UK_INTEREST_COLUMN = "TTM UK Interest Paid (£)"
 
 # ---------------------------------------------------------------------------
 # Chart styling and per-country metadata

@@ -1,4 +1,4 @@
-"""HTTP and source-format helpers for FRED, Bank of Canada, Statistics Canada and the latest-value sources."""
+"""HTTP and source-format helpers for FRED, Bank of Canada, Statistics Canada, the UK's sources and the latest-value sources."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .config import (
     HTTP_TIMEOUT_SECONDS,
     LATEST_SESSION,
     RETRY_BACKOFF_BASE_SECONDS,
+    UK_SESSION,
 )
 
 T = TypeVar("T")
@@ -155,6 +156,19 @@ def canadian_get(
         timeout: Per-request timeout in seconds.
     """
     response = _session_get(CANADIAN_SESSION, "canadian", url, params, max_retries=max_retries, timeout=timeout)
+    assert response is not None  # only missing_ok returns None
+    return response
+
+
+def uk_get(
+    url: str,
+    params: dict | None = None,
+    *,
+    max_retries: int = DEFAULT_GET_RETRIES,
+    timeout: int = HTTP_TIMEOUT_SECONDS,
+) -> requests.Response:
+    """GET a Bank of England or Office for National Statistics URL with retries (``uk_data``), cached as the others are."""
+    response = _session_get(UK_SESSION, "uk", url, params, max_retries=max_retries, timeout=timeout)
     assert response is not None  # only missing_ok returns None
     return response
 

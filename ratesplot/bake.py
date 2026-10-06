@@ -21,6 +21,7 @@ Two layers of history are baked, each joined to the next at run time (see
 
 from __future__ import annotations
 
+import calendar
 import csv
 import datetime as dt
 import io
@@ -30,6 +31,7 @@ import re
 import tempfile
 import textwrap
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -70,10 +72,13 @@ from .config import (
     POPULATION_COLUMN,
     STATCAN_TABLE_URL,
     THOUSAND,
+    UK_ARCHIVE_BEGIN_MARKER,
+    UK_ARCHIVE_END_MARKER,
+    UK_MILLENNIUM_URL,
     US_ARCHIVE_BEGIN_MARKER,
     US_ARCHIVE_END_MARKER,
 )
-from .http import canadian_get, get_if_published
+from .http import canadian_get, get_if_published, uk_get
 
 # Balance-sheet members that constitute marketable debt securities.
 DEBT_SECURITY_CATEGORIES = ("Short-term paper", "Bonds")
@@ -1116,3 +1121,260 @@ def bake_us_archives(source_path: Path | None = None) -> None:
         print(f"  From the summary tables:         fiscal {', '.join(map(str, from_summary_tables))}")
     if unpublished:
         print(f"  Not published:                   fiscal {', '.join(map(str, unpublished))}")
+
+
+# ---------------------------------------------------------------------------
+# The UK: the Bank of England's "A millennium of macroeconomic data" (batch 3)
+# ---------------------------------------------------------------------------
+# Version 3.1, 109 sheets, last modified 2024-09-26: no longer updated, so it
+# is baked whole. Each column read is located by its sheet, its 1-based
+# column and its first data row, as measured from the laptop on 2026-10-06
+# (tools/uk_fixtures/README.md, section 4), and checked: the date its first
+# value describes and its number of values must be those measured, the
+# dates must run forward (not month by month: the 20-year has no values for
+# May-July 2007) and the values lie in a plausible range. A difference
+# means the workbook is laid out otherwise, and nothing is written.
+#
+# A row's period is read from its first two cells (columns A and B), which
+# hold, by sheet: "1690/91" and "End September" (a financial year and the
+# day it ends), "1700" (a year), "1753" and "Aug" (a month; a row whose
+# year cell is blank takes the year of the row before, moving on at
+# January), or a date (a day). Written against the extract saved from the
+# laptop; not yet run on the full workbook (Terry's laptop runs the bake).
+
+_MONTHS = {name.lower(): number for number, name in enumerate(calendar.month_abbr) if name}
+
+
+@dataclass(frozen=True)
+class _MillenniumColumn:
+    """One column of the millennium workbook, where it is and what it must hold."""
+
+    sheet: str  # the code the sheet's name begins with: "A29" for "A29. The National Debt"
+    column: int  # 1-based
+    first_row: int  # 1-based, its first value's row
+    # How columns A and B write the date: "fy" a financial year, "year" (dated
+    # 31 December), "midyear" (a year's mid-year estimate, dated 30 June),
+    # "month" (dated its first day) or "day".
+    period: str
+    first: str  # the date its first value describes, as dated here (checked)
+    count: int  # how many dated values it holds (checked)
+    plausible: tuple[float, float]  # every value lies in this range, in the source's unit
+    header: str  # what the column is, for the data module's comment
+
+
+_UK_MILLENNIUM = {
+    "debt": _MillenniumColumn(
+        "A29", 36, 9, "fy", "1691-09-30", 327, (0.5, 5e6),
+        "A29 col 36: spliced consolidated UK national debt incl. terminable annuities "
+        "(PSND ex public sector banks from 2007/8), £m, end of each financial year",
+    ),
+    "gdp": _MillenniumColumn(
+        "A9", 35, 18, "year", "1700-12-31", 317, (10.0, 1e7),
+        "A9 col 35: composite estimate of UK nominal GDP at market prices, £m, calendar years",
+    ),
+    "population_gb": _MillenniumColumn(
+        "A18", 2, 627, "midyear", "1707-06-30", 95, (1_000.0, 100_000.0),
+        "A18 col 2: population of Great Britain, thousands, 1707-1801",
+    ),
+    "population_uk_ireland": _MillenniumColumn(
+        "A18", 3, 721, "midyear", "1801-06-30", 122, (1_000.0, 100_000.0),
+        "A18 col 3: population of the UK of Great Britain and Ireland, thousands, 1801-1922",
+    ),
+    "population_uk": _MillenniumColumn(
+        "A18", 4, 842, "midyear", "1922-06-30", 95, (1_000.0, 100_000.0),
+        "A18 col 4: population of the UK of Great Britain and Northern Ireland, thousands, 1922-2016",
+    ),
+    "10y": _MillenniumColumn(
+        "M10", 31, 2191, "month", "1935-01-01", 987, (0.0, 25.0),
+        "M10 col 31: spliced 10-year gilt yield, monthly average, percent",
+    ),
+    "20y": _MillenniumColumn(
+        "M10", 24, 2527, "month", "1963-01-01", 573, (0.0, 25.0),
+        "M10 col 24: 20-year gilt redemption yield, monthly average, percent",
+    ),
+    "bank_rate": _MillenniumColumn(
+        "D1", 3, 9, "day", "1833-01-01", 821, (0.0, 20.0),
+        "D1 col 3: Bank Rate (1833-1972), Minimum Lending Rate (1972-81) and their successors, "
+        "percent, on each day it changed",
+    ),
+    "mortgage": _MillenniumColumn(
+        "M12", 17, 135, "month", "1939-09-01", 931, (0.0, 25.0),
+        "M12 col 17: spliced variable mortgage rate, monthly, percent",
+    ),
+}
+# Population: each part covers the years up to the next part's first.
+_UK_POPULATION_PARTS = (("population_gb", 1801), ("population_uk_ireland", 1922), ("population_uk", 9999))
+_FY_PERIOD = re.compile(r"^(\d{4})/(\d{2})\s+(.+)$")
+_FY_END_DAY = re.compile(r"^(?:(\d{1,2})(?:st|nd|rd|th)?|end)\s+([a-z]+)$")
+
+
+def _cell_text(value: object) -> str:
+    """A period cell as text: "" when empty, a whole number without ".0"."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _millennium_date(kind: str, cells: tuple[object, object], previous: pd.Timestamp | None) -> pd.Timestamp | None:
+    """Return the date a row's period cells describe, or None when they name no period; raise on one not understood."""
+    first, second = cells
+    if kind == "day" and isinstance(first, (dt.datetime, dt.date)):
+        return pd.Timestamp(first).normalize()
+    a, b = _cell_text(first), _cell_text(second)
+    text = " ".join(part for part in (a, b) if part)
+    if not text:
+        return None
+    if kind == "day":
+        return pd.Timestamp(dt.datetime.strptime(text.split()[0], "%d/%m/%Y"))
+    if kind in ("year", "midyear"):
+        match = re.match(r"^(\d{4})\b", text)
+        if not match:
+            raise ValueError(f"not a year: {text!r}")
+        return pd.Timestamp(year=int(match.group(1)), month=12 if kind == "year" else 6, day=31 if kind == "year" else 30)
+    if kind == "month":
+        match = re.match(r"^(?:(\d{4})\s+)?([A-Za-z]{3})", text)
+        if not match or match.group(2).lower() not in _MONTHS:
+            raise ValueError(f"not a month: {text!r}")
+        month = _MONTHS[match.group(2).lower()]
+        if match.group(1):
+            year = int(match.group(1))
+        elif previous is not None:
+            year = previous.year + (1 if month <= previous.month else 0)
+        else:
+            raise ValueError(f"a month without a year, first in its column: {text!r}")
+        return pd.Timestamp(year=year, month=month, day=1)
+    match = _FY_PERIOD.match(text)
+    if not match:
+        raise ValueError(f"not a financial year: {text!r}")
+    start, end_digits, ending = int(match.group(1)), int(match.group(2)), match.group(3).strip().lower()
+    if (start + 1) % 100 != end_digits:
+        raise ValueError(f"a financial year whose years do not follow: {text!r}")
+    day_month = _FY_END_DAY.match(ending)
+    if not day_month or day_month.group(2)[:3] not in _MONTHS:
+        raise ValueError(f"a financial year's end not understood: {text!r}")
+    month = _MONTHS[day_month.group(2)[:3]]
+    day = int(day_month.group(1)) if day_month.group(1) else calendar.monthrange(start + 1, month)[1]
+    return pd.Timestamp(year=start + 1, month=month, day=day)
+
+
+def _extract_millennium_column(workbook, name: str, spec: _MillenniumColumn) -> pd.Series:
+    """Return one column's values, dated (see the section's comment); raise RuntimeError on anything unexpected."""
+    sheets = [sheet for sheet in workbook.sheetnames if sheet.split(".")[0].strip() == spec.sheet]
+    if len(sheets) != 1:
+        raise RuntimeError(f"millennium {name}: expected one sheet {spec.sheet}, found {sheets}; data module not modified.")
+    dates: list[pd.Timestamp] = []
+    values: list[float] = []
+    undated: list[int] = []
+    last_dated_row = 0
+    previous: pd.Timestamp | None = None
+    rows = workbook[sheets[0]].iter_rows(min_row=spec.first_row, values_only=True)
+    for row_number, row in enumerate(rows, start=spec.first_row):
+        cells = (row + (None,) * spec.column)[: max(spec.column, 2)]
+        value = cells[spec.column - 1]
+        try:
+            date = _millennium_date(spec.period, (cells[0], cells[1]), previous)
+        except ValueError as exc:
+            raise RuntimeError(f"millennium {name}, row {row_number}: {exc}; data module not modified.") from None
+        if date is not None:
+            previous = date
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue  # blank, or a note in the column
+        if date is None:
+            undated.append(row_number)
+            continue
+        dates.append(date)
+        values.append(float(value))
+        last_dated_row = row_number
+    series = pd.Series(values, index=pd.DatetimeIndex(dates, name=DATE_COLUMN), dtype=float)
+    problems = []
+    if series.empty or series.index[0] != pd.Timestamp(spec.first):
+        problems.append(f"its first value is dated {series.index[0].date() if len(series) else None}, not {spec.first}")
+    if len(series) != spec.count:
+        problems.append(f"it holds {len(series)} dated values, not {spec.count}")
+    if not series.index.is_monotonic_increasing or series.index.duplicated().any():
+        problems.append("its dates do not run forward")
+    low, high = spec.plausible
+    outside = series[(series < low) | (series > high)]
+    if len(outside):
+        problems.append(f"{len(outside)} values outside {low:g}-{high:g} (first {outside.index[0].date()}: {outside.iloc[0]:g})")
+    # A value with no period is allowed only after the last dated one: M10's
+    # columns hold one more value in a row with no period (README, section 4).
+    if len(undated) > 1 or any(row < last_dated_row for row in undated):
+        problems.append(f"values without a period in rows {undated[:5]}")
+    if problems:
+        raise RuntimeError(f"millennium {name} ({spec.header}): {'; '.join(problems)}; data module not modified.")
+    return series
+
+
+def _uk_population(columns: dict[str, pd.Series]) -> pd.Series:
+    """Join the three political areas' populations: each part until the next begins (Great Britain to 1800, ...)."""
+    parts = []
+    start = 0
+    for name, until in _UK_POPULATION_PARTS:
+        part = columns[name]
+        parts.append(part.loc[(part.index.year >= start) & (part.index.year < until)])
+        start = until
+    return pd.concat(parts)
+
+
+def bake_uk_archives(source_path: Path | None = None, workbook_path: Path | None = None) -> None:
+    """Extract the UK history from "A millennium of macroeconomic data" and embed it into ``ratesplot/uk_archive_data.py``.
+
+    ``workbook_path`` reads a copy already on disk instead of downloading
+    the 27.5 MB workbook. Needs ``openpyxl`` (only this bake does).
+    """
+    import openpyxl  # the bake's own dependency; the program does not need it
+
+    source_path = source_path or Path(__file__).resolve().with_name("uk_archive_data.py")
+    if workbook_path is None:
+        print("Downloading the Bank of England's millennium dataset (27.5 MB) …")
+        content = uk_get(UK_MILLENNIUM_URL).content
+        source_name = UK_MILLENNIUM_URL
+    else:
+        content = Path(workbook_path).read_bytes()
+        source_name = Path(workbook_path).name
+    workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    try:
+        columns = {name: _extract_millennium_column(workbook, name, spec) for name, spec in _UK_MILLENNIUM.items()}
+    finally:
+        workbook.close()
+
+    def frame(series: pd.Series, multiplier: float = 1.0) -> pd.DataFrame:
+        return (series * multiplier).rename("value").to_frame()
+
+    specs = _UK_MILLENNIUM
+    lists = (
+        ("EMBEDDED_UK_DEBT_HISTORY", f"Debt in pounds, dated by the end of each financial year.\n{specs['debt'].header}",
+         frame(columns["debt"], MILLION)),
+        ("EMBEDDED_UK_GDP_HISTORY", f"GDP in pounds, dated 31 December.\n{specs['gdp'].header}", frame(columns["gdp"], MILLION)),
+        ("EMBEDDED_UK_POPULATION_HISTORY",
+         "Population in persons, dated 30 June: Great Britain to 1800, with all of Ireland\n1801-1921, "
+         "with Northern Ireland only from 1922.\n"
+         + "\n".join(specs[name].header for name, _until in _UK_POPULATION_PARTS),
+         frame(_uk_population(columns), THOUSAND)),
+        ("EMBEDDED_UK_10Y_HISTORY", f"Dated by the first day of the month averaged.\n{specs['10y'].header}", frame(columns["10y"])),
+        ("EMBEDDED_UK_20Y_HISTORY", f"Dated by the first day of the month averaged.\n{specs['20y'].header}", frame(columns["20y"])),
+        ("EMBEDDED_UK_BANK_RATE_HISTORY", f"Each value holds from its date until the next.\n{specs['bank_rate'].header}",
+         frame(columns["bank_rate"])),
+        ("EMBEDDED_UK_MORTGAGE_HISTORY", f"Dated by the first day of the month.\n{specs['mortgage'].header}",
+         frame(columns["mortgage"])),
+    )
+    block = (
+        f"{UK_ARCHIVE_BEGIN_MARKER}\n"
+        f"# Generated on {dt.date.today():%Y-%m-%d} from the Bank of England's \"A millennium of\n"
+        f"# macroeconomic data for the UK\" (version 3.1), read from:\n# {source_name}\n"
+        f"# Historical observations in the source's own terms; uk_data and rates join\n"
+        f"# them to the live series at run time.\n\n"
+        + "\n".join(
+            _embedded_list(name, "\n".join(textwrap.fill(line, 86) for line in comment.splitlines()), data, "value")
+            for name, comment, data in lists
+        )
+        + f"{UK_ARCHIVE_END_MARKER}"
+    )
+    _replace_generated_block(source_path, UK_ARCHIVE_BEGIN_MARKER, UK_ARCHIVE_END_MARKER, block)
+
+    print(f"Embedded the millennium dataset's UK history into {source_path}")
+    for name, _comment, data in lists:
+        print(f"  {name:32} {len(data):5,} values, {data.index[0]:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}")
