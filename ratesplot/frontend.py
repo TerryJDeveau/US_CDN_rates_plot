@@ -40,6 +40,7 @@ from .options import (
     OPTIONS,
     Kind,
     Option,
+    by_name,
     choices_from_config,
     config_from_choices,
     format_dollar_bound,
@@ -242,6 +243,18 @@ def choices_text(option: Option, ticked: list[str]) -> str:
     """
     joined = ",".join(ticked)
     return ",".join(choice_values(option, joined)) if joined else ""
+
+
+def choice_refusal(option: Option) -> str:
+    """Say why a list's last ticked box stays ticked, and which box draws none of it.
+
+    An empty list would read as the default, so the last box stays; drawing
+    none is the job of the curve's own box (Terry, 2026-10-06: "that is what
+    --no-y is for"): the flag a list belongs to, or for the yield terms the
+    yield curve's.
+    """
+    switch = by_name(option.turns_on or "yield")
+    return f"At least one of the {option.label.lower()} stays ticked; to draw none, untick “{switch.label}”."
 
 
 def option_help_lines(option: Option) -> tuple[str, str, str]:

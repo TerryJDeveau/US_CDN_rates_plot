@@ -441,7 +441,7 @@ def check_choice_boxes(check: Check) -> None:
     page.run()
     check(
         "the last mortgage box cannot be unticked",
-        ticked(page, "mortgage-terms") == ["15"] and any("must stay ticked" in str(item.value) for item in list(page.info) + list(page.warning)),
+        ticked(page, "mortgage-terms") == ["15"] and any("untick “Mortgage rates”" in str(item.value) for item in list(page.info) + list(page.warning)),
         ticked(page, "mortgage-terms"),
     )
     page.checkbox(key="flag:spreads").uncheck()

@@ -86,6 +86,7 @@ from .frontend import (
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    choice_refusal,
     choice_rows,
     choice_values,
     choices_text,
@@ -366,7 +367,7 @@ class _ChoicesEditor:
         ticked = [item for item, variable in self.boxes.items() if variable.get()]
         if not ticked:
             self.boxes[value].set(True)
-            self.refuse(f"At least one of the {self.option.label.lower()} must stay ticked.")
+            self.refuse(choice_refusal(self.option))
             return
         self.syncing = True
         try:

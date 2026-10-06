@@ -104,6 +104,7 @@ from .frontend import (  # noqa: E402
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    choice_refusal,
     choice_rows,
     choice_values,
     choices_text,
@@ -475,11 +476,11 @@ def _choice_values_offered(option: Option) -> list[str]:
 
 
 def _choice_changed(name: str, value: str) -> None:
-    """Keep at least one box of a list ticked: an empty list would read as the default."""
+    """Keep at least one box of a list ticked: an empty list would read as the default (``choice_refusal``)."""
     option = next(option for option in OPTIONS if option.name == name)
     if not any(st.session_state.get(_CHOICE + name + ":" + item, False) for item in _choice_values_offered(option)):
         st.session_state[_CHOICE + name + ":" + value] = True
-        st.session_state[_NOTICE] = f"At least one of the {option.label.lower()} must stay ticked."
+        st.session_state[_NOTICE] = choice_refusal(option)
 
 
 def _reset() -> None:
