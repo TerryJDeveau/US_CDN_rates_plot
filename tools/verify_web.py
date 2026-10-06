@@ -505,9 +505,9 @@ def check_uk(check: Check) -> None:
         sorted(key for key in keys if key.startswith("choice:uk:")),
     )
     check(
-        "its own defaults ticked: all three terms, the 2-year fixed",
+        "its own defaults ticked: all three terms, the standard variable rate",
         all(page.checkbox(key=f"choice:uk:yields:{term}").value for term in ("5y", "10y", "20y"))
-        and page.checkbox(key="choice:uk:mortgage-terms:2f").value and not page.checkbox(key="choice:uk:mortgage-terms:svr").value,
+        and page.checkbox(key="choice:uk:mortgage-terms:svr").value and not page.checkbox(key="choice:uk:mortgage-terms:2f").value,
     )
     check("its value in its own field", page.text_input(key="value:uk:max").value == "9", page.text_input(key="value:uk:max").value)
     check("address kept", address(page) == "--UK --end:2026-09-01 --uk:max:9", address(page))

@@ -640,7 +640,7 @@ OPTIONS: tuple[Option, ...] = (
         "mortgage-terms", Kind.VALUE, ("mortgage_terms",), "rates", "--mortgages:LIST / --mo:LIST",
         "the terms: 30 15 (U.S.), 5 3 1 5v prime\n(Canada; 5v variable, broker average;\nprime, the banks' prime rate),\n"
         "2f 3f 5f svr (UK: fixed 2, 3, 5 years;\nthe standard variable rate);\n"
-        f"default {','.join(DEFAULT_MORTGAGE_TERMS)} (the UK's: 2f); turns\n--mortgages on",
+        f"default {','.join(DEFAULT_MORTGAGE_TERMS)} (the UK's: svr); turns\n--mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
         label="Mortgage terms", format=format_terms, editor="choices", choices=_MORTGAGE_CHOICES,
     ),

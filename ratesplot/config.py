@@ -441,13 +441,14 @@ NATIONS: tuple[Nation, ...] = (
     # Batch 3: drawn only when asked for, so every existing command line
     # draws what it drew. Its own defaults, since the defaults for every
     # chart would draw two of its three yield terms, none of its mortgage
-    # terms and none of its spreads: all three terms, the 2-year fixed
-    # mortgage (the loan most borrowers take), the 10y-5y and 20y-10y spreads.
+    # terms and none of its spreads: all three terms, the standard variable
+    # rate (Terry, 2026-10-06: its history runs from 1939), the 10y-5y and
+    # 20y-10y spreads.
     Nation(
         "uk", "United Kingdom", ("gb", "uk"), ("5y", "10y", "20y"), "UK", shown_by_default=False,
         own_defaults=(
             ("yield_terms", ("5y", "10y", "20y")),
-            ("mortgage_terms", ("2f",)),
+            ("mortgage_terms", ("svr",)),
             ("spread_pairs", (("10y", "5y"), ("20y", "10y"))),
         ),
     ),
