@@ -293,9 +293,11 @@ YIELD_LINE_STYLE = {"linewidth": 1.2, "alpha": 0.9}
 YIELD_AXIS_LABEL = "Bond Yield (%)"
 RATE_AXIS_LABEL = "Rate (%)"
 # --policy (ratesplot.rates): a step line, as a policy rate holds until it is
-# changed; dark gold, a colour no yield term has, a little thicker than the
-# yields so it reads as the anchor of the curve.
-POLICY_RATE_STYLE = {"color": "#b8860b", "linewidth": 1.8, "drawstyle": "steps-post"}
+# changed; dark brown, a colour no yield term has, a little thicker than the
+# yields so it reads as the anchor of the curve. (Dark gold at first: on
+# real data it was hard to tell from the 2-year's orange where they cross;
+# Terry chose dark brown, 2026-10-06.)
+POLICY_RATE_STYLE = {"color": "#5c4033", "linewidth": 1.8, "drawstyle": "steps-post"}
 # --mortgages (ratesplot.rates): the terms, as written on the command line ->
 # the country that has them and the yield term whose colour they take (None:
 # no yield of that term, so a colour of their own, MORTGAGE_OWN_COLORS). In
