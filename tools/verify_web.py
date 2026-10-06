@@ -82,7 +82,11 @@ TIMEOUT_SECONDS = 180  # per AppTest run: a drawing whose downloads are not cach
 
 # Regression cases drawn both ways: the defaults, each measure, levels, -l,
 # --reg with and without a tolerance, the history to 1867, a small canvas.
-CHART_CASES = ("default", "c2015", "u_reg_r", "c_lv_r", "c_l_lv", "u_reg_tol3", "c_reg1867", "c_p", "c1100")
+CHART_CASES = (
+    "default", "c2015", "u_reg_r", "c_lv_r", "c_l_lv", "u_reg_tol3", "c_reg1867", "c_p", "c1100",
+    # Batch 1 (2026-10-06): --no-yields read from the address, and the yield axis's other curves.
+    "u_noy", "all_rates",
+)
 
 VIEW_BUTTONS = ("◀ Back", "Unzoom", "◀ Earlier", "Later ▶", "Zoom out")
 
