@@ -210,20 +210,32 @@ def _spread_crosscheck(series_id: str, pair: tuple[str, str]) -> Callable[[PlotC
     """The program's spread (``rates.yield_spreads``, from the DGS yields) against FRED's own series of it.
 
     FRED's T10Y2Y and T10Y3M are the same two DGS series subtracted, so on
-    every day FRED has a value the two must agree to rounding (0.005).
+    every day both DGS series have their own value the two must agree to
+    rounding (0.005). On a day one of them lacks, the program carries that
+    yield's previous value forward (``us_data.fetch_us_yields``), as its
+    yield line does, while FRED may still have a spread: such days are
+    counted in the note, not checked (2026-10-06: 3 and 2 days, up to 0.02
+    and 0.10 points).
     """
 
     def run(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
         chosen = replace(config, start=pd.Timestamp("1900-01-01"), spreads=True, spread_pairs=(pair,))
         (curve,) = rates.yield_spreads("us", us_data.fetch_us_yields(chosen), chosen)
         fred = fetch_fred_csv(series_id).set_index("DATE")[series_id].dropna()
+        legs = [fetch_fred_csv(us_data.US_YIELD_SERIES[YIELD_TERMS[term]]).set_index("DATE").iloc[:, 0].dropna() for term in pair]
         common = fred.index.intersection(curve.values.index)
-        if common.empty:
+        observed = common.intersection(legs[0].index).intersection(legs[1].index)
+        if observed.empty:
             raise ValueError("no day in common")
-        gap = (curve.values.loc[common] - fred.loc[common]).abs()
+        gap = (curve.values.loc[observed] - fred.loc[observed]).abs()
         if gap.max() > 0.005:
-            raise ValueError(f"differs from {series_id} by up to {gap.max():.3f} points ({(gap > 0.005).sum()} of {len(common)} days)")
-        return _last(fred), f"{len(common)} days agree with {series_id} (largest gap {gap.max():.4f}); from {fred.index[0]:%Y-%m-%d}"
+            raise ValueError(f"differs from {series_id} by up to {gap.max():.3f} points ({(gap > 0.005).sum()} of {len(observed)} days)")
+        carried = common.difference(observed)
+        carried_gap = (curve.values.loc[carried] - fred.loc[carried]).abs()
+        note = f"{len(observed)} days agree with {series_id} (largest gap {gap.max():.4f}); from {fred.index[0]:%Y-%m-%d}"
+        if (carried_gap > 0.005).any():
+            note += f"; {(carried_gap > 0.005).sum()} day(s) with a yield carried forward differ, up to {carried_gap.max():.2f}"
+        return _last(fred), note
 
     return run
 
