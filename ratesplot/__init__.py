@@ -22,6 +22,8 @@ latest            --cur: newer values than the regular series (Treasury daily yi
                   debt, intraday quotes)
 us_archive_data   baked Census counts of U.S. state and local debt apart
                   (rewritten by tools/bake_archives.py)
+rates             the yield axis's other curves, each only when chosen: policy rates,
+                  mortgage rates, yield spreads
 measures          the right-axis measure: dollars, % of GDP (-r) or per person (-p)
 plotting          line drawing, draw_country, build_figure (no pyplot), COUNTRIES, run_cdn / run_us
 options           the option table, value parsers/formatters, choices <-> PlotConfig, --help text
@@ -34,8 +36,9 @@ cli               argument parsing (driven by the options table) and main()
 Dependency direction is strictly downward: cli -> gui -> {frontend, options,
 plotting, http}; web -> {cli (its token matching), frontend, options,
 plotting, http}; cli -> {options, plotting, http}; frontend -> {options,
-config}; plotting -> {axes, legend, endlabels, regression, measures, cdn_data,
-us_data, latest} -> {frames, http} -> config; plotting, gui, web -> console;
+config}; plotting -> {axes, legend, endlabels, regression, measures, rates,
+cdn_data, us_data, latest} -> {frames, http} -> config; rates -> {cdn_data,
+http}; plotting, gui, web -> console;
 us_data -> latest; legend -> {axes, endlabels, regression, occupancy};
 regression -> occupancy; options -> config. Data modules never import
 plotting. Nothing imports web or gui, and cli imports gui only when the

@@ -339,7 +339,7 @@ def axis_updates(geometry: ChartGeometry, config: PlotConfig | None, top_y: floa
     updates: dict[str, str] = {}
     if config is None:
         return updates
-    if config.include_yield:
+    if config.has_left_axis_series:
         low = max(0.0, geometry.value_at(bottom_y, "left"))
         high = min(99.99, geometry.value_at(top_y, "left"))
         if high - low >= 0.01:

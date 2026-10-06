@@ -288,6 +288,8 @@ US_INTEREST_COLUMN = "TTM Interest Payments ($)"
 # ---------------------------------------------------------------------------
 
 YIELD_LINE_STYLE = {"linewidth": 1.2, "alpha": 0.9}
+# The left axis's label (PlotConfig.left_axis_label).
+YIELD_AXIS_LABEL = "Bond Yield (%)"
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -345,6 +347,10 @@ PROJECTION_LABEL = "Projected at the past year's pace"
 PROJECTION_LABEL_STEERED = "Projected; debt follows market debt"
 PROJECTION_KEY_COLOR = "0.35"
 PROJECTION_LABEL_PREFIX = "≈"
+
+# --spreads: a spread's inverted stretches (below zero) are shaded between it
+# and zero in its own colour, this opaque (plotting.add_rate_lines).
+SPREAD_INVERSION_ALPHA = 0.2
 
 
 def component_column(kind: str, letter: str) -> str:
@@ -658,6 +664,16 @@ class PlotConfig:
     def yield_columns(self) -> tuple[str, ...]:
         """Return the yield columns drawn, in drawing order; none when the yield curves are off."""
         return tuple(YIELD_TERMS[term] for term in self.yield_terms) if self.include_yield else ()
+
+    @property
+    def has_left_axis_series(self) -> bool:
+        """True when at least one curve on the left (yield) axis is chosen: the yields, or a curve of ``ratesplot.rates``."""
+        return self.include_yield
+
+    @property
+    def left_axis_label(self) -> str:
+        """Return the left axis's label for the curves chosen on it."""
+        return YIELD_AXIS_LABEL
 
     @property
     def draws_gdp(self) -> bool:

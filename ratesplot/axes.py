@@ -24,6 +24,7 @@ from .config import (
     MACRO_PAD_FRACTION,
     MIN_DATE_PAD_DAYS,
     TICK_FS,
+    YIELD_AXIS_LABEL,
     YIELD_BOTTOM_PAD_FRACTION,
     YIELD_MIN_BOTTOM_PAD,
     YIELD_MIN_TOP_PAD,
@@ -55,6 +56,11 @@ def format_percent(value: float) -> str:
     switch to scientific notation there).
     """
     return f"{value:,.0f}%" if value >= 1000 else f"{value:.3g}%"
+
+
+def format_spread(value: float) -> str:
+    """Format a yield spread in percentage points, signed, two decimals: ``+0.47 pts``, ``-1.02 pts``."""
+    return f"{value:+.2f} pts"
 
 
 def format_yield(value: float) -> str:
@@ -194,7 +200,7 @@ class _ComplementLogLocator(ticker.LogLocator):
         ]
 
 
-def configure_yield_axis(ax: Axes, *, font_scale: float, label: str = "Bond Yield (%)") -> None:
+def configure_yield_axis(ax: Axes, *, font_scale: float, label: str = YIELD_AXIS_LABEL) -> None:
     """Configure a linear percentage axis used for bond yields.
 
     ``font_scale`` is ``PlotConfig.font_scale``, applied to the label, its pad
@@ -429,15 +435,16 @@ def apply_axes_formatting(
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
     ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22, linewidth=grid_width)
 
-    if config.include_yield and config.has_macro_series:
-        configure_yield_axis(ax_yield, font_scale=scale)
+    label = config.left_axis_label
+    if config.has_left_axis_series and config.has_macro_series:
+        configure_yield_axis(ax_yield, font_scale=scale, label=label)
         set_yield_ylim(ax_yield, config)
         configure_macro_axis(ax_macro, metadata, config)
         set_macro_ylim(ax_macro, config)
-    elif config.include_yield:
-        configure_yield_axis(ax_yield, font_scale=scale)
+    elif config.has_left_axis_series:
+        configure_yield_axis(ax_yield, font_scale=scale, label=label)
         set_yield_ylim(ax_yield, config)
-        configure_yield_axis(ax_macro, font_scale=scale)
+        configure_yield_axis(ax_macro, font_scale=scale, label=label)
         ax_macro.set_ylim(ax_yield.get_ylim())
     elif config.has_macro_series:
         configure_macro_axis(ax_macro, metadata, config)
