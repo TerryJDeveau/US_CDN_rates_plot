@@ -33,6 +33,7 @@ Usage (from the project root)::
     python tools/verify_web.py                 # both parts (a few minutes once the cache is warm)
     python tools/verify_web.py --only charts   # or --only page
     python tools/verify_web.py --list          # the chart cases
+    python tools/verify_web.py --synthetic     # made-up data, no network (tools/synthetic_sources.py)
 
 Exit code 1 on any DIFFER or FAIL.
 """
@@ -61,6 +62,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 
 import verify_charts  # noqa: E402  (first: it sets the Agg backend before pyplot is imported)
 import pandas as pd  # noqa: E402
+import synthetic_sources  # noqa: E402
 from regress_charts import CASES, PINNED_END, install_disk_cache  # noqa: E402
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
@@ -440,7 +442,10 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", choices=("charts", "page"), help="run one part only")
     parser.add_argument("--cases", help=f"comma-separated regression cases for the charts part (default: {','.join(CHART_CASES)})")
-    parser.add_argument("--cache", type=Path, default=ROOT / "out" / "download_cache", help="download cache folder")
+    parser.add_argument("--cache", type=Path, help="download cache folder (default out/download_cache, or out/synthetic_cache)")
+    parser.add_argument(
+        "--synthetic", action="store_true", help="made-up data in each source's format, no network (tools/synthetic_sources.py)"
+    )
     parser.add_argument("--verbose", action="store_true", help="show the command line's own output")
     parser.add_argument("--list", action="store_true", help="list the chart cases and exit")
     args = parser.parse_args(argv)
@@ -450,7 +455,11 @@ def main(argv: list[str]) -> int:
             print(f"{name:12} {' '.join(CASES[name])}")
         return 0
 
-    install_disk_cache(http, args.cache.resolve())
+    if args.synthetic:
+        print("[web] SYNTHETIC data (tools/synthetic_sources.py): proves code paths, not the data")
+        synthetic_sources.install_synthetic_cache(http, (args.cache or ROOT / "out" / "synthetic_cache").resolve())
+    else:
+        install_disk_cache(http, (args.cache or ROOT / "out" / "download_cache").resolve())
     passed = True
     if args.only in (None, "charts"):
         print(f"[web] charts: the page's drawing against the command line's, {len(cases)} case(s)")

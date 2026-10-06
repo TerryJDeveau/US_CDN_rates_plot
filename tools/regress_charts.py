@@ -25,6 +25,12 @@ Usage (from the project root)::
     python tools/regress_charts.py out/x --only default,c_r     # a few cases
     python tools/regress_charts.py --list                       # the case names
 
+``--synthetic`` feeds every case made-up data in each source's own format
+(``tools/synthetic_sources.py``, kept in ``out/synthetic_cache``) and refuses
+the network: for a machine that cannot reach the sources, such as the cloud
+copy. Two runs with it prove a change neutral in the code, not against real
+data, and its charts show nothing about the data themselves.
+
 ``--commit REV`` exports that revision with ``git archive`` into ``out/tree_REV``
 and renders from it; ``--root DIR`` renders from any other tree. With
 ``--compare`` each chart is reported IDENTICAL, DIFFER or MISSING, and the exit
@@ -43,6 +49,10 @@ import subprocess
 import sys
 import tarfile
 from pathlib import Path
+
+# This tool's own copy, imported before an exported tree's tools/ is put on
+# the path: an older tree has none, and the data must be the same for both.
+import synthetic_sources  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PINNED_END = "--e:2026-09-01"
@@ -198,7 +208,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--extra", default="", help="tokens added to every case, e.g. --extra=--no-cur to prove a default-on option neutral"
     )
-    parser.add_argument("--cache", type=Path, default=ROOT / "out" / "download_cache", help="download cache folder")
+    parser.add_argument("--cache", type=Path, help="download cache folder (default out/download_cache, or out/synthetic_cache)")
+    parser.add_argument(
+        "--synthetic", action="store_true", help="made-up data in each source's format, no network (tools/synthetic_sources.py)"
+    )
     parser.add_argument("--verbose", action="store_true", help="show the program's own output")
     parser.add_argument("--list", action="store_true", help="list the cases and exit")
     args = parser.parse_args(argv)
@@ -215,7 +228,13 @@ def main(argv: list[str]) -> int:
     sys.path[:0] = [str(tree / "tools"), str(tree)]
     verify_charts = importlib.import_module("verify_charts")
     http = importlib.import_module("ratesplot.http")
-    if not install_disk_cache(http, args.cache.resolve()):
+    if args.synthetic:
+        install = synthetic_sources.install_synthetic_cache
+        cache = args.cache or ROOT / "out" / "synthetic_cache"
+        print("[regress] SYNTHETIC data (tools/synthetic_sources.py): proves code paths, not the data")
+    else:
+        install, cache = install_disk_cache, args.cache or ROOT / "out" / "download_cache"
+    if not install(http, cache.resolve()):
         print(f"[regress] {tree} has no download cache; downloading live")
     print(f"[regress] rendering {len(cases)} case(s) from {tree}")
 
