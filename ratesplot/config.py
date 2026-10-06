@@ -301,7 +301,10 @@ POLICY_RATE_STYLE = {"color": "#5c4033", "linewidth": 1.8, "drawstyle": "steps-p
 # --mortgages (ratesplot.rates): the terms, as written on the command line ->
 # the country that has them and the yield term whose colour they take (None:
 # no yield of that term, so a colour of their own, MORTGAGE_OWN_COLORS). In
-# this order on the chart. "5v" is Canada's 5-year variable rate.
+# this order on the chart. "5v" is Canada's 5-year variable rate; "prime" the
+# chartered banks' prime rate, which Canadian variable-rate mortgages are
+# priced from (Terry, 2026-10-06: the 3-year and 6-month variable mortgages
+# are popular in Canada, and have no series of their own; prime in their place).
 MORTGAGE_TERMS = {
     "30": ("us", "30y"),
     "15": ("us", None),
@@ -309,13 +312,16 @@ MORTGAGE_TERMS = {
     "3": ("cdn", None),
     "1": ("cdn", "1y"),
     "5v": ("cdn", "5y"),
+    "prime": ("cdn", None),
 }
 DEFAULT_MORTGAGE_TERMS = ("30", "5")
-MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f"}
+MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f", "prime": "#696969"}
 # Dashed steps (a posted or surveyed rate holds until the next), thinner than
 # the policy rate; the variable rate dash-dotted, as it shares the 5-year's colour.
 MORTGAGE_STYLE = {"linewidth": 1.5, "linestyle": "--", "drawstyle": "steps-post"}
 VARIABLE_MORTGAGE_STYLE = MORTGAGE_STYLE | {"linestyle": "-."}
+# The prime rate: dotted, a base rate rather than a mortgage of a term.
+PRIME_RATE_STYLE = MORTGAGE_STYLE | {"linestyle": ":", "linewidth": 1.8}
 # --spreads[:LIST] (ratesplot.rates): pairs of yield terms, the first less the
 # second, in percentage points. Drawn thick in colours no yield term, rate or
 # right-axis curve has, one per pair in the order given (then round again),

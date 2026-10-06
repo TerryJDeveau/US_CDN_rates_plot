@@ -153,6 +153,8 @@ CASES: list[list[str]] = [
     ["--us:start:2000"], ["--us:reg"], ["--us:reg:2"], ["--us:top"], ["--us:zz:1"], ["--us:m:5"], ["--us:"],
     ["--u:top:20t"], ["--usa:top:20t"], ["--c:top:20t"], ["--canada:top:20t"], ["--cdn:x"], ["--us:dim:800"],
     ["--us:top:20t", "--us:top:30t"], ["--us:yields:"],
+    # The Canadian banks' prime rate, a mortgage-list term (batch 2).
+    ["--mo:prime"], ["--mo:5,PRIME"], ["--cdn:mo:prime,5v"], ["--us:mo:prime"], ["--mo:pr"], ["--mo:primey"],
 ]
 
 

@@ -163,6 +163,8 @@ CASES: dict[str, list[str]] = {
     # Canada's chart of spreads given for both charts, the first with a term
     # only the U.S. has: the 10y-2y takes the first spread colour.
     "c_sp_us_pair": ["-c", "--sp:7-1m,10-2", "-s:2015", "--no-gdp", "--no-debt", "--no-interest", "--no-yield"],
+    # The prime rate (batch 2), with the variable mortgage it prices and the policy rate.
+    "c_prime": ["-c", "--mo:5,5v,prime", "--policy", "--no-gdp", "--no-debt", "--no-interest", "-s:2005", "-l"],
     "nat_terms": ["--us:y:7,20", "--cdn:y:2,10", "--us:sp:10-2", "--cdn:sp:30-10", "--cdn:mo:5,3", "-s:2015", "-l"],
 }
 

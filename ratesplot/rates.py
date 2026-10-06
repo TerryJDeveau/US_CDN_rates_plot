@@ -27,6 +27,7 @@ from .config import (
     MORTGAGE_STYLE,
     MORTGAGE_TERMS,
     POLICY_RATE_STYLE,
+    PRIME_RATE_STYLE,
     SPREAD_COLORS,
     SPREAD_STYLE,
     TERM_COLORS,
@@ -55,9 +56,11 @@ _VALET_FROM = "1900-01-01"
 # 3- and 1-year from 1980), the 5-year carried back to 1951 by Statistics
 # Canada's monthly CMHC conventional 5-year lending rate (table 34-10-0145);
 # and the 5-year variable rate, the brokers' average, from 2011. Spans
-# measured by Terry 2026-10-06.
+# measured by Terry 2026-10-06. The chartered banks' prime rate, weekly on
+# Valet: V80691311 (found by a web search, 2026-10-06, not yet fetched: the
+# cloud could not reach the Bank of Canada; tools/check_sources.py boc_prime).
 US_MORTGAGE_SERIES = {"30": "MORTGAGE30US", "15": "MORTGAGE15US"}
-CDN_MORTGAGE_SERIES = {"5": "V80691335", "3": "V80691334", "1": "V80691333", "5v": "BROKER_AVERAGE_5YR_VRM"}
+CDN_MORTGAGE_SERIES = {"5": "V80691335", "3": "V80691334", "1": "V80691333", "5v": "BROKER_AVERAGE_5YR_VRM", "prime": "V80691311"}
 CDN_MORTGAGE_HISTORY_TABLE = "34100145"
 _MORTGAGE_LABELS = {
     "30": "30-Year Mortgage",
@@ -66,6 +69,7 @@ _MORTGAGE_LABELS = {
     "3": "3-Year Mortgage (posted)",
     "1": "1-Year Mortgage (posted)",
     "5v": "5-Year Variable Mortgage (broker avg.)",
+    "prime": "Prime Rate (chartered banks)",
 }
 
 
@@ -180,6 +184,8 @@ def _mortgage_style(term: str) -> dict:
     """Return a mortgage term's line style, coloured as its yield term (or its own colour)."""
     yield_term = MORTGAGE_TERMS[term][1]
     colour = TERM_COLORS[yield_term] if yield_term is not None else MORTGAGE_OWN_COLORS[term]
+    if term == "prime":
+        return PRIME_RATE_STYLE | {"color": colour}
     return (VARIABLE_MORTGAGE_STYLE if term.endswith("v") else MORTGAGE_STYLE) | {"color": colour}
 
 

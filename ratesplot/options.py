@@ -209,7 +209,7 @@ def format_terms(values: tuple, _config: PlotConfig) -> str:
 
 
 def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
-    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v Canada), in that order.
+    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v prime Canada), in that order.
 
     A "y" after the years is accepted ("30y"), and repeats are harmless.
     """
@@ -221,7 +221,8 @@ def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
         term = item[:-1] if item.endswith("y") else item.replace("yv", "v")
         if term not in MORTGAGE_TERMS:
             raise ValueError(
-                f"invalid --mortgages term {item!r}: use 30 or 15 (U.S.), 5, 3, 1 or 5v (Canada, 5v the 5-year variable)"
+                f"invalid --mortgages term {item!r}: use 30 or 15 (U.S.), 5, 3, 1, 5v or prime "
+                "(Canada, 5v the 5-year variable, prime the banks' prime rate)"
             )
         chosen.add(term)
     return tuple(term for term in MORTGAGE_TERMS if term in chosen)
@@ -492,7 +493,7 @@ _YIELD_CHOICES = (
 )
 _MORTGAGE_CHOICES = (
     ("U.S.", (("30", "30y"), ("15", "15y"))),
-    ("Canada", (("5", "5y"), ("3", "3y"), ("1", "1y"), ("5v", "5y var."))),
+    ("Canada", (("5", "5y"), ("3", "3y"), ("1", "1y"), ("5v", "5y var."), ("prime", "prime"))),
 )
 _SPREAD_CHOICES = (
     ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in DEFAULT_SPREADS)),
@@ -604,7 +605,7 @@ OPTIONS: tuple[Option, ...] = (
     ),
     Option(
         "mortgage-terms", Kind.VALUE, ("mortgage_terms",), "rates", "--mortgages:LIST / --mo:LIST",
-        "the terms: 30 15 (U.S.), 5 3 1 5v\n(Canada; 5v variable, broker average);\n"
+        "the terms: 30 15 (U.S.), 5 3 1 5v prime\n(Canada; 5v variable, broker average;\nprime, the banks' prime rate);\n"
         f"default {','.join(DEFAULT_MORTGAGE_TERMS)}; turns --mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
         label="Mortgage terms", format=format_terms, editor="choices", choices=_MORTGAGE_CHOICES,
