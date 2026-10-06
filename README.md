@@ -1,4 +1,4 @@
-# Canadian and U.S. Bond Yields and Public Debt
+# ratesplot: bond yields and public debt
 
 Government bond yields against public debt, TTM GDP and interest outlays, for Canada and the
 United States, and when asked for the United Kingdom, on one two-axis chart per country. The data
@@ -15,10 +15,10 @@ for the UK's national debt and GDP) is built into the code.
   one side. The page's address holds the chart's settings, so a chart can be bookmarked or
   sent.
   To run it on your own machine: `streamlit run streamlit_app.py`.
-- **The desktop window** (`ratesplot/gui.py`): `python US_CDN_rates_plot.py`. It adds the
+- **The desktop window** (`ratesplot/gui.py`): `python ratesplot.py`. It adds the
   mouse wheel and a right-drag pan, and remembers your last settings.
-- **The command line**: `python US_CDN_rates_plot.py --no-gui [options]`, or any options with the
-  window. `python US_CDN_rates_plot.py --help` lists them all; the web page shows the same list.
+- **The command line**: `python ratesplot.py --no-gui [options]`, or any options with the
+  window. `python ratesplot.py --help` lists them all; the web page shows the same list.
 
 All three draw the same charts from the same code (`plotting.build_figure`).
 

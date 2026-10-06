@@ -21,7 +21,7 @@ What it is
 
 The chart's address
     The page's address carries the chart's command line: ``?chart=-c+-r+--reg``
-    holds the same tokens ``python US_CDN_rates_plot.py -c -r --reg`` takes
+    holds the same tokens ``python ratesplot.py -c -r --reg`` takes
     (``options.command_line_tokens``). Opening such a link draws that chart;
     after each drawing the address is updated, so a chart can be bookmarked
     or sent to someone. An address the program cannot read is reported, and
@@ -140,7 +140,7 @@ from .options import (  # noqa: E402
 )
 from .plotting import COUNTRIES, build_figure, resolve_start  # noqa: E402
 
-PAGE_TITLE = "Canadian and U.S. Bond Yields and Public Debt"
+PAGE_TITLE = "Bond Yields and Public Debt"
 PAGE_SUMMARY = (
     "Government bond yields against public debt, GDP and interest outlays, for Canada and the "
     "United States, from Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury and the "
@@ -148,7 +148,7 @@ PAGE_SUMMARY = (
     "Office for National Statistics. Choose the charts in the panel on the left (the » button on a phone); "
     "each change redraws them."
 )
-_SCRIPT_NAME = "US_CDN_rates_plot.py"
+_SCRIPT_NAME = "ratesplot.py"
 # The query parameter that holds the chart's command line.
 ADDRESS_KEY = "chart"
 # How long a download is kept for every visitor. The regular sources publish

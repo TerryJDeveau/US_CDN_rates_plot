@@ -221,7 +221,7 @@ def check_address_and_rules(check: Check) -> None:
     check("one chart drawn", charts_shown(at) == 1, charts_shown(at))
     check("address kept", address(at) == "--C --relative --regression --end:2026-09-01", address(at))
     code = [c.value for c in at.code]
-    check("command line shown", any(v.startswith("python US_CDN_rates_plot.py --C --relative") for v in code), code[:1])
+    check("command line shown", any(v.startswith("python ratesplot.py --C --relative") for v in code), code[:1])
     placeholder = at.text_input(key="value:start").placeholder
     check("start placeholder shows the date found", _is_automatic_date(placeholder), placeholder)
 
