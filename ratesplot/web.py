@@ -783,7 +783,7 @@ def _controls() -> None:
     buttons[0].button("Redraw", on_click=_force_redraw, help="Draw again, with fresh intraday quotes.", width="stretch")
     buttons[1].button("Reset", on_click=_reset, help="Back to the default charts.", width="stretch")
     for group in GROUPS:
-        members = [option for option in OPTIONS if option.group == group and option.in_gui]
+        members = [option for option in OPTIONS if (option.panel or option.group) == group and option.in_gui]
         if not members:
             continue
         bar.subheader(group_title(group), divider="gray")

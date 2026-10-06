@@ -466,6 +466,10 @@ class Option:
     # box of its own (``frontend.choice_rows``). Terry, 2026-10-06: tick boxes
     # show what can be chosen.
     choices: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+    # GUI: the panel (a key of GROUPS) the control is shown in, when not its
+    # help group. The yield spreads are listed under "rates" in --help, as an
+    # additive option, but shown with the yield terms (Terry, 2026-10-06).
+    panel: str | None = None
 
 
 # The tick boxes of the list options (Option.choices). Yield terms: the five
@@ -534,6 +538,23 @@ OPTIONS: tuple[Option, ...] = (
         "interest", Kind.TOGGLE, ("include_interest",), "curves", "--interest / --no-interest", "TTM interest outlays",
         names=("interest",), label="TTM interest outlays",
     ),
+    # Curve sub-options: debt and interest by level of government ("--d:" is
+    # debt; the size needs at least "dim"). They set one field; see
+    # ``config_from_choices`` for how they name their curves. The window has
+    # one control for both, under the debt and interest boxes (Terry,
+    # 2026-10-06).
+    Option(
+        "debt-parts", Kind.VALUE, ("components",), "curves", "--debt:LETTERS / --d:LETTERS",
+        "debt and interest by level instead of\nin total: f federal, n non-federal,\n"
+        "p or s provincial/state, m municipal",
+        names=("debt",), parse=partial(parse_components, kind="debt"),
+        label="By level", format=format_components, editor="levels",
+    ),
+    Option(
+        "interest-parts", Kind.VALUE, ("components",), "curves", "--interest:LETTERS / --i:LETTERS",
+        "the same letters; given on both --debt\nand --interest they must agree",
+        names=("interest",), parse=partial(parse_components, kind="interest"), in_gui=False,
+    ),
     Option(
         "yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields",
         names=("yield", "yields"), label="Bond yields",
@@ -582,14 +603,14 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "spreads", Kind.FLAG, ("spreads",), "rates", "--spreads / --no-spreads",
         "yield spreads in percentage points, drawn\nthick, their inverted stretches shaded",
-        names=("spreads",), shortest=2, label="Yield spreads",
+        names=("spreads",), shortest=2, label="Yield spreads", panel="curves",
     ),
     Option(
         "spread-pairs", Kind.VALUE, ("spread_pairs",), "rates", "--spreads:LIST / --sp:LIST",
         "pairs of yield terms, the first less the\nsecond (default "
         f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())});\nturns --spreads on",
         names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
-        label="Spreads", format=format_spreads, editor="choices", choices=_SPREAD_CHOICES,
+        label="Spreads", format=format_spreads, editor="choices", choices=_SPREAD_CHOICES, panel="curves",
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.
@@ -639,22 +660,6 @@ OPTIONS: tuple[Option, ...] = (
         "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --dim:W / --dim:xH",
         f"(minimum {MIN_CANVAS_PX} px each way)", names=("dimensions",), shortest=3, parse=parse_dimensions_spec,
         label="Size", format=format_dimensions, editor="size",
-    ),
-    # Curve sub-options: debt and interest by level of government ("--d:" is
-    # debt; the size needs at least "dim"). They set one field; see
-    # ``config_from_choices`` for how they name their curves. The window has
-    # one control for both.
-    Option(
-        "debt-parts", Kind.VALUE, ("components",), "curves", "--debt:LETTERS / --d:LETTERS",
-        "debt and interest by level instead of\nin total: f federal, n non-federal,\n"
-        "p or s provincial/state, m municipal",
-        names=("debt",), parse=partial(parse_components, kind="debt"),
-        label="By level", format=format_components, editor="levels",
-    ),
-    Option(
-        "interest-parts", Kind.VALUE, ("components",), "curves", "--interest:LETTERS / --i:LETTERS",
-        "the same letters; given on both --debt\nand --interest they must agree",
-        names=("interest",), parse=partial(parse_components, kind="interest"), in_gui=False,
     ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE",

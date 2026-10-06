@@ -658,7 +658,7 @@ class RatesPlotApp:
         style.configure("Error.TLabel", foreground=_ERROR_FOREGROUND)
 
         for group in GROUPS:
-            members = [option for option in OPTIONS if option.group == group and option.in_gui]
+            members = [option for option in OPTIONS if (option.panel or option.group) == group and option.in_gui]
             if not members:
                 continue
             frame = ttk.LabelFrame(panel, text=group_title(group), padding=(8, 4))
