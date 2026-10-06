@@ -1,0 +1,21 @@
+sheet,column,header,first period,first data row,last period,values
+A29. The National Debt,34,excluding Public Sector Banks | ONS code: H6FW,1974/75 31st March,293,2016/17 31st March,43
+A29. The National Debt,35,Central Government Gross Debt 1975-2016 excluding coin | ONS code: BKPW-NIIK,1974/75 31st March,293,2015/16 31st March,42
+A29. The National Debt,36,"Spliced measure of the consolidated UK National Debt including estimate of the capital value of terminable annuities, PSND excluding Public Sector Banks from 2007/8",1690/91 End September,9,2016/17 31st March,327
+A29. The National Debt,41,"Spliced measure of consolidated UK debt including terminable annuities, excluding Public Sector Banks from 2007/8",1690/91 End September,9,2015/16 31st March,326
+A29. The National Debt,42,"as a % of nominal GDP at market prices | GDP of GB+all of Ireland up to 1920, GB+N.Ireland from 1921",1699/00 End September,18,2015/16 31st March,317
+A9. Nominal GDP (A),35,Composite estimate of UK nominal GDP at market prices £mn | Simple multiplicative splicing across breaks using Cols I-U (see Appendix of QB article),1700,18,2016,317
+A18. Population 1680+,2,"Political Areas | Kingdom of Great Britain | 1707-1801, bottom-up estimates",1707,627,1801,95
+A18. Population 1680+,3,United Kingdom of Great Britain and Ireland | 1801-1922,1801,721,1922,122
+A18. Population 1680+,4,United Kingdom of Great Britain and N.Ireland | 1922-2016,1922,842,2016,95
+M10. Mthly long-term rates,11,"Spliced consol yield 1753-2015, corrected for Goschen's conversion issues | Mixture of end months and averages",1753 Aug,14,2017 Mar,3164
+M10. Mthly long-term rates,20,Long-dated stocks (20yr redemption yield from 1957) | Month end yields. 1945-47: 3% Savings Bonds 1960/70 1948-60: 2 1/2% Savings Bonds 1984/67 1951-56: 3% Savings Bonds 1986/76,1945 Jan,2311,1969 Dec,300
+M10. Mthly long-term rates,23,10 year | monthly average,1963 Jan,2527,2002 Dec,480
+M10. Mthly long-term rates,24,20 year | monthly average,1963 Jan,2527,2010 Dec,573
+M10. Mthly long-term rates,26,10 year | monthly average,1970 Feb,2612,,567
+M10. Mthly long-term rates,27,10 year | month end,1970 Jan,2611,,568
+M10. Mthly long-term rates,31,Spliced 10 year yield | Monthly average,1935 Jan,2191,,988
+M12. Mthly HH loan rates 1939+,15,SVR (Standard Variable Rate) | Bank of England IADB code: IUMTLMV,1995 Jan,799,2017 Mar,267
+M12. Mthly HH loan rates 1939+,17,Spliced variable mortgage rate,1939 Sep,135,2017 Mar,931
+M12. Mthly HH loan rates 1939+,18,Bank Rate | M9. Mthly short-term rates,1929 Jan,7,2017 Mar,1059
+D1. Official Interest Rates,3,"D1 col 3: Bank Rate 1833-1972, Minimum Lending Rate 1972-81, ... (daily); written only on the days it changed",01/01/1833,9,02/11/2017,821

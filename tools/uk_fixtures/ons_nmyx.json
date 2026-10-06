@@ -1,0 +1,1230 @@
+{
+ "years": [
+  {
+   "date": "1946",
+   "value": "543",
+   "label": "1946",
+   "year": "1946",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "1947",
+   "value": "574",
+   "label": "1947",
+   "year": "1947",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "1948",
+   "value": "564",
+   "label": "1948",
+   "year": "1948",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "1949",
+   "value": "562",
+   "label": "1949",
+   "year": "1949",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "2016",
+   "value": "49245",
+   "label": "2016",
+   "year": "2016",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2017",
+   "value": "56535",
+   "label": "2017",
+   "year": "2017",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2018",
+   "value": "53819",
+   "label": "2018",
+   "year": "2018",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2019",
+   "value": "49413",
+   "label": "2019",
+   "year": "2019",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2020",
+   "value": "42503",
+   "label": "2020",
+   "year": "2020",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2021",
+   "value": "63017",
+   "label": "2021",
+   "year": "2021",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2022",
+   "value": "108558",
+   "label": "2022",
+   "year": "2022",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2023",
+   "value": "87086",
+   "label": "2023",
+   "year": "2023",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2024",
+   "value": "82885",
+   "label": "2024",
+   "year": "2024",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2025",
+   "value": "98975",
+   "label": "2025",
+   "year": "2025",
+   "month": "",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  }
+ ],
+ "quarters": [
+  {
+   "date": "1946 Q1",
+   "value": "135",
+   "label": "1946 Q1",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "1946 Q2",
+   "value": "136",
+   "label": "1946 Q2",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "1946 Q3",
+   "value": "136",
+   "label": "1946 Q3",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q3",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "1946 Q4",
+   "value": "136",
+   "label": "1946 Q4",
+   "year": "1946",
+   "month": "",
+   "quarter": "Q4",
+   "sourceDataset": "PUSF",
+   "updateDate": "2015-10-20T23:00:00.000Z"
+  },
+  {
+   "date": "2024 Q1",
+   "value": "15385",
+   "label": "2024 Q1",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2024 Q2",
+   "value": "25990",
+   "label": "2024 Q2",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2024 Q3",
+   "value": "19475",
+   "label": "2024 Q3",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q3",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2024 Q4",
+   "value": "22035",
+   "label": "2024 Q4",
+   "year": "2024",
+   "month": "",
+   "quarter": "Q4",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2025 Q1",
+   "value": "18860",
+   "label": "2025 Q1",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2025 Q2",
+   "value": "34222",
+   "label": "2025 Q2",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2025 Q3",
+   "value": "24909",
+   "label": "2025 Q3",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q3",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2025 Q4",
+   "value": "20984",
+   "label": "2025 Q4",
+   "year": "2025",
+   "month": "",
+   "quarter": "Q4",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 Q1",
+   "value": "17853",
+   "label": "2026 Q1",
+   "year": "2026",
+   "month": "",
+   "quarter": "Q1",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 Q2",
+   "value": "33518",
+   "label": "2026 Q2",
+   "year": "2026",
+   "month": "",
+   "quarter": "Q2",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  }
+ ],
+ "months": [
+  {
+   "date": "1997 APR",
+   "value": "1722",
+   "label": "1997 APR",
+   "year": "1997",
+   "month": "April",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2024-09-19T23:00:00.000Z"
+  },
+  {
+   "date": "1997 MAY",
+   "value": "1907",
+   "label": "1997 MAY",
+   "year": "1997",
+   "month": "May",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2024-09-19T23:00:00.000Z"
+  },
+  {
+   "date": "1997 JUN",
+   "value": "3740",
+   "label": "1997 JUN",
+   "year": "1997",
+   "month": "June",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "1997 JUL",
+   "value": "2257",
+   "label": "1997 JUL",
+   "year": "1997",
+   "month": "July",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2024-09-19T23:00:00.000Z"
+  },
+  {
+   "date": "2025 NOV",
+   "value": "3273",
+   "label": "2025 NOV",
+   "year": "2025",
+   "month": "November",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2025 DEC",
+   "value": "9203",
+   "label": "2025 DEC",
+   "year": "2025",
+   "month": "December",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 JAN",
+   "value": "1563",
+   "label": "2026 JAN",
+   "year": "2026",
+   "month": "January",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 FEB",
+   "value": "13020",
+   "label": "2026 FEB",
+   "year": "2026",
+   "month": "February",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 MAR",
+   "value": "3270",
+   "label": "2026 MAR",
+   "year": "2026",
+   "month": "March",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 APR",
+   "value": "9808",
+   "label": "2026 APR",
+   "year": "2026",
+   "month": "April",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 MAY",
+   "value": "11780",
+   "label": "2026 MAY",
+   "year": "2026",
+   "month": "May",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 JUN",
+   "value": "11930",
+   "label": "2026 JUN",
+   "year": "2026",
+   "month": "June",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 JUL",
+   "value": "8108",
+   "label": "2026 JUL",
+   "year": "2026",
+   "month": "July",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  },
+  {
+   "date": "2026 AUG",
+   "value": "8860",
+   "label": "2026 AUG",
+   "year": "2026",
+   "month": "August",
+   "quarter": "",
+   "sourceDataset": "PUSF",
+   "updateDate": "2026-09-21T23:00:00.000Z"
+  }
+ ],
+ "sourceDatasets": [],
+ "relatedDatasets": [
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/datasets/publicsectorfinances"
+  }
+ ],
+ "relatedDocuments": [
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/bulletins/publicsectorfinances/latest"
+  }
+ ],
+ "versions": [
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v1",
+   "updateDate": "2015-12-22T00:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v1"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v2",
+   "updateDate": "2016-03-22T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v2"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v3",
+   "updateDate": "2016-06-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v3"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v4",
+   "updateDate": "2016-09-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v4"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v5",
+   "updateDate": "2016-12-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v5"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v6",
+   "updateDate": "2017-03-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v6"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v7",
+   "updateDate": "2017-06-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v7"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v8",
+   "updateDate": "2017-08-22T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v8"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v9",
+   "updateDate": "2017-09-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v9"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v10",
+   "updateDate": "2017-10-20T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v10"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v11",
+   "updateDate": "2017-11-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v11"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v12",
+   "updateDate": "2017-12-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v12"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v13",
+   "updateDate": "2018-01-23T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v13"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v14",
+   "updateDate": "2018-02-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v14"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v15",
+   "updateDate": "2018-03-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v15"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v16",
+   "updateDate": "2018-04-24T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v16"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v17",
+   "updateDate": "2018-05-22T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v17"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v18",
+   "updateDate": "2018-06-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v18"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v19",
+   "updateDate": "2018-07-20T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v19"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v20",
+   "updateDate": "2018-08-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v20"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v21",
+   "updateDate": "2018-09-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v21"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v22",
+   "updateDate": "2018-10-19T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v22"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v23",
+   "updateDate": "2018-11-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v23"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v23",
+   "updateDate": "2018-11-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v23"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v24",
+   "updateDate": "2018-12-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v24"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v25",
+   "updateDate": "2019-01-22T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v25"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v26",
+   "updateDate": "2019-02-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v26"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v27",
+   "updateDate": "2019-03-21T08:16:38.510Z",
+   "correctionNotice": "",
+   "label": "v27"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v28",
+   "updateDate": "2019-04-24T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v28"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v28",
+   "updateDate": "2019-04-24T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v28"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v28",
+   "updateDate": "2019-04-24T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v28"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v29",
+   "updateDate": "2019-05-22T07:21:19.845Z",
+   "correctionNotice": "",
+   "label": "v29"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v30",
+   "updateDate": "2019-06-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v30"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v30",
+   "updateDate": "2019-06-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v30"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v31",
+   "updateDate": "2019-07-19T07:08:05.009Z",
+   "correctionNotice": "",
+   "label": "v31"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v32",
+   "updateDate": "2019-08-21T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v32"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v33",
+   "updateDate": "2019-09-24T07:00:15.941Z",
+   "correctionNotice": "",
+   "label": "v33"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v33",
+   "updateDate": "2019-09-24T07:00:15.941Z",
+   "correctionNotice": "",
+   "label": "v33"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v33",
+   "updateDate": "2019-09-24T07:00:15.941Z",
+   "correctionNotice": "",
+   "label": "v33"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v34",
+   "updateDate": "2019-10-22T08:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v34"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v35",
+   "updateDate": "2019-10-29T13:00:00.000Z",
+   "correctionNotice": "We have identified two issues with the Public Sector Finances release which was originally published on 22 October 2019. These issues have been corrected in this edition. \n\nThe main issue affected local government current expenditure and local government net borrowing in the financial year to date, as well as the equivalent general government and public sector measures; including public sector net borrowing. Public sector net borrowing (excluding public sector banks – PSNBex) was overstated by £1.3 billion in the financial year to date (April to September 2019); for September 2019 alone it was overstated by £0.2 billion. \n\nA second, smaller issue involved the handling of public sector pensions data. This affected the current budget deficit (including public sector banks) between the financial year ending (FYE) March 1998 and FYE March 2008, but had no impact on the current budget deficit (excluding public sector banks). The size of the correction for this issue is negligible in each year.\n\nAlthough GDP is not affected by this error, there will be some small impact on the Sector and Financial Accounts. The corrected data will be taken on in the next release, which is scheduled for December 2019.\n\nThe ONS apologises for this error and for any inconvenience.\n\n",
+   "label": "v35"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v36",
+   "updateDate": "2019-11-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v36"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v36",
+   "updateDate": "2019-11-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v36"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v37",
+   "updateDate": "2019-12-20T07:47:58.367Z",
+   "correctionNotice": "",
+   "label": "v37"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v38",
+   "updateDate": "2020-01-22T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v38"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v39",
+   "updateDate": "2020-02-21T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v39"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v40",
+   "updateDate": "2020-03-09T11:23:03.892Z",
+   "correctionNotice": "In September 2020 we introduced improvements to the estimation of capital stocks. Recent quality assurance work has identified that although these improvements were fully implemented in the Public sector finances borrowing by sub-sector publication, they were not fully reflected in our presentation of public sector current budget and net investment as a ratio of GDP (series JW2V and MUB2 respectively), for the period - financial year ending March 1987 to the financial year ending March 1997. We have now updated these data in our time series dataset. \n\nThese updates have had no impact on our previous estimates of public sector net borrowing, cash requirement or debt. We apologise for any inconvenience.",
+   "label": "v40"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v40",
+   "updateDate": "2020-03-09T11:23:03.892Z",
+   "correctionNotice": "In September 2020 we introduced improvements to the estimation of capital stocks. Recent quality assurance work has identified that although these improvements were fully implemented in the Public sector finances borrowing by sub-sector publication, they were not fully reflected in our presentation of public sector current budget and net investment as a ratio of GDP (series JW2V and MUB2 respectively), for the period - financial year ending March 1987 to the financial year ending March 1997. We have now updated these data in our time series dataset. \n\nThese updates have had no impact on our previous estimates of public sector net borrowing, cash requirement or debt. We apologise for any inconvenience.",
+   "label": "v40"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v41",
+   "updateDate": "2020-03-20T09:30:00.000Z",
+   "correctionNotice": "",
+   "label": "v41"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v42",
+   "updateDate": "2020-04-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v42"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v43",
+   "updateDate": "2020-05-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v43"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v44",
+   "updateDate": "2020-06-19T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v44"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v45",
+   "updateDate": "2020-07-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v45"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v46",
+   "updateDate": "2020-08-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v46"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v47",
+   "updateDate": "2020-09-25T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v47"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v47",
+   "updateDate": "2020-09-25T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v47"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v48",
+   "updateDate": "2020-10-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v48"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v49",
+   "updateDate": "2020-11-20T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v49"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v50",
+   "updateDate": "2020-12-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v50"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v51",
+   "updateDate": "2021-01-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v51"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v52",
+   "updateDate": "2021-02-19T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v52"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v53",
+   "updateDate": "2021-03-19T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v53"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v54",
+   "updateDate": "2021-04-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v54"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v55",
+   "updateDate": "2021-05-25T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v55"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v56",
+   "updateDate": "2021-06-22T05:20:55.173Z",
+   "correctionNotice": "",
+   "label": "v56"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v57",
+   "updateDate": "2021-07-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v57"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v58",
+   "updateDate": "2021-08-20T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v58"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v59",
+   "updateDate": "2021-09-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v59"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v60",
+   "updateDate": "2021-10-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v60"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v61",
+   "updateDate": "2021-11-19T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v61"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v62",
+   "updateDate": "2021-12-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v62"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v63",
+   "updateDate": "2022-01-25T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v63"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v64",
+   "updateDate": "2022-02-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v64"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v65",
+   "updateDate": "2022-03-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v65"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v66",
+   "updateDate": "2022-04-26T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v66"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v67",
+   "updateDate": "2022-05-24T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v67"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v68",
+   "updateDate": "2022-06-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v68"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v69",
+   "updateDate": "2022-07-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v69"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v70",
+   "updateDate": "2022-08-19T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v70"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v71",
+   "updateDate": "2022-09-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v71"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v72",
+   "updateDate": "2022-10-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v72"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v73",
+   "updateDate": "2022-11-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v73"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v74",
+   "updateDate": "2022-12-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v74"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v75",
+   "updateDate": "2023-01-24T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v75"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v76",
+   "updateDate": "2023-02-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v76"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v77",
+   "updateDate": "2023-03-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v77"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v78",
+   "updateDate": "2023-04-25T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v78"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v79",
+   "updateDate": "2023-05-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v79"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v80",
+   "updateDate": "2023-06-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v80"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v81",
+   "updateDate": "2023-07-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v81"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v82",
+   "updateDate": "2023-08-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v82"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v83",
+   "updateDate": "2023-09-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v83"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v84",
+   "updateDate": "2023-10-20T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v84"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v85",
+   "updateDate": "2023-11-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v85"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v86",
+   "updateDate": "2023-12-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v86"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v87",
+   "updateDate": "2024-01-23T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v87"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v88",
+   "updateDate": "2024-02-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v88"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v89",
+   "updateDate": "2024-03-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v89"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v90",
+   "updateDate": "2024-04-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v90"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v91",
+   "updateDate": "2024-05-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v91"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v92",
+   "updateDate": "2024-06-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v92"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v93",
+   "updateDate": "2024-07-19T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v93"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v94",
+   "updateDate": "2024-08-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v94"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v95",
+   "updateDate": "2024-09-20T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v95"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v96",
+   "updateDate": "2024-10-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v96"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v97",
+   "updateDate": "2024-11-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v97"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v98",
+   "updateDate": "2024-12-20T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v98"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v99",
+   "updateDate": "2025-01-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v99"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v100",
+   "updateDate": "2025-02-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v100"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v101",
+   "updateDate": "2025-03-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v101"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v102",
+   "updateDate": "2025-04-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v102"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v103",
+   "updateDate": "2025-05-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v103"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v104",
+   "updateDate": "2025-06-20T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v104"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v105",
+   "updateDate": "2025-07-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v105"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v106",
+   "updateDate": "2025-08-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v106"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v107",
+   "updateDate": "2025-09-19T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v107"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v108",
+   "updateDate": "2025-10-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v108"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v109",
+   "updateDate": "2025-11-21T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v109"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v110",
+   "updateDate": "2025-12-19T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v110"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v111",
+   "updateDate": "2026-01-22T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v111"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v112",
+   "updateDate": "2026-02-20T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v112"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v113",
+   "updateDate": "2026-03-20T07:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v113"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v114",
+   "updateDate": "2026-04-23T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v114"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v115",
+   "updateDate": "2026-05-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v115"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v116",
+   "updateDate": "2026-06-19T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v116"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v117",
+   "updateDate": "2026-07-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v117"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v118",
+   "updateDate": "2026-08-21T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v118"
+  },
+  {
+   "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf/previous/v119",
+   "updateDate": "2026-09-22T06:00:00.000Z",
+   "correctionNotice": "",
+   "label": "v119"
+  }
+ ],
+ "type": "timeseries",
+ "uri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/nmyx/pusf",
+ "description": {
+  "title": "GG: Current exp: Interest & dividends paid to private sector and RoW: £m CPNSA",
+  "contact": {
+   "email": "public.sector.inquiries@ons.gov.uk",
+   "name": "Public Sector Finance Delivery team",
+   "telephone": "+44 1633 456402"
+  },
+  "releaseDate": "2026-09-21T23:00:00.000Z",
+  "nextRelease": "21 October 2026",
+  "datasetId": "PUSF",
+  "datasetUri": "/economy/governmentpublicsectorandtaxes/publicsectorfinance/datasets/publicsectorfinances",
+  "cdid": "NMYX",
+  "unit": "m",
+  "preUnit": "£",
+  "source": "",
+  "date": "2026 AUG",
+  "number": "8860",
+  "sampleSize": "0"
+ }
+}
