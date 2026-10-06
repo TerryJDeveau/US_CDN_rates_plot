@@ -40,7 +40,7 @@ import contextlib
 import io
 import sys
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -57,6 +57,7 @@ from ratesplot.config import (  # noqa: E402
     GDP_COLUMN,
     MARKET_TIMEZONE,
     YIELD_COLUMNS,
+    YIELD_TERMS,
     PlotConfig,
 )
 from ratesplot.frames import at_quarter_end  # noqa: E402
@@ -111,12 +112,16 @@ def _fred(series_id: str, *, quarterly: bool) -> Callable[[PlotConfig], tuple[pd
     return run
 
 
-def _all_yields(frame: pd.DataFrame) -> pd.DataFrame:
+# The U.S. terms outside the default five (--yields:LIST).
+EXTRA_US_COLUMNS = tuple(column for column in YIELD_TERMS.values() if column not in YIELD_COLUMNS)
+
+
+def _all_yields(frame: pd.DataFrame, columns: tuple[str, ...] = YIELD_COLUMNS) -> pd.DataFrame:
     """``frame`` if it has every yield column; raises otherwise (a tenor lost is a curve missing from the chart)."""
-    missing = [column for column in YIELD_COLUMNS if column not in frame.columns]
+    missing = [column for column in columns if column not in frame.columns]
     if missing:
         raise ValueError(f"no {', '.join(missing)} column")
-    return frame[list(YIELD_COLUMNS)]
+    return frame[list(columns)]
 
 
 def _cdn_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
@@ -150,8 +155,14 @@ def _us_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     return _last(_all_yields(us_data.fetch_us_yields(config).set_index("DATE"))), ""
 
 
+def _us_extra_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    every = replace(config, yield_terms=tuple(YIELD_TERMS))
+    return _last(_all_yields(us_data.fetch_us_yields(every).set_index("DATE"), EXTRA_US_COLUMNS)), ""
+
+
 def _treasury_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
-    return _last(_all_yields(latest.treasury_yields_after(RECENT, config).set_index("DATE"))), ""
+    columns = tuple(YIELD_TERMS.values())
+    return _last(_all_yields(latest.treasury_yields_after(RECENT, config, columns).set_index("DATE"), columns)), ""
 
 
 def _debt_to_penny(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
@@ -159,9 +170,9 @@ def _debt_to_penny(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     return _last(debt), f"US${debt.iloc[-1] / 1e12:.3f} trillion" if len(debt) else ""
 
 
-def _quotes(country: str) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+def _quotes(country: str, columns: tuple[str, ...] | None = None) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
     def run(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
-        quotes = latest.fetch_quotes(country)
+        quotes = latest.fetch_quotes(country, columns)
         low, high = latest._PLAUSIBLE_YIELD  # the program's own rules for a usable quote
         problems, newest = [], None
         for column, quote in quotes.items():
@@ -202,6 +213,7 @@ CHECKS: tuple[Check, ...] = (
     Check("statcan_levels", "StatCan 10-10-0015 debt and interest by level", QUARTERLY, _cdn_levels),
     Check("statcan_population", "StatCan 17-10-0009 population", QUARTERLY, _cdn_population),
     Check("fred_yields", "FRED Treasury yields (DGS3MO, DGS2, DGS5, DGS10, DGS30)", DAILY, _us_yields),
+    Check("fred_yields_more", "FRED Treasury yields (DGS1MO, DGS6MO, DGS1, DGS7, DGS20)", DAILY, _us_extra_yields),
     Check("fred_gfdebtn", "FRED GFDEBTN federal debt", QUARTERLY, _fred("GFDEBTN", quarterly=True)),
     Check("fred_slgsdodns", "FRED SLGSDODNS state and local debt", QUARTERLY, _fred("SLGSDODNS", quarterly=True)),
     Check("fred_gdp", "FRED GDP", QUARTERLY, _fred("GDP", quarterly=True)),
@@ -211,10 +223,11 @@ CHECKS: tuple[Check, ...] = (
     Check("fred_interest_p", "FRED W756RC1A027NBEA state interest (annual)", ANNUAL, _fred("W756RC1A027NBEA", quarterly=False)),
     Check("fred_interest_m", "FRED W856RC1A027NBEA local interest (annual)", ANNUAL, _fred("W856RC1A027NBEA", quarterly=False)),
     Check("fred_population", "FRED B230RC0Q173SBEA population", QUARTERLY, _fred("B230RC0Q173SBEA", quarterly=True)),
-    Check("treasury_yields", "U.S. Treasury daily par yield curve", DAILY, _treasury_yields),
+    Check("treasury_yields", "U.S. Treasury daily par yield curve (all ten terms)", DAILY, _treasury_yields),
     Check("debt_to_penny", "U.S. Treasury Debt to the Penny", DAILY, _debt_to_penny),
     Check("cnbc_cdn", "CNBC quote feed, Canadian yields (unofficial)", QUOTES, _quotes("cdn")),
     Check("cnbc_us", "CNBC quote feed, U.S. yields (unofficial)", QUOTES, _quotes("us")),
+    Check("cnbc_us_more", "CNBC quote feed, U.S. 1m 6m 1y 7y 20y (unofficial)", QUOTES, _quotes("us", EXTRA_US_COLUMNS)),
     Check("census", "U.S. Census state and local finances: a year newer than baked?", None, _census),
 )
 

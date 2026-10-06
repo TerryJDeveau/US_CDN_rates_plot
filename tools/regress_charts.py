@@ -118,6 +118,11 @@ CASES: dict[str, list[str]] = {
     # --reg:TOL: a coarser and a finer tolerance than the default 1 % of the axis.
     "u_reg_tol3": ["-u", "--reg:3"],
     "c_reg_tol05": ["-c", "--reg:0.5", "-s:1990"],
+    # --yields:LIST / --no-yields:LIST: all ten U.S. terms (the five new ones in
+    # colours of their own), defaults dropped, and a term Canada does not have.
+    "u_y_all_l": ["-u", "--yields:1m,3m,6m,1,2,5,7,10,20,30", "-l", "-s:2001"],
+    "u_noy": ["-u", "--no-y:30,3m", "--yield", "-s:2019"],
+    "y7_10": ["--yields:7,10", "-l"],
 }
 
 

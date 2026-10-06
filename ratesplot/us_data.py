@@ -25,6 +25,7 @@ from .config import (
     THOUSAND,
     US_DEBT_COLUMN,
     US_INTEREST_COLUMN,
+    YIELD_TERMS,
     PlotConfig,
     component_column,
 )
@@ -33,13 +34,37 @@ from .http import fetch_fred_csv
 from .latest import extend_us_federal_debt, observed_through, project_to_now
 from .us_archive_data import EMBEDDED_US_DEBT_BY_LEVEL
 
-# First observation of each U.S. input, used to warn when ``--start`` is earlier.
+# Chart column -> FRED constant-maturity Treasury yield series, and its first
+# observation (FRED, measured 2026-10-06), in the order of config.YIELD_TERMS.
+# The five default terms always; the others when --yields:LIST names them.
+US_YIELD_SERIES = {
+    "1-Month": "DGS1MO",
+    "3-Month": "DGS3MO",
+    "6-Month": "DGS6MO",
+    "1-Year": "DGS1",
+    "2-Year": "DGS2",
+    "5-Year": "DGS5",
+    "7-Year": "DGS7",
+    "10-Year": "DGS10",
+    "20-Year": "DGS20",
+    "30-Year": "DGS30",
+}
+US_YIELD_EARLIEST = {
+    "1-Month": pd.Timestamp("2001-07-31"),
+    "3-Month": pd.Timestamp("1981-09-01"),
+    "6-Month": pd.Timestamp("1981-09-01"),
+    "1-Year": pd.Timestamp("1962-01-02"),
+    "2-Year": pd.Timestamp("1976-06-01"),
+    "5-Year": pd.Timestamp("1962-01-02"),
+    "7-Year": pd.Timestamp("1969-07-01"),
+    "10-Year": pd.Timestamp("1962-01-02"),
+    "20-Year": pd.Timestamp("1962-01-02"),
+    "30-Year": pd.Timestamp("1977-02-15"),
+}
+
+# First observation of each U.S. input other than the yields, used to warn
+# when ``--start`` is earlier (``us_series_earliest`` adds the chosen yields).
 US_SERIES_EARLIEST = {
-    "3-Month Yield (DGS3MO)": pd.Timestamp("1981-09-01"),
-    "2-Year Yield (DGS2)": pd.Timestamp("1976-06-01"),
-    "5-Year Yield (DGS5)": pd.Timestamp("1962-01-02"),
-    "10-Year Yield (DGS10)": pd.Timestamp("1962-01-02"),
-    "30-Year Yield (DGS30)": pd.Timestamp("1977-02-15"),
     # Where each source's coverage begins: the start of its first quarter, though
     # that quarter's value is dated at its end. A start inside that quarter is
     # not asking for anything before the source, so it is not warned about.
@@ -47,14 +72,6 @@ US_SERIES_EARLIEST = {
     "GDP / Interest (GDP, A180RC1…)": pd.Timestamp("1947-01-01"),
 }
 
-# Chart column -> FRED constant-maturity Treasury yield series.
-US_YIELD_SERIES = {
-    "3-Month": "DGS3MO",
-    "2-Year": "DGS2",
-    "5-Year": "DGS5",
-    "10-Year": "DGS10",
-    "30-Year": "DGS30",
-}
 
 US_DEBT_SERIES_ID = "GFDEBTN"               # federal debt, total public, $ millions
 US_STATE_LOCAL_DEBT_SERIES_ID = "SLGSDODNS"  # state & local debt securities, $ millions
@@ -75,19 +92,30 @@ US_GDP_SERIES_ID = "GDP"                    # nominal GDP, SAAR $ billions
 US_POPULATION_SERIES_ID = "B230RC0Q173SBEA"  # population (mid-period), thousands, quarterly from 1947
 
 
+def us_series_earliest(config: PlotConfig) -> dict[str, pd.Timestamp]:
+    """Return the first observation of the U.S. inputs, by name, for the coverage warning.
+
+    The yields are those of the chosen terms, as before --yields:LIST, even
+    with the yield curves off (the warning has always listed them).
+    """
+    columns = [YIELD_TERMS[term] for term in config.yield_terms]
+    yields = {f"{column} Yield ({US_YIELD_SERIES[column]})": US_YIELD_EARLIEST[column] for column in columns}
+    return {**yields, **US_SERIES_EARLIEST}
+
+
 def fetch_us_yields(config: PlotConfig) -> pd.DataFrame:
-    """Return the U.S. Treasury yield curves as a ``DATE``-column frame from ``config.start``.
+    """Return the chosen U.S. Treasury yield curves as a ``DATE``-column frame from ``config.start``.
 
     Series are outer-joined on date and forward-filled so holidays in one
     tenor do not create gaps in the others.
     """
-    if not config.include_yield:
+    if not config.yield_columns:
         return pd.DataFrame()
 
     print("Fetching FRED Treasury yields …")
     frames = [
-        fetch_fred_csv(series_id).set_index(DATE_COLUMN).rename(columns={series_id: label})
-        for label, series_id in US_YIELD_SERIES.items()
+        fetch_fred_csv(US_YIELD_SERIES[label]).set_index(DATE_COLUMN).rename(columns={US_YIELD_SERIES[label]: label})
+        for label in config.yield_columns
     ]
     data = pd.concat(frames, axis=1).sort_index().ffill().reset_index()
     return data.loc[data[DATE_COLUMN] >= config.start]

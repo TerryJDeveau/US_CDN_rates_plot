@@ -57,8 +57,10 @@ from .config import (
     PROJECTION_LABEL_PREFIX,
     PROJECTION_LABEL_STEERED,
     US,
-    YIELD_COLUMNS,
+    DEFAULT_YIELD_TERMS,
+    TERM_COLORS,
     YIELD_LINE_STYLE,
+    YIELD_TERMS,
     CountryMetadata,
     PlotConfig,
 )
@@ -79,7 +81,7 @@ from .legend import finish_legend_and_title
 from .measures import express
 from .regression import SlopeLabel, add_regression_segments
 from .regression import legend_entry as regression_legend_entry
-from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_population, fetch_us_yields
+from .us_data import fetch_us_macro, fetch_us_population, fetch_us_yields, us_series_earliest
 
 YieldLineDrawer = Callable[[Axes, pd.DataFrame, PlotConfig], list[Line2D]]
 
@@ -166,6 +168,21 @@ def add_macro_line(
     return line
 
 
+def _yield_style(column: str, config: PlotConfig) -> dict:
+    """Return the line style of one yield column: its term's own colour, unless the terms are the default five.
+
+    With the default terms (no --yields:LIST) the lines take matplotlib's
+    colour cycle in drawing order, as they always have, so those charts are
+    unchanged; the cycle's colours are the default terms' ``TERM_COLORS``
+    when all five are drawn. With terms chosen, each term has its own
+    colour, so the 10-year is red however few are drawn.
+    """
+    if config.yield_terms == DEFAULT_YIELD_TERMS:
+        return YIELD_LINE_STYLE
+    term = next(key for key, name in YIELD_TERMS.items() if name == column)
+    return YIELD_LINE_STYLE | {"color": TERM_COLORS[term]}
+
+
 def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> list[Line2D]:
     """Plot Canadian yield curves: monthly history as steps, daily live data as lines.
 
@@ -173,7 +190,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
     the live segment reuses the history segment's colour and is hidden from the
     legend so each tenor appears once.
     """
-    if not config.include_yield or yields.empty:
+    if not config.yield_columns or yields.empty:
         return []
 
     data = filter_to_date_range(yields.reset_index(), DATE_COLUMN, config).set_index(DATE_COLUMN)
@@ -181,7 +198,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
         return []
 
     legend_lines: list[Line2D] = []
-    for column in YIELD_COLUMNS:
+    for column in config.yield_columns:
         if column not in data.columns:
             continue
         series = data[column].dropna()
@@ -191,7 +208,9 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
         color = None
 
         if not historical.empty:
-            (line,) = ax.plot(historical.index, historical.values, label=label, drawstyle="steps-post", **YIELD_LINE_STYLE)
+            (line,) = ax.plot(
+                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config)
+            )
             color = line.get_color()
             legend_lines.append(line)
 
@@ -200,8 +219,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
                 current.index,
                 current.values,
                 label="_nolegend_" if color is not None else label,
-                color=color,
-                **YIELD_LINE_STYLE,
+                **(_yield_style(column, config) | ({"color": color} if color is not None else {})),
             )
             if color is None:
                 legend_lines.append(line)
@@ -214,14 +232,14 @@ def add_us_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
 
     ``yields`` has a ``DATE`` column (FRED frames are not date-indexed).
     """
-    if not config.include_yield or yields.empty:
+    if not config.yield_columns or yields.empty:
         return []
 
     data = filter_to_date_range(yields, DATE_COLUMN, config)
     lines: list[Line2D] = []
-    for column in YIELD_COLUMNS:
+    for column in config.yield_columns:
         if column in data.columns:
-            (line,) = ax.plot(data[DATE_COLUMN], data[column], label=f"{column} Yield", **YIELD_LINE_STYLE)
+            (line,) = ax.plot(data[DATE_COLUMN], data[column], label=f"{column} Yield", **_yield_style(column, config))
             lines.append(line)
     return lines
 
@@ -388,7 +406,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     (see ``ratesplot.latest``); the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
     """
     _require_start(config)
-    warn_series_coverage(config.start, US_SERIES_EARLIEST)
+    warn_series_coverage(config.start, us_series_earliest(config))
     yields, quote_time = extend_us_yields(fetch_us_yields(config), config)
     if not yields.empty:
         yields = yields.loc[yields[DATE_COLUMN] <= config.end]
@@ -453,9 +471,9 @@ def curve_first_dates(
             if has_value.any():
                 firsts[label] = dates[has_value][0]
 
-    if config.include_yield and not yields.empty:
+    if config.yield_columns and not yields.empty:
         dates = pd.DatetimeIndex(yields[DATE_COLUMN] if DATE_COLUMN in yields.columns else yields.index)
-        for column in YIELD_COLUMNS:
+        for column in config.yield_columns:
             note(yields, dates, column, f"{column} Yield")
     if not macro.empty:
         dates = pd.DatetimeIndex(macro[DATE_COLUMN])

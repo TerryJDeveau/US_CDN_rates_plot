@@ -255,6 +255,24 @@ BILLION = 1_000_000_000
 DATE_COLUMN = "DATE"
 YIELD_COLUMNS = ("3-Month", "2-Year", "5-Year", "10-Year", "30-Year")
 
+# Yield terms (--yields:LIST): the short form a term is written in -> its
+# column. Shortest first, which is the drawing and legend order. The five of
+# YIELD_COLUMNS are drawn by default and are the only Canadian ones; the U.S.
+# has all ten (FRED's DGS series; see us_data.US_YIELD_SERIES).
+YIELD_TERMS = {
+    "1m": "1-Month",
+    "3m": "3-Month",
+    "6m": "6-Month",
+    "1y": "1-Year",
+    "2y": "2-Year",
+    "5y": "5-Year",
+    "7y": "7-Year",
+    "10y": "10-Year",
+    "20y": "20-Year",
+    "30y": "30-Year",
+}
+DEFAULT_YIELD_TERMS = ("3m", "2y", "5y", "10y", "30y")
+
 GDP_COLUMN = "TTM Nominal GDP ($)"
 CDN_DEBT_COLUMN = "Total Canadian Debt ($)"
 # Before 1933 only federal debt is recorded; it is a separate curve, not part of
@@ -270,6 +288,24 @@ US_INTEREST_COLUMN = "TTM Interest Payments ($)"
 # ---------------------------------------------------------------------------
 
 YIELD_LINE_STYLE = {"linewidth": 1.2, "alpha": 0.9}
+# The colour of each yield term when the terms are chosen (--yields:LIST,
+# --no-yields:LIST). The five default terms have the colours matplotlib's
+# colour cycle gives them when all five are drawn (blue, orange, green, red,
+# purple), and the other five the rest of that palette. Without a choice of
+# terms the lines still take the cycle in drawing order, as they always have,
+# so those charts are unchanged (plotting._yield_style).
+TERM_COLORS = {
+    "3m": "#1f77b4",
+    "2y": "#ff7f0e",
+    "5y": "#2ca02c",
+    "10y": "#d62728",
+    "30y": "#9467bd",
+    "1m": "#8c564b",
+    "6m": "#e377c2",
+    "1y": "#7f7f7f",
+    "7y": "#bcbd22",
+    "20y": "#17becf",
+}
 
 # The same three semantic macro curves are drawn on both country charts, plus
 # (Canada only) federal debt alone before the aggregate begins: dotted, so the
@@ -552,6 +588,10 @@ class PlotConfig:
     macro_bottom: float | None = None
     macro_top: float | None = None
     include_yield: bool = True
+    # --yields:LIST / --no-yields:LIST: the yield terms drawn, as keys of
+    # YIELD_TERMS in that order. A term a country has no series for is
+    # simply not drawn on its chart (Canada has the five default terms).
+    yield_terms: tuple[str, ...] = DEFAULT_YIELD_TERMS
     include_debt: bool = True
     include_gdp: bool = True
     include_interest: bool = True
@@ -613,6 +653,11 @@ class PlotConfig:
         would make them fade.
         """
         return max(1.0, self.font_scale)
+
+    @property
+    def yield_columns(self) -> tuple[str, ...]:
+        """Return the yield columns drawn, in drawing order; none when the yield curves are off."""
+        return tuple(YIELD_TERMS[term] for term in self.yield_terms) if self.include_yield else ()
 
     @property
     def draws_gdp(self) -> bool:

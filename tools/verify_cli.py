@@ -119,6 +119,14 @@ CASES: list[list[str]] = [
     ["--reg:2", "--no-reg"], ["--no-reg", "--reg:2"], ["--reg", "--reg:2"], ["--reg:2", "-r", "-c"],
     ["--reg:0"], ["--reg:-1"], ["--reg:100"], ["--reg:101"], ["--reg:"], ["--reg:x"], ["--reg:%"], ["--reg:nan"],
     ["--re:1"], ["-r:1.5"],
+    # --yields:LIST / --no-yields:LIST (2026-10-06): the yield terms; years unless m. "--y:" is now
+    # --yields: (it was "--yield takes no value"); "no-" before a value is new to the matcher.
+    ["--yields:3m,10"], ["--y:2,10y"], ["--yield:30"], ["--yields:1m,6m,1,7,20"], ["--yields:10,3m,10"], ["--Y:10Y"],
+    ["--yields:4"], ["--yields:3x"], ["--yields:"], ["--yields:,"], ["--yields:12m"], ["--yields: 10 , 2 "],
+    ["--no-yields:30"], ["--no-y:30y,3m"], ["--no-yield:30"], ["--NO-Y:2"], ["--no-y:7"], ["--no-y:3m,2,5,10,30"],
+    ["--no-y:"], ["--no-y:x"], ["--yields:7,1m,10", "--no-y:10"], ["--yields:7", "--no-y:7"],
+    ["--no-y:30", "--yields:10"], ["--y:10", "--no-yield"], ["--y:10", "-c"], ["--y:10", "--gdp"],
+    ["--no-debt:fp"], ["--no-dim:1100"], ["--no-reg:2"], ["--no-s:2001"], ["--yieldsx:10"],
 ]
 
 

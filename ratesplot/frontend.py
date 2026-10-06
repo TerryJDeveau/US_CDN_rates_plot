@@ -135,6 +135,13 @@ def starting_choices(
         levels_given = any(name in cli_payloads for name in ("debt-parts", "interest-parts"))
         if levels_given:
             payloads["debt-parts"] = cli_config_payloads["debt-parts"]
+        # A list taken out of a field (--no-yields:30y) has no control of its
+        # own: the field's control shows what the command line left.
+        for option in options_of(Kind.VALUE):
+            if option.removes and option.name in cli_payloads:
+                for shown in options_of(Kind.VALUE):
+                    if shown.in_gui and shown.fields == option.fields:
+                        payloads[shown.name] = cli_config_payloads[shown.name]
         # Curves, and countries, are overridden as a group: on the command line
         # "--gdp" means "GDP only", which the resolved config already reflects.
         for group_name in GROUPS_CHOSEN_TOGETHER:

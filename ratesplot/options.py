@@ -20,7 +20,9 @@ regression. Nothing is matched by its first letter alone any more (Terry,
   any other token against the rest. A value given to an option that takes
   none (``-r:1``, ``--cur:1``) is an error, never another option that shares
   its first letter; so is a ``VALUE`` option named without a value.
-* ``no-`` is accepted by ``FLAG`` and ``TOGGLE`` options only.
+* ``no-`` is accepted by ``FLAG`` and ``TOGGLE`` options, and before the
+  value of a ``VALUE`` option that takes its list out of a field
+  (``Option.removes``: ``--no-yields:30`` drops the 30-year yield).
 * A token that spells two options is an error (``--m:5``: --min or --max).
   ``shortest`` keeps apart the names that share a first letter: "c" is
   Canada and "cur" the latest values, "r" the measure and "reg" the
@@ -50,10 +52,12 @@ from .config import (
     COMPONENT_SYNONYMS,
     DEFAULT_REGRESSION_TOLERANCE_PCT,
     DEFAULT_START_FLOOR,
+    DEFAULT_YIELD_TERMS,
     EARLIEST_DATA_START,
     MIN_CANVAS_PX,
     MIN_REGRESSION_TOLERANCE_PCT,
     MIN_WINDOW_DAYS,
+    YIELD_TERMS,
     PlotConfig,
 )
 
@@ -155,6 +159,36 @@ def parse_regression_tolerance(spec: str) -> float:
     if not 0 < parsed <= 100:
         raise ValueError(f"--reg tolerance must be above 0 and at most 100 (% of the axis height), got {spec.strip()}")
     return parsed
+
+
+_TERM_SPEC = re.compile(r"^(\d+)\s*([my]?)$")
+
+
+def parse_term(spec: str, *, kind: str) -> str:
+    """Parse one yield term, ``3m``, ``2``, ``5y`` or ``10``, to its key in ``YIELD_TERMS`` ("3m", "2y" …).
+
+    Years unless ``m`` (months) is given. ``kind`` names the option in messages.
+    """
+    match = _TERM_SPEC.match(spec.strip().lower())
+    key = f"{int(match.group(1))}{match.group(2) or 'y'}" if match else None
+    if key not in YIELD_TERMS:
+        terms = ", ".join(YIELD_TERMS)
+        raise ValueError(f"invalid {kind} term {spec.strip()!r}: use {terms} (y may be left out)")
+    return key
+
+
+def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
+    """Parse a comma-separated list of yield terms into ``YIELD_TERMS`` keys, in that order (repeats are harmless)."""
+    items = [item for item in spec.split(",") if item.strip()]
+    if not items:
+        raise ValueError(f"empty {kind} list: name terms such as 3m,2,10")
+    chosen = {parse_term(item, kind=kind) for item in items}
+    return tuple(term for term in YIELD_TERMS if term in chosen)
+
+
+def format_terms(values: tuple, _config: PlotConfig) -> str:
+    """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``."""
+    return ",".join(values[0])
 
 
 def is_percent_bound(spec: str) -> bool:
@@ -356,6 +390,9 @@ class Option:
     parse: Callable[[str], object] | None = None  # VALUE: payload -> value (a tuple if several fields)
     check: Callable[[Mapping[str, object]], None] | None = None  # VALUE: run after this option is parsed
     turns_on: str | None = None  # VALUE: the FLAG option that giving this value turns on (--reg:TOL is --reg)
+    # VALUE: spelled after "no-" (--no-yields:LIST); its list is taken out of
+    # its field (the default, or what the option before it in the table gave).
+    removes: bool = False
     flag: str | None = None  # SWITCH: the argparse flag
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
@@ -419,6 +456,22 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields",
         names=("yield", "yields"), label="Bond yields",
+    ),
+    # The yield terms (config.YIELD_TERMS): named, or dropped from the default
+    # five. They choose which yield lines the curve draws; they do not name a
+    # curve under the curve rule, so the other curves stay. The window has the
+    # one field; --no-yields:LIST is a command-line convenience (Terry,
+    # 2026-10-06: drop a few defaults rather than list all the wanted ones).
+    Option(
+        "yields", Kind.VALUE, ("yield_terms",), "curves", "--yields:LIST / --y:LIST",
+        "the yield terms drawn: 1m 3m 6m 1 2 5 7\n10 20 30 (years unless m; default\n"
+        f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only",
+        names=("yields",), parse=partial(parse_terms, kind="--yields"), label="Yield terms", format=format_terms,
+    ),
+    Option(
+        "no-yields", Kind.VALUE, ("yield_terms",), "curves", "--no-yields:LIST / --no-y:LIST",
+        "drop these terms from the default five\n(or from --yields:LIST)",
+        names=("yields",), parse=partial(parse_terms, kind="--no-yields"), removes=True, in_gui=False,
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.
@@ -593,6 +646,19 @@ _PART_OPTIONS = {"debt-parts": "debt", "interest-parts": "interest"}
 #   flags:    FLAG / TOGGLE / SWITCH option -> True or False (absent = not given)
 
 
+def _removed(option: Option, spec: str, current: tuple) -> tuple:
+    """Return ``current`` without the items ``spec`` names (``option.removes``); raise if one is not there or none is left."""
+    dropped = option.parse(spec)
+    spelling = option.usage.split(":")[0]
+    absent = [item for item in dropped if item not in current]
+    if absent:
+        raise ValueError(f"{spelling}:{spec.strip()}: {','.join(absent)} is not drawn anyway (drawn: {','.join(current)})")
+    left = tuple(item for item in current if item not in dropped)
+    if not left:
+        raise ValueError(f"{spelling}:{spec.strip()} drops every term; to hide the yield curves use --no-yield")
+    return left
+
+
 def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> PlotConfig:
     """Build the PlotConfig the choices describe; raise ValueError naming the first problem.
 
@@ -609,6 +675,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
       levels, so given on both they must agree. Each also names its curve,
       as --debt and --interest do, unless that curve's flag was given
       explicitly (the window gives every flag, so there it names nothing).
+    * A value option that removes (``--no-yields:LIST``) takes its items out
+      of its field as the options before it left it; an item not there, or
+      none left, is an error.
     * A value that belongs to a flag (``turns_on``: --reg:TOL) turns it on,
       unless the flag was given explicitly (--reg:2 --no-reg is off).
     * Measure: -r and -p exclude each other (``check_single_measure``).
@@ -617,7 +686,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     """
     values = dataclasses.asdict(PlotConfig())
     for option in options_of(Kind.VALUE):
-        if option.name in payloads:
+        if option.name in payloads and option.removes:
+            values[option.fields[0]] = _removed(option, payloads[option.name], values[option.fields[0]])
+        elif option.name in payloads:
             parsed = option.parse(payloads[option.name])
             values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
         if option.check is not None:
@@ -679,6 +750,31 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
     return payloads, flags
 
 
+def _shorter_as_removal(option: Option, text: str) -> str | None:
+    """Return the option's value written as what it drops from the default, when that is shorter; else None.
+
+    ``--no-yields:30y`` rather than ``--yields:3m,2y,5y,10y`` (an option
+    with a remover, ``Option.removes``, on its field). None also when the
+    text does not parse; the caller then writes it as it is. "" when it
+    is the default, spelled another way: nothing need be written.
+    """
+    remover = next((other for other in options_of(Kind.VALUE) if other.removes and other.fields == option.fields), None)
+    if remover is None:
+        return None
+    try:
+        chosen = option.parse(text)
+    except ValueError:
+        return None
+    default = getattr(PlotConfig(), option.fields[0])
+    dropped = [item for item in default if item not in chosen]
+    if tuple(chosen) == tuple(default):
+        return ""
+    if not dropped or not set(chosen) <= set(default):
+        return None
+    removal = f"{remover.usage.split(':')[0]}:{','.join(dropped)}"
+    return removal if len(removal) < len(f"{option.usage.split(':')[0]}:{text}") else None
+
+
 def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> list[str]:
     """Return the shortest command line (after the script name) that reproduces the GUI choices.
 
@@ -729,7 +825,9 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
                 continue
             stood_for.add(option.turns_on)
         key = f"--{level_key}" if option.name in _PART_OPTIONS else option.usage.split(":")[0]
-        values.append(f"{key}:{text}")
+        shorter = _shorter_as_removal(option, text)
+        if shorter != "":  # "": the default, spelled another way ("3m,2,5,10,30")
+            values.append(shorter or f"{key}:{text}")
 
     # On/off flags in the window (--cur, --reg): only when not at their default.
     for option in options_of(Kind.FLAG):
