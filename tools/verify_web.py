@@ -419,7 +419,43 @@ def check_size_boxes(check: Check) -> None:
     check("a bad box: reported, not drawn", any("Size" in e.value for e in one.error), [e.value for e in one.error])
 
 
-PAGE_CHECKS = (check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes)
+def check_choice_boxes(check: Check) -> None:
+    """The tick boxes of the list options (yield terms, mortgage terms, spreads): the text stays the source of truth."""
+
+    def ticked(at: AppTest, name: str) -> list[str]:
+        prefix = f"choice:{name}:"
+        return [box.key[len(prefix):] for box in at.checkbox if box.key and box.key.startswith(prefix) and box.value]
+
+    page = new_page("-u --e:2026-09-01 --no-y:30 --mo:15 --sp:10-2,7-1m")
+    check(
+        "the address's lists ticked; a pair not offered gets its own box",
+        ticked(page, "yields") == ["3m", "2y", "5y", "10y"]
+        and ticked(page, "mortgage-terms") == ["15"]
+        and ticked(page, "spread-pairs") == ["10y-2y", "7y-1m"],
+        (ticked(page, "yields"), ticked(page, "mortgage-terms"), ticked(page, "spread-pairs")),
+    )
+    page.checkbox(key="choice:yields:7y").check()
+    page.run()
+    check("ticking 7y adds it to the address", "--yields:3m,2y,5y,7y,10y" in address(page), address(page))
+    page.checkbox(key="choice:mortgage-terms:15").uncheck()
+    page.run()
+    check(
+        "the last mortgage box cannot be unticked",
+        ticked(page, "mortgage-terms") == ["15"] and any("must stay ticked" in str(item.value) for item in list(page.info) + list(page.warning)),
+        ticked(page, "mortgage-terms"),
+    )
+    page.checkbox(key="flag:spreads").uncheck()
+    page.run()
+    check(
+        "spread boxes greyed while --spreads is off, and left out of the address",
+        page.checkbox(key="choice:spread-pairs:10y-2y").disabled and "--spreads" not in address(page),
+        address(page),
+    )
+
+
+PAGE_CHECKS = (
+    check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
+)
 
 
 def check_page() -> bool:

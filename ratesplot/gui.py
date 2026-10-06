@@ -86,6 +86,9 @@ from .frontend import (
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    choice_rows,
+    choice_values,
+    choices_text,
     level_letters,
     load_state,
     option_help_lines,
@@ -317,6 +320,77 @@ class _LevelsEditor:
             self.syncing = False
 
 
+class _ChoicesEditor:
+    """Keeps a list option's tick boxes (``Option.choices``) and its text (``"10y-2y,10y-3m"``) in step.
+
+    See ``RatesPlotApp._add_choices_control``. As for the levels, the text
+    stays the single source of truth; the boxes are a view of it. The last
+    ticked box cannot be unticked (``refuse`` says why): an empty list would
+    read as the default. A value set from elsewhere that has no box (a spread
+    named on the command line) gets one, in a row "other".
+    """
+
+    def __init__(self, option: Option, payload: tk.StringVar, frame: ttk.Frame, on_change, refuse) -> None:
+        self.option = option
+        self.payload = payload
+        self.frame = frame
+        self.on_change = on_change
+        self.refuse = refuse
+        self.boxes: dict[str, tk.BooleanVar] = {}
+        self.widgets: list[ttk.Checkbutton] = []
+        self.rows = 0
+        self.syncing = False
+        self.payload.trace_add("write", lambda *_args: self._payload_changed())
+
+    def add_row(self, caption: str, boxes: list[tuple[str, str]]) -> None:
+        """Add one row of boxes, its caption at the left."""
+        ttk.Label(self.frame, text=f"{caption}:" if caption else "", foreground="#555555").grid(
+            row=self.rows, column=0, sticky="w", padx=(0, 4)
+        )
+        for column, (value, text) in enumerate(boxes, start=1):
+            variable = tk.BooleanVar(value=False)
+            self.boxes[value] = variable
+            check = ttk.Checkbutton(self.frame, text=text, variable=variable, command=lambda v=value: self.box_changed(v))
+            check.grid(row=self.rows, column=column, sticky="w", padx=(0, 6))
+            _Tooltip(check, _tooltip_text(self.option))
+            self.widgets.append(check)
+        self.rows += 1
+
+    def set_state(self, state: list[str]) -> None:
+        for widget in self.widgets:
+            widget.state(state)
+
+    def box_changed(self, value: str) -> None:
+        if self.syncing:
+            return
+        ticked = [item for item, variable in self.boxes.items() if variable.get()]
+        if not ticked:
+            self.boxes[value].set(True)
+            self.refuse(f"At least one of the {self.option.label.lower()} must stay ticked.")
+            return
+        self.syncing = True
+        try:
+            self.payload.set(choices_text(self.option, ticked))
+        finally:
+            self.syncing = False
+        self.on_change()
+
+    def _payload_changed(self) -> None:
+        """Show a text set from elsewhere (loading, Back, Reset) in the boxes."""
+        if self.syncing:
+            return
+        values = choice_values(self.option, self.payload.get())
+        new = [(value, value.replace("-", "–")) for value in values if value not in self.boxes]
+        if new:
+            self.add_row("other", new)
+        self.syncing = True
+        try:
+            for value, variable in self.boxes.items():
+                variable.set(value in values)
+        finally:
+            self.syncing = False
+
+
 class _SizeEditor:
     """Keeps two boxes (width, height) and one ``WxH`` text variable in step.
 
@@ -441,6 +515,7 @@ class RatesPlotApp:
         self.value_entries: dict[str, ttk.Entry] = {}
         self.size_editors: dict[str, _SizeEditor] = {}
         self.level_editors: dict[str, _LevelsEditor] = {}
+        self.choice_editors: dict[str, _ChoicesEditor] = {}
 
         # Per-country preview state, keyed by Country.key.
         self.tabs: dict[str, ttk.Frame] = {}
@@ -588,14 +663,30 @@ class RatesPlotApp:
             frame = ttk.LabelFrame(panel, text=group_title(group), padding=(8, 4))
             frame.pack(fill="x", pady=(0, 6))
             frame.columnconfigure(1, weight=1)
-            # A value that belongs to a flag (the regression tolerance, the
-            # mortgage terms) goes on the flag's own row, which keeps the
-            # column short (before Redraw and Save were pinned, one more row
-            # put them below the fold of a 972 px window).
-            attached = {option.turns_on: option for option in members if option.kind is Kind.VALUE and option.turns_on}
-            rows = [option for option in members if option not in attached.values()]
+            # A value that belongs to a flag (the regression tolerance) goes on
+            # the flag's own row, which keeps the column short; tick boxes for
+            # a flag's list (mortgage terms, spreads) go on the rows under it.
+            attached = {
+                option.turns_on: option
+                for option in members
+                if option.kind is Kind.VALUE and option.turns_on and option.editor != "choices"
+            }
+            under = {
+                option.turns_on: option
+                for option in members
+                if option.kind is Kind.VALUE and option.turns_on and option.editor == "choices"
+            }
+            rows: list[Option] = []
+            for option in members:
+                if option in attached.values() or option in under.values():
+                    continue
+                rows.append(option)
+                if option.name in under:
+                    rows.append(under[option.name])
             for row, option in enumerate(rows):
-                if option.kind is Kind.VALUE and option.editor == "size":
+                if option.kind is Kind.VALUE and option.editor == "choices":
+                    self._add_choices_control(frame, row, option)
+                elif option.kind is Kind.VALUE and option.editor == "size":
                     self._add_size_control(frame, row, option)
                 elif option.kind is Kind.VALUE and option.editor == "levels":
                     self._add_levels_control(frame, row, option)
@@ -618,7 +709,7 @@ class RatesPlotApp:
             field = ttk.Frame(frame)
             field.grid(row=row, column=1, columnspan=2, sticky="e")
             # No padding: the row stays as tall as a check box.
-            self._add_value_control(field, 0, value, entry_width=value.entry_width or 5, pady=0)
+            self._add_value_control(field, 0, value, entry_width=5, pady=0)
 
     def _add_value_control(self, frame: ttk.Frame, row: int, option: Option, entry_width: int = 16, pady: int = 1) -> None:
         variable = tk.StringVar()
@@ -662,6 +753,30 @@ class RatesPlotApp:
             check.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 8))
             _Tooltip(check, tip)
         _Tooltip(label, tip)
+
+    def _add_choices_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+        """A list option as tick boxes (``Option.choices``), one row of boxes per row offered.
+
+        A list that belongs to a flag (mortgage terms, spreads) sits indented
+        under that flag's check box, with no label of its own, and is greyed
+        while the flag is off; one of its own (the yield terms) has its label
+        at the left, as the other fields do.
+        """
+        payload = tk.StringVar()
+        self.payload_vars[option.name] = payload
+        box = ttk.Frame(frame)
+        if option.turns_on:
+            box.grid(row=row, column=0, columnspan=3, sticky="w", padx=(22, 0), pady=(0, 2))
+        else:
+            label = ttk.Label(frame, text=option.label)
+            label.grid(row=row, column=0, sticky="nw", padx=(0, 6), pady=(3, 1))
+            self.value_labels[option.name] = label
+            _Tooltip(label, _tooltip_text(option))
+            box.grid(row=row, column=1, columnspan=2, sticky="w", pady=1)
+        editor = _ChoicesEditor(option, payload, box, on_change=self.request_redraw, refuse=self.status.set)
+        for caption, boxes in choice_rows(option, ""):
+            editor.add_row(caption, boxes)
+        self.choice_editors[option.name] = editor
 
     def _add_size_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
         """Width and height boxes, "x" between them, and a "Preserve aspect ratio" lock.
@@ -821,10 +936,14 @@ class RatesPlotApp:
         if "gdp" in self.flag_boxes:
             self.flag_boxes["gdp"].state(["disabled"] if relative else ["!disabled"])
         for option in options_of(Kind.VALUE):
-            if option.turns_on in self.flag_vars and option.name in self.value_entries:
-                state = ["!disabled"] if self.flag_vars[option.turns_on].get() else ["disabled"]
+            if option.turns_on not in self.flag_vars:
+                continue
+            state = ["!disabled"] if self.flag_vars[option.turns_on].get() else ["disabled"]
+            if option.name in self.value_entries:
                 self.value_entries[option.name].state(state)
                 self.value_labels[option.name].state(state)
+            if option.name in self.choice_editors:
+                self.choice_editors[option.name].set_state(state)
 
     def _text_changed(self) -> None:
         if self._loading:

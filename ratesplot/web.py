@@ -104,6 +104,9 @@ from .frontend import (  # noqa: E402
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    choice_rows,
+    choice_values,
+    choices_text,
     level_letters,
     move_dates_updates,
     option_help_lines,
@@ -165,6 +168,8 @@ _ZOOM_HINT = (
 _FLAG = "flag:"      # + option name: a check box
 _VALUE = "value:"    # + option name: a text field
 _LEVEL = "level:"    # + letter: one of the "By level" boxes
+_CHOICE = "choice:"  # + option name + ":" + value: one tick box of a list option (Option.choices)
+_CHOICE_OTHERS = "choice_others:"  # + option name: the values given that no offered box has
 _READY = "ready"     # the controls have been set from the address
 _ADDRESS_PROBLEMS = "address_problems"
 _NOTICE = "notice"   # a message from a control's callback, shown once
@@ -375,6 +380,14 @@ def _load_choices(choices: Choices) -> None:
             letters = level_letters(payloads.get(option.name, ""))
             for letter in COMPONENT_LETTERS:
                 st.session_state[_LEVEL + letter] = letter in letters
+        elif option.editor == "choices":
+            text = payloads.get(option.name, "")
+            rows = choice_rows(option, text)
+            st.session_state[_CHOICE_OTHERS + option.name] = [value for value, _box in rows[-1][1]] if rows[-1][0] == "other" else []
+            ticked = choice_values(option, text)
+            for _caption, boxes in rows:
+                for value, _box in boxes:
+                    st.session_state[_CHOICE + option.name + ":" + value] = value in ticked
         else:
             st.session_state[_VALUE + option.name] = payloads.get(option.name, "")
             if option.editor == "size":
@@ -391,6 +404,11 @@ def _snapshot() -> Choices:
             payloads[option.name] = "".join(
                 letter for letter in COMPONENT_LETTERS if st.session_state.get(_LEVEL + letter, False)
             )
+        elif option.editor == "choices":
+            ticked = [
+                value for value in _choice_values_offered(option) if st.session_state.get(_CHOICE + option.name + ":" + value, False)
+            ]
+            payloads[option.name] = choices_text(option, ticked)
         else:
             payloads[option.name] = st.session_state.get(_VALUE + option.name, "")
     flags = {option.name: bool(st.session_state.get(_FLAG + option.name, False)) for option in _gui_options(False)}
@@ -448,6 +466,20 @@ def _remember_view() -> None:
     history = st.session_state.setdefault(_HISTORY, [])
     history.append(_snapshot())
     del history[:-_HISTORY_LIMIT]
+
+
+def _choice_values_offered(option: Option) -> list[str]:
+    """Every value a list option has a box for now: those offered, then any others given (``_CHOICE_OTHERS``)."""
+    offered = [value for _caption, boxes in choice_rows(option, "") for value, _box in boxes]
+    return offered + st.session_state.get(_CHOICE_OTHERS + option.name, [])
+
+
+def _choice_changed(name: str, value: str) -> None:
+    """Keep at least one box of a list ticked: an empty list would read as the default."""
+    option = next(option for option in OPTIONS if option.name == name)
+    if not any(st.session_state.get(_CHOICE + name + ":" + item, False) for item in _choice_values_offered(option)):
+        st.session_state[_CHOICE + name + ":" + value] = True
+        st.session_state[_NOTICE] = f"At least one of the {option.label.lower()} must stay ticked."
 
 
 def _reset() -> None:
@@ -706,6 +738,35 @@ def _levels_control(where, option: Option) -> None:
         columns[index % 2].checkbox(caption, key=_LEVEL + letter)
 
 
+def _choices_control(where, option: Option) -> None:
+    """A list option as tick boxes (``Option.choices``): a row of boxes per row offered, with its caption.
+
+    One that belongs to a flag (mortgage terms, spreads) is greyed while
+    the flag is off, as its field was.
+    """
+    disabled = option.turns_on is not None and not st.session_state.get(_FLAG + option.turns_on, False)
+    if option.turns_on is None:
+        where.markdown(f"**{option.label}**", help=_help(option))
+    others = st.session_state.get(_CHOICE_OTHERS + option.name, [])
+    rows = [(caption, list(boxes)) for caption, boxes in option.choices]
+    if others:
+        rows.append(("other", [(value, value.replace("-", "–")) for value in others]))
+    width = max(len(boxes) for _caption, boxes in rows)  # boxes line up from row to row
+    for caption, boxes in rows:
+        if caption:
+            where.caption(caption)
+        columns = where.columns(width)
+        for column, (value, text) in zip(columns, boxes):
+            column.checkbox(
+                text,
+                key=_CHOICE + option.name + ":" + value,
+                help=_help(option),
+                disabled=disabled,
+                on_change=_choice_changed,
+                args=(option.name, value),
+            )
+
+
 def _start_placeholder() -> str | None:
     """"automatic: 1981-09-01" once a drawing has found the start (it shows in no field otherwise)."""
     drawing: Drawing | None = st.session_state.get(_DRAWING)
@@ -733,7 +794,10 @@ def _controls() -> None:
             if option.kind is Kind.VALUE:
                 continue
             _flag_control(bar, option)
-            if option.name in attached:
+            if option.name in attached and attached[option.name].editor == "choices":
+                # Straight in the sidebar: Streamlit allows no columns inside its columns there.
+                _choices_control(bar, attached[option.name])
+            elif option.name in attached:
                 _value_control(bar.columns([1, 12])[1], attached[option.name])
         # Dates one to a row (the Start field's hint names the date found);
         # other text fields two to a row (Min and Max, Top and Bottom).
@@ -743,12 +807,14 @@ def _controls() -> None:
                 if option.name == "start":
                     placeholder = st.session_state[_START_HINT] = _start_placeholder()
                 _date_control(bar, option, placeholder)
-        paired = [option for option in values if option.editor not in ("date", "levels", "size")]
+        paired = [option for option in values if option.editor not in ("date", "levels", "size", "choices")]
         for index in range(0, len(paired), 2):
             for column, option in zip(bar.columns(2), paired[index:index + 2]):
                 _value_control(column, option)
         for option in values:
-            if option.editor == "levels":
+            if option.editor == "choices":
+                _choices_control(bar, option)
+            elif option.editor == "levels":
                 _levels_control(bar, option)
             elif option.editor == "size":
                 _size_control(bar, option)

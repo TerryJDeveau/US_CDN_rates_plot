@@ -456,12 +456,34 @@ class Option:
     in_gui: bool = True
     # GUI editor for a VALUE option: None = a plain text field; "date" = text
     # field plus calendar button; "size" = width and height boxes with an
-    # aspect-ratio lock (for a "WxH" option such as the canvas size).
+    # aspect-ratio lock (for a "WxH" option such as the canvas size);
+    # "choices" = a tick box per item of a list (``choices``).
     editor: str | None = None
-    # GUI: the width in characters of a VALUE option's field on its flag's
-    # row (``turns_on``); None: 5, enough for a tolerance.
-    entry_width: int | None = None
+    # GUI editor "choices": the tick boxes offered, in rows, each row a caption
+    # ("" for none) and its (value, box caption) pairs. The values are the
+    # items of the option's list as ``format`` writes them ("10y", "5v",
+    # "10y-2y"); a value given on the command line that is not offered gets a
+    # box of its own (``frontend.choice_rows``). Terry, 2026-10-06: tick boxes
+    # show what can be chosen.
+    choices: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
 
+
+# The tick boxes of the list options (Option.choices). Yield terms: the five
+# both countries have, then those only the U.S. has. Mortgage terms by
+# country. Spreads: the usual pairs (the defaults first); any other pair
+# named on the command line gets a box of its own.
+_YIELD_CHOICES = (
+    ("", tuple((term, term) for term in DEFAULT_YIELD_TERMS)),
+    ("U.S. only", tuple((term, term) for term in YIELD_TERMS if term not in DEFAULT_YIELD_TERMS)),
+)
+_MORTGAGE_CHOICES = (
+    ("U.S.", (("30", "30y"), ("15", "15y"))),
+    ("Canada", (("5", "5y"), ("3", "3y"), ("1", "1y"), ("5v", "5y var."))),
+)
+_SPREAD_CHOICES = (
+    ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in DEFAULT_SPREADS)),
+    ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in (("2y", "3m"), ("5y", "2y"), ("30y", "2y")))),
+)
 
 # Help-listing sections, in display order: key -> heading (and any notes).
 # The GUI titles its panels with the heading up to the first " (" or ":".
@@ -526,6 +548,7 @@ OPTIONS: tuple[Option, ...] = (
         "the yield terms drawn: 1m 3m 6m 1 2 5 7\n10 20 30 (years unless m; default\n"
         f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only",
         names=("yields",), parse=partial(parse_terms, kind="--yields"), label="Yield terms", format=format_terms,
+        editor="choices", choices=_YIELD_CHOICES,
     ),
     Option(
         "no-yields", Kind.VALUE, ("yield_terms",), "curves", "--no-yields:LIST / --no-y:LIST",
@@ -553,7 +576,7 @@ OPTIONS: tuple[Option, ...] = (
         "the terms: 30 15 (U.S.), 5 3 1 5v\n(Canada; 5v variable, broker average);\n"
         f"default {','.join(DEFAULT_MORTGAGE_TERMS)}; turns --mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
-        label="terms", format=format_terms, entry_width=9,
+        label="Mortgage terms", format=format_terms, editor="choices", choices=_MORTGAGE_CHOICES,
     ),
     # At least "sp": "--s:" stays the start date.
     Option(
@@ -566,7 +589,7 @@ OPTIONS: tuple[Option, ...] = (
         "pairs of yield terms, the first less the\nsecond (default "
         f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())});\nturns --spreads on",
         names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
-        label="pairs", format=format_spreads, entry_width=14,
+        label="Spreads", format=format_spreads, editor="choices", choices=_SPREAD_CHOICES,
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.

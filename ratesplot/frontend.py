@@ -197,6 +197,53 @@ def level_letters(text: str) -> set[str]:
     return {COMPONENT_SYNONYMS.get(letter, letter) for letter in text.strip().lower()}
 
 
+# ---------------------------------------------------------------------------
+# Tick boxes for a list option (Option.editor == "choices")
+# ---------------------------------------------------------------------------
+# The option's text (its command-line value, "10y-2y,10y-3m") stays the one
+# source of truth, as for the levels and the size: the boxes are a view of it
+# and write it back. The window and the web page share these rules.
+
+
+def choice_values(option: Option, text: str) -> list[str]:
+    """Return the list items ``text`` names, as the option writes them ("2", "10" -> ["2y", "10y"]).
+
+    A blank text is the option's default. Lenient, for ticking the boxes: a
+    text that does not parse names nothing here (the option's parser reports
+    it when the chart is drawn).
+    """
+    default = PlotConfig()
+    try:
+        value = option.parse(text) if text.strip() else getattr(default, option.fields[0])
+    except ValueError:
+        return []
+    written = option.format((value,), default)
+    return [item for item in written.split(",") if item]
+
+
+def choice_rows(option: Option, text: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Return the option's rows of boxes, ``(caption, [(value, box caption), ...])``.
+
+    The offered rows (``Option.choices``), then a row "other" for any item
+    ``text`` names that none of them offers (a spread typed on the command
+    line), so nothing chosen is hidden.
+    """
+    rows = [(caption, list(boxes)) for caption, boxes in option.choices]
+    offered = {value for _caption, boxes in rows for value, _box in boxes}
+    others = [(value, value.replace("-", "–")) for value in choice_values(option, text) if value not in offered]
+    return rows + ([("other", others)] if others else [])
+
+
+def choices_text(option: Option, ticked: list[str]) -> str:
+    """Return the option's text for the ticked items, written as the command line writes it.
+
+    The yield terms in term order ("3m,2y,7y,10y", wherever 7y's box is), the
+    spreads in box order (which sets their colours); "" when none is ticked.
+    """
+    joined = ",".join(ticked)
+    return ",".join(choice_values(option, joined)) if joined else ""
+
+
 def option_help_lines(option: Option) -> tuple[str, str, str]:
     """Return an option's group notes, its help text and its command-line spelling."""
     return (
