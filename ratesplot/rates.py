@@ -223,20 +223,23 @@ def yield_spreads(country: str, yields: pd.DataFrame, config: PlotConfig) -> lis
     the day's quotes. A value is drawn where both terms have one. Canada's
     yields are monthly before 2001, so its spreads are steps there, as its
     yields are. A pair with a term the country has no yield for is named and
-    left out.
+    left out, and the colours go to the pairs drawn, in order.
     """
     if yields.empty:
         return []
     frame = yields.set_index(DATE_COLUMN) if DATE_COLUMN in yields.columns else yields
     curves = []
-    for index, pair in enumerate(config.spread_pairs):
+    for pair in config.spread_pairs:
         first, second = (YIELD_TERMS[term] for term in pair)
         if first not in frame.columns or second not in frame.columns:
             name = "U.S." if country == "us" else "Canadian"
             print(f"  Note: no {name} {first if first not in frame.columns else second} yield; no {spread_label(pair)} on this chart.")
             continue
         values = _clean(frame[first] - frame[second])
-        style = SPREAD_STYLE | {"color": SPREAD_COLORS[index % len(SPREAD_COLORS)]}
+        # Coloured by its place among the spreads drawn, so a pair left off
+        # takes no colour: Canada's chart of 7y-1m,10y-2y draws its 10y-2y
+        # as its chart of 10y-2y alone does (options.nation_view).
+        style = SPREAD_STYLE | {"color": SPREAD_COLORS[len(curves) % len(SPREAD_COLORS)]}
         steps_until = CANADIAN_YIELD_HIST_END if country == "cdn" else None
         key = f"spread_{pair[0]}-{pair[1]}"
         curves.append(RateCurve(key, spread_label(pair), values, style, steps_until, spread=True, title="Spreads"))
