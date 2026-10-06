@@ -51,12 +51,14 @@ from .config import (
     COMPONENT_LETTERS,
     COMPONENT_SYNONYMS,
     DEFAULT_REGRESSION_TOLERANCE_PCT,
+    DEFAULT_MORTGAGE_TERMS,
     DEFAULT_START_FLOOR,
     DEFAULT_YIELD_TERMS,
     EARLIEST_DATA_START,
     MIN_CANVAS_PX,
     MIN_REGRESSION_TOLERANCE_PCT,
     MIN_WINDOW_DAYS,
+    MORTGAGE_TERMS,
     YIELD_TERMS,
     PlotConfig,
 )
@@ -189,6 +191,25 @@ def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
 def format_terms(values: tuple, _config: PlotConfig) -> str:
     """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``."""
     return ",".join(values[0])
+
+
+def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
+    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v Canada), in that order.
+
+    A "y" after the years is accepted ("30y"), and repeats are harmless.
+    """
+    items = [item.strip().lower() for item in spec.split(",") if item.strip()]
+    if not items:
+        raise ValueError("empty --mortgages list: name terms such as 30,5")
+    chosen = set()
+    for item in items:
+        term = item[:-1] if item.endswith("y") else item.replace("yv", "v")
+        if term not in MORTGAGE_TERMS:
+            raise ValueError(
+                f"invalid --mortgages term {item!r}: use 30 or 15 (U.S.), 5, 3, 1 or 5v (Canada, 5v the 5-year variable)"
+            )
+        chosen.add(term)
+    return tuple(term for term in MORTGAGE_TERMS if term in chosen)
 
 
 def is_percent_bound(spec: str) -> bool:
@@ -416,7 +437,7 @@ GROUPS: dict[str, str] = {
         "Curve selection (naming any curve positively shows *only* the named curves;\n"
         "``--no-`` forms hide curves from the default set of all four):"
     ),
-    "rates": 'Rates on the yield axis, each only when asked for (--policy needs at least "po"):',
+    "rates": 'Rates on the yield axis, each only when asked for (at least "po", "mo"):',
     "units": "Measure of debt, GDP and interest:",
     "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
@@ -482,6 +503,20 @@ OPTIONS: tuple[Option, ...] = (
         "each country's policy rate: the effective\nfed funds rate; the Bank Rate, then\n"
         "CORRA from 1997 (a quarter point lower)",
         names=("policy-rates",), shortest=2, label="Policy rate",
+    ),
+    # At least "mo": "--m:" stays ambiguous (--min or --max).
+    Option(
+        "mortgages", Kind.FLAG, ("mortgages",), "rates", "--mortgages / --mo / --no-mortgages",
+        "mortgage rates, dashed in the colour of\nthe yield of their term: U.S. survey\n"
+        "averages; Canadian posted rates",
+        names=("mortgages",), shortest=2, label="Mortgage rates",
+    ),
+    Option(
+        "mortgage-terms", Kind.VALUE, ("mortgage_terms",), "rates", "--mortgages:LIST / --mo:LIST",
+        "the terms: 30 15 (U.S.), 5 3 1 5v\n(Canada; 5v variable, broker average);\n"
+        f"default {','.join(DEFAULT_MORTGAGE_TERMS)}; turns --mortgages on",
+        names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
+        label="terms", format=format_terms,
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.

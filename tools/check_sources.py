@@ -41,6 +41,7 @@ import io
 import sys
 import traceback
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -205,6 +206,12 @@ def _rate(fetch: Callable[[], rates.RateCurve | None]) -> Callable[[PlotConfig],
     return run
 
 
+def _cmhc_history(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    # Used only before the weekly posted rate begins (1975), so its age does not matter.
+    history = rates.cdn_mortgage_history()
+    return None, f"{len(history)} months, {history.index[0]:%Y-%m} to {history.index[-1]:%Y-%m}"
+
+
 def _census(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     baked = max(pd.Timestamp(date).year for date, _value in EMBEDDED_US_DEBT_BY_LEVEL["p"])
     listed = [year for year in (baked + 1, baked + 2) if bake.census_estimates_url(year)]
@@ -237,6 +244,13 @@ CHECKS: tuple[Check, ...] = (
     Check("fred_population", "FRED B230RC0Q173SBEA population", QUARTERLY, _fred("B230RC0Q173SBEA", quarterly=True)),
     Check("fred_dff", "FRED DFF effective federal funds rate (--policy)", DAILY, _rate(rates.us_policy_rate)),
     Check("boc_policy", "Bank of Canada Bank Rate V122530, CORRA AVG.INTWO (--policy)", DAILY, _rate(rates.cdn_policy_rate)),
+    Check("fred_mortgage30", "FRED MORTGAGE30US (--mortgages:30)", DAILY, _rate(partial(rates.mortgage_rate, "30"))),
+    Check("fred_mortgage15", "FRED MORTGAGE15US (--mortgages:15)", DAILY, _rate(partial(rates.mortgage_rate, "15"))),
+    Check("boc_mortgage5", "Bank of Canada V80691335 posted 5-year, StatCan 34-10-0145 before", DAILY, _rate(partial(rates.mortgage_rate, "5"))),
+    Check("boc_mortgage3", "Bank of Canada V80691334 posted 3-year", DAILY, _rate(partial(rates.mortgage_rate, "3"))),
+    Check("boc_mortgage1", "Bank of Canada V80691333 posted 1-year", DAILY, _rate(partial(rates.mortgage_rate, "1"))),
+    Check("boc_mortgage5v", "Bank of Canada BROKER_AVERAGE_5YR_VRM 5-year variable", DAILY, _rate(partial(rates.mortgage_rate, "5v"))),
+    Check("statcan_mortgage", "StatCan 34-10-0145 CMHC 5-year rate (monthly; before 1975)", None, _cmhc_history),
     Check("treasury_yields", "U.S. Treasury daily par yield curve (all ten terms)", DAILY, _treasury_yields),
     Check("debt_to_penny", "U.S. Treasury Debt to the Penny", DAILY, _debt_to_penny),
     Check("cnbc_cdn", "CNBC quote feed, Canadian yields (unofficial)", QUOTES, _quotes("cdn")),

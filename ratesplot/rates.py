@@ -19,8 +19,17 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .cdn_data import boc_valet_series
-from .config import POLICY_RATE_STYLE, PlotConfig
+from .cdn_data import boc_valet_series, statcan_zip_table
+from .config import (
+    MORTGAGE_OWN_COLORS,
+    MORTGAGE_STYLE,
+    MORTGAGE_TERMS,
+    POLICY_RATE_STYLE,
+    TERM_COLORS,
+    VARIABLE_MORTGAGE_STYLE,
+    YIELD_TERMS,
+    PlotConfig,
+)
 from .http import fetch_fred_csv
 
 # Policy rates (--policy). U.S.: the effective federal funds rate, daily from
@@ -35,6 +44,25 @@ CDN_BANK_RATE_SERIES = "V122530"
 CDN_CORRA_SERIES = "AVG.INTWO"
 # Valet returns a series from this date; it precedes every series asked for.
 _VALET_FROM = "1900-01-01"
+
+# Mortgage rates (--mortgages), by term (config.MORTGAGE_TERMS). U.S.: Freddie
+# Mac's survey averages, weekly, on FRED (30-year from 1971, 15-year from 1991).
+# Canada: the chartered banks' posted rates, weekly on Valet (5-year from 1975,
+# 3- and 1-year from 1980), the 5-year carried back to 1951 by Statistics
+# Canada's monthly CMHC conventional 5-year lending rate (table 34-10-0145);
+# and the 5-year variable rate, the brokers' average, from 2011. Spans
+# measured by Terry 2026-10-06.
+US_MORTGAGE_SERIES = {"30": "MORTGAGE30US", "15": "MORTGAGE15US"}
+CDN_MORTGAGE_SERIES = {"5": "V80691335", "3": "V80691334", "1": "V80691333", "5v": "BROKER_AVERAGE_5YR_VRM"}
+CDN_MORTGAGE_HISTORY_TABLE = "34100145"
+_MORTGAGE_LABELS = {
+    "30": "30-Year Mortgage",
+    "15": "15-Year Mortgage",
+    "5": "5-Year Mortgage (posted)",
+    "3": "3-Year Mortgage (posted)",
+    "1": "1-Year Mortgage (posted)",
+    "5v": "5-Year Variable Mortgage (broker avg.)",
+}
 
 
 @dataclass(frozen=True)
@@ -52,6 +80,9 @@ class RateCurve:
     # its end label written in points ("+0.47 pts").
     spread: bool = False
     title: str = ""  # its phrase in the chart title ("Policy Rate"); curves of a kind share one
+    # The yield column whose drawn colour it takes, if that yield is on the
+    # chart (a mortgage: its term's yield); its style's colour otherwise.
+    color_of: str | None = None
 
     @property
     def first(self) -> pd.Timestamp:
@@ -124,6 +155,58 @@ def cdn_policy_rate() -> RateCurve | None:
     return RateCurve("policy", label, joined, POLICY_RATE_STYLE, title="Policy Rate")
 
 
+def cdn_mortgage_history() -> pd.Series:
+    """Return the CMHC conventional 5-year mortgage lending rate, monthly from 1951 (StatCan 34-10-0145).
+
+    The table is checked, not trusted: Canada only, in percent, one row per
+    month; anything else raises (and the caller warns). Each month is dated
+    by its first day.
+    """
+    table = statcan_zip_table(CDN_MORTGAGE_HISTORY_TABLE)
+    selected = table.loc[table["GEO"].eq("Canada")] if "GEO" in table.columns else table
+    if "UOM" in selected.columns and set(selected["UOM"].astype(str).str.strip()) != {"Percent"}:
+        raise ValueError(f"expected percent, found units {sorted(set(selected['UOM'].astype(str)))}")
+    if selected.empty or selected["REF_DATE"].duplicated().any():
+        raise ValueError("expected one row per month for Canada")
+    dates = pd.DatetimeIndex(pd.to_datetime(selected["REF_DATE"].astype(str) + "-01"))
+    return _clean(pd.Series(selected["VALUE"].to_numpy(), index=dates))
+
+
+def _mortgage_style(term: str) -> dict:
+    """Return a mortgage term's line style, coloured as its yield term (or its own colour)."""
+    yield_term = MORTGAGE_TERMS[term][1]
+    colour = TERM_COLORS[yield_term] if yield_term is not None else MORTGAGE_OWN_COLORS[term]
+    return (VARIABLE_MORTGAGE_STYLE if term.endswith("v") else MORTGAGE_STYLE) | {"color": colour}
+
+
+def mortgage_rate(term: str) -> RateCurve | None:
+    """Return one mortgage term's rate (``config.MORTGAGE_TERMS``), or None with a warning if its source fails.
+
+    Canada's 5-year: the posted weekly rate, carried back before it begins by
+    the monthly CMHC rate (with a warning, and from 1975 only, if that fails).
+    """
+    country, yield_term = MORTGAGE_TERMS[term]
+    label = _MORTGAGE_LABELS[term]
+    code = (US_MORTGAGE_SERIES if country == "us" else CDN_MORTGAGE_SERIES)[term]
+    try:
+        values = _fred(code) if country == "us" else _valet(code)
+    except Exception as exc:
+        print(f"  Warning: {label} ({code}) unavailable ({exc}); not drawn.")
+        return None
+    if country == "cdn" and term == "5":
+        try:
+            history = cdn_mortgage_history()
+        except Exception as exc:
+            print(
+                f"  Warning: StatCan {CDN_MORTGAGE_HISTORY_TABLE} (5-year mortgage rate before "
+                f"{values.index[0]:%Y-%m-%d}) unavailable ({exc}); drawn from then only."
+            )
+        else:
+            values = pd.concat([history.loc[history.index < values.index[0]], values])
+    color_of = YIELD_TERMS[yield_term] if yield_term is not None else None
+    return RateCurve(f"mortgage_{term}", label, values, _mortgage_style(term), title="Mortgage Rates", color_of=color_of)
+
+
 def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[RateCurve]:
     """Return one country's chosen curves for the yield axis ("cdn" or "us"), in drawing order.
 
@@ -136,6 +219,14 @@ def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[
     if config.policy_rates:
         print("Fetching the policy rate …")
         curves.append(us_policy_rate() if country == "us" else cdn_policy_rate())
+    if config.mortgages:
+        terms = [term for term in config.mortgage_terms if MORTGAGE_TERMS[term][0] == country]
+        if not terms:
+            name = "U.S." if country == "us" else "Canadian"
+            print(f"  Note: none of the mortgage terms {','.join(config.mortgage_terms)} is {name}; no mortgage rate on this chart.")
+        else:
+            print("Fetching mortgage rates …")
+        curves += [mortgage_rate(term) for term in terms]
     chosen = []
     for curve in curves:
         if curve is None:

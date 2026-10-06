@@ -246,26 +246,34 @@ def add_us_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
     return lines
 
 
-def add_rate_lines(ax: Axes, rates: Iterable[RateCurve], config: PlotConfig) -> list[tuple[Line2D, RateCurve]]:
+def add_rate_lines(
+    ax: Axes, rates: Iterable[RateCurve], config: PlotConfig, yield_lines: Iterable[Line2D] = ()
+) -> list[tuple[Line2D, RateCurve]]:
     """Plot the yield axis's other curves (``ratesplot.rates``); return each drawn curve's legend line with it.
 
     Each is drawn from the value in effect at the window's start
     (``rates.in_window``). Where ``steps_until`` is set, the part up to it is
     drawn as steps and the rest as a line in the same colour, as the Canadian
     yields are. A spread's stretches below zero (an inverted curve) are
-    shaded between it and zero, in its colour.
+    shaded between it and zero, in its colour. A curve with ``color_of`` (a
+    mortgage) takes the colour of that yield's line among ``yield_lines``
+    when it is drawn, so the two match whatever colour the yield was given.
     """
+    yield_colours = {line.get_label(): line.get_color() for line in yield_lines}
     drawn: list[tuple[Line2D, RateCurve]] = []
     for curve in rates:
         values = in_window(curve.values, config)
         if values.empty:
             continue
+        style = curve.style
+        if curve.color_of is not None and f"{curve.color_of} Yield" in yield_colours:
+            style = style | {"color": yield_colours[f"{curve.color_of} Yield"]}
         if curve.steps_until is None:
-            parts = [(values, curve.style)]
+            parts = [(values, style)]
         else:
             steps = values.loc[values.index <= curve.steps_until]
             line = values.loc[values.index > curve.steps_until]
-            parts = [(steps, curve.style | {"drawstyle": "steps-post"}), (line, curve.style)]
+            parts = [(steps, style | {"drawstyle": "steps-post"}), (line, style)]
         first: Line2D | None = None
         for part, style in parts:
             if part.empty:
@@ -328,7 +336,7 @@ def draw_country(
     yield_lines = draw_yield_lines(ax_yield, yields, config)
     # Policy and mortgage rates and spreads (ratesplot.rates): on the yield
     # axis, listed with the yields.
-    rate_lines = add_rate_lines(ax_yield, rates, config)
+    rate_lines = add_rate_lines(ax_yield, rates, config, yield_lines)
 
     ax_macro = ax_yield.twinx()
     macro_in_range = filter_to_date_range(macro, DATE_COLUMN, config)

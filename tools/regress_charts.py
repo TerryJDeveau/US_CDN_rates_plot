@@ -128,6 +128,13 @@ CASES: dict[str, list[str]] = {
     "policy_l": ["--policy", "-l"],
     "c_policy_only": ["-c", "--policy", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1935", "-l"],
     "u_policy_y1990": ["-u", "--policy", "--yield", "-s:1990"],
+    # --mortgages[:LIST]: the default terms with -l; every Canadian term over the
+    # posted rates' span; the U.S. terms with their yields chosen; and the
+    # automatic start set by a mortgage rate alone (the 15-year, 1991).
+    "mo_l": ["--mo", "-l"],
+    "c_mo_all": ["-c", "--mo:5,3,1,5v", "--yield", "-s:1975", "-l"],
+    "u_mo_y": ["-u", "--mo:30,15", "--yields:10,30", "-s:1971"],
+    "u_mo_auto": ["-u", "--mo:15", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "--e:1999"],
 }
 
 

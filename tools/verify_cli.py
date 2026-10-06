@@ -131,6 +131,11 @@ CASES: list[list[str]] = [
     ["--policy"], ["--po"], ["--pol"], ["--policy-rates"], ["--policyrates"], ["policy"], ["--no-policy"], ["--no-po"],
     ["--policy", "--no-policy"], ["--policy", "--gdp"], ["--policy", "-c", "--no-yield"], ["--policy", "-p"],
     ["--po:1"], ["--policyx"], ["--no-p"], ["--p"], ["--pe"],
+    # --mortgages[:LIST]: a flag and its terms (turning it on); at least "mo", so "--m:" stays ambiguous.
+    ["--mortgages"], ["--mo"], ["--mort"], ["mortgage"], ["--no-mortgages"], ["--no-mo"], ["--mo:30"], ["--mort:15,30"],
+    ["--mortgages:5,3,1,5v"], ["--mo:30y,5"], ["--mo:5V"], ["--mo:5,5"], ["--mo:20"], ["--mo:x"], ["--mo:"], ["--mo:,"],
+    ["--mo:30", "--no-mo"], ["--no-mo", "--mo:30"], ["--mo", "--mo:1"], ["--mo:1", "--gdp"], ["--mo:5", "-c", "--no-yield"],
+    ["--m"], ["--m:5"], ["--mo:1", "--min:1"], ["--mortgagesx"], ["--no-mo:30"],
 ]
 
 

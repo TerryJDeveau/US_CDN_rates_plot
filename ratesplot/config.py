@@ -296,6 +296,24 @@ RATE_AXIS_LABEL = "Rate (%)"
 # changed; dark gold, a colour no yield term has, a little thicker than the
 # yields so it reads as the anchor of the curve.
 POLICY_RATE_STYLE = {"color": "#b8860b", "linewidth": 1.8, "drawstyle": "steps-post"}
+# --mortgages (ratesplot.rates): the terms, as written on the command line ->
+# the country that has them and the yield term whose colour they take (None:
+# no yield of that term, so a colour of their own, MORTGAGE_OWN_COLORS). In
+# this order on the chart. "5v" is Canada's 5-year variable rate.
+MORTGAGE_TERMS = {
+    "30": ("us", "30y"),
+    "15": ("us", None),
+    "5": ("cdn", "5y"),
+    "3": ("cdn", None),
+    "1": ("cdn", "1y"),
+    "5v": ("cdn", "5y"),
+}
+DEFAULT_MORTGAGE_TERMS = ("30", "5")
+MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f"}
+# Dashed steps (a posted or surveyed rate holds until the next), thinner than
+# the policy rate; the variable rate dash-dotted, as it shares the 5-year's colour.
+MORTGAGE_STYLE = {"linewidth": 1.5, "linestyle": "--", "drawstyle": "steps-post"}
+VARIABLE_MORTGAGE_STYLE = MORTGAGE_STYLE | {"linestyle": "-."}
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -607,6 +625,10 @@ class PlotConfig:
     # --policy: each country's policy rate on the yield axis (ratesplot.rates);
     # additive, not under the curve rule.
     policy_rates: bool = False
+    # --mortgages[:LIST]: mortgage rates on the yield axis, the terms of
+    # MORTGAGE_TERMS chosen (each drawn on the chart of its country); additive.
+    mortgages: bool = False
+    mortgage_terms: tuple[str, ...] = DEFAULT_MORTGAGE_TERMS
     # --yields:LIST / --no-yields:LIST: the yield terms drawn, as keys of
     # YIELD_TERMS in that order. A term a country has no series for is
     # simply not drawn on its chart (Canada has the five default terms).
@@ -681,7 +703,7 @@ class PlotConfig:
     @property
     def has_left_axis_series(self) -> bool:
         """True when at least one curve on the left (yield) axis is chosen: the yields, or a curve of ``ratesplot.rates``."""
-        return self.include_yield or self.policy_rates
+        return self.include_yield or self.policy_rates or self.mortgages
 
     @property
     def left_axis_label(self) -> str:
