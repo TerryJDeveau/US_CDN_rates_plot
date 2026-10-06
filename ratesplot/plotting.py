@@ -196,9 +196,24 @@ def _yield_style(column: str, config: PlotConfig, nation_key: str) -> dict:
 def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> list[Line2D]:
     """Plot Canadian yield curves: monthly history as steps, daily live data as lines.
 
-    ``yields`` is date-indexed. Each tenor is split at ``CANADIAN_YIELD_HIST_END``;
-    the live segment reuses the history segment's colour and is hidden from the
-    legend so each tenor appears once.
+    ``yields`` is date-indexed. Each tenor is split at ``CANADIAN_YIELD_HIST_END``
+    (``add_stepped_yield_lines``).
+    """
+    return add_stepped_yield_lines(ax, yields, config, "cdn", lambda _column: CANADIAN_YIELD_HIST_END)
+
+
+def add_stepped_yield_lines(
+    ax: Axes,
+    yields: pd.DataFrame,
+    config: PlotConfig,
+    nation_key: str,
+    history_through: Callable[[str], pd.Timestamp | None],
+) -> list[Line2D]:
+    """Plot one nation's date-indexed yields: each column's monthly history as steps, its daily data as a line.
+
+    ``history_through(column)`` is the last date of that column's monthly
+    history (None: it has none). The daily segment reuses the history
+    segment's colour and is hidden from the legend so each tenor appears once.
     """
     if not config.yield_columns or yields.empty:
         return []
@@ -212,14 +227,15 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
         if column not in data.columns:
             continue
         series = data[column].dropna()
-        historical = series.loc[:CANADIAN_YIELD_HIST_END]
-        current = series.loc[series.index > CANADIAN_YIELD_HIST_END]
+        through = history_through(column)
+        historical = series.loc[:through] if through is not None else series.iloc[:0]
+        current = series.loc[series.index > through] if through is not None else series
         label = f"{column} Yield"
         color = None
 
         if not historical.empty:
             (line,) = ax.plot(
-                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config, "cdn")
+                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config, nation_key)
             )
             color = line.get_color()
             legend_lines.append(line)
@@ -229,7 +245,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
                 current.index,
                 current.values,
                 label="_nolegend_" if color is not None else label,
-                **(_yield_style(column, config, "cdn") | ({"color": color} if color is not None else {})),
+                **(_yield_style(column, config, nation_key) | ({"color": color} if color is not None else {})),
             )
             if color is None:
                 legend_lines.append(line)
