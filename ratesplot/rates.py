@@ -34,6 +34,7 @@ from .config import (
     VARIABLE_MORTGAGE_STYLE,
     YIELD_TERMS,
     PlotConfig,
+    nation_by_key,
 )
 from .http import fetch_fred_csv
 
@@ -238,7 +239,7 @@ def yield_spreads(country: str, yields: pd.DataFrame, config: PlotConfig) -> lis
     for pair in config.spread_pairs:
         first, second = (YIELD_TERMS[term] for term in pair)
         if first not in frame.columns or second not in frame.columns:
-            name = "U.S." if country == "us" else "Canadian"
+            name = nation_by_key(country).adjective
             print(f"  Note: no {name} {first if first not in frame.columns else second} yield; no {spread_label(pair)} on this chart.")
             continue
         values = _clean(frame[first] - frame[second])
@@ -267,7 +268,7 @@ def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[
     if config.mortgages:
         terms = [term for term in config.mortgage_terms if MORTGAGE_TERMS[term][0] == country]
         if not terms:
-            name = "U.S." if country == "us" else "Canadian"
+            name = nation_by_key(country).adjective
             print(f"  Note: none of the mortgage terms {','.join(config.mortgage_terms)} is {name}; no mortgage rate on this chart.")
         else:
             print("Fetching mortgage rates …")

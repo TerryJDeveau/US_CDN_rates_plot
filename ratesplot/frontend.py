@@ -59,7 +59,7 @@ from .options import (
 _FORMER_DEFAULT_START = "1966-01-01"
 # Same PNG metadata as tools/verify_charts.py, so saved files hash identically.
 PNG_METADATA = {"Software": None}
-TAB_TITLES = {"cdn": "Canada", "us": "United States"}
+TAB_TITLES = {nation.key: nation.name for nation in NATIONS}
 # The "By level" check boxes: letter and caption (one control for both countries,
 # since --debt: and --interest: take the same letters).
 LEVEL_BOXES = (("f", "Federal"), ("n", "Non-federal"), ("p", "Provincial / state"), ("m", "Municipal / local"))

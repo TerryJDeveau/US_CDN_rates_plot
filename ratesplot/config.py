@@ -353,18 +353,53 @@ class Nation:
     name: str  # in messages and on its panel
     codes: tuple[str, ...]  # the prefixes that name it on the command line ("--us:top:20t"), lower case
     yield_terms: tuple[str, ...]  # the YIELD_TERMS keys it has a series for
+    adjective: str  # in messages: "no Canadian 7-Year yield"
+    # Drawn when the command line names no nation. Canada and the U.S. are,
+    # as they always were; a nation added later is drawn only when asked for
+    # (batch 3: every existing command line draws what it drew).
+    shown_by_default: bool = True
+    # Its own value of a list in PER_NATION_FIELDS, used while that list is
+    # at the default for every chart (_LIST_DEFAULTS), where the default
+    # would draw little or nothing on its chart: (field, value) pairs. With
+    # none, the default is simply viewed as far as its chart has the terms.
+    own_defaults: tuple[tuple[str, object], ...] = ()
 
     @property
     def mortgage_terms(self) -> tuple[str, ...]:
         """The MORTGAGE_TERMS keys it has, in their order."""
         return tuple(term for term, (country, _yield) in MORTGAGE_TERMS.items() if country == self.key)
 
+    @property
+    def show_field(self) -> str:
+        """The PlotConfig field that chooses its chart ("show_cdn")."""
+        return f"show_{self.key}"
+
+    def view(self, field: str, value: object) -> object:
+        """Return what a list in ``field`` draws on this nation's chart: the yield and mortgage terms it has, the spreads of them.
+
+        A term or pair it lacks is left off its chart (with a note), so two
+        lists with the same view draw the same chart (a spread's colour goes
+        by its place among those drawn, ``rates.yield_spreads``). The
+        default list for every chart draws the nation's own default where it
+        has one (``own_defaults``). Any other field is its value.
+        """
+        own = dict(self.own_defaults)
+        if field in own and value == _LIST_DEFAULTS[field]:
+            return own[field]
+        if field == "yield_terms":
+            return tuple(term for term in value if term in self.yield_terms)
+        if field == "mortgage_terms":
+            return tuple(term for term in value if term in self.mortgage_terms)
+        if field == "spread_pairs":
+            return tuple(pair for pair in value if all(term in self.yield_terms for term in pair))
+        return value
+
 
 # In drawing order, as plotting.COUNTRIES. The codes are ISO 3166 two-letter
 # codes, plus the program's own "cdn".
 NATIONS: tuple[Nation, ...] = (
-    Nation("cdn", "Canada", ("ca", "cdn"), DEFAULT_YIELD_TERMS),
-    Nation("us", "United States", ("us",), tuple(YIELD_TERMS)),
+    Nation("cdn", "Canada", ("ca", "cdn"), DEFAULT_YIELD_TERMS, "Canadian"),
+    Nation("us", "United States", ("us",), tuple(YIELD_TERMS), "U.S."),
 )
 
 
@@ -373,12 +408,23 @@ def nation_by_code(code: str) -> Nation | None:
     return next((nation for nation in NATIONS if code.lower() in nation.codes), None)
 
 
+def nation_by_key(key: str) -> Nation | None:
+    """Return the nation with this key ("cdn"), or None."""
+    return next((nation for nation in NATIONS if nation.key == key), None)
+
+
 # The choices that can differ by nation (PlotConfig.for_nation): the yield
 # axis's lists, and the axis limits (Top and Bottom are in each nation's own
 # currency, so a limit right for one is wrong for the other).
 PER_NATION_FIELDS = (
     "yield_terms", "mortgage_terms", "spread_pairs", "yield_ymin", "yield_ymax", "macro_bottom", "macro_top",
 )
+# The defaults of the lists a nation may have its own default of (Nation.own_defaults).
+_LIST_DEFAULTS = {
+    "yield_terms": DEFAULT_YIELD_TERMS,
+    "mortgage_terms": DEFAULT_MORTGAGE_TERMS,
+    "spread_pairs": DEFAULT_SPREADS,
+}
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -740,11 +786,20 @@ class PlotConfig:
     gui: bool = True
 
     def for_nation(self, key: str) -> PlotConfig:
-        """Return the config one nation's chart is drawn with: these choices, with that nation's own over them."""
+        """Return the config one nation's chart is drawn with: these choices, with that nation's own over them.
+
+        A list still at the default for every chart takes the nation's own
+        default, if it has one (``Nation.own_defaults``).
+        """
+        own: dict[str, object] = {}
         for nation, overrides in self.nation_settings:
             if nation == key and overrides:
-                return replace(self, **dict(overrides))
-        return self
+                own = dict(overrides)
+        nation = nation_by_key(key)
+        for field_name, value in nation.own_defaults if nation is not None else ():
+            if field_name not in own and getattr(self, field_name) == _LIST_DEFAULTS[field_name]:
+                own[field_name] = value
+        return replace(self, **own) if own else self
 
     @property
     def figsize_inches(self) -> tuple[float, float]:

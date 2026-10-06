@@ -952,8 +952,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
 
     for option in options_of(Kind.SWITCH):
         values[option.fields[0]] = flags.get(option.name, False)
-    if not (values["show_cdn"] or values["show_us"]):
-        values["show_cdn"] = values["show_us"] = True
+    # No nation chosen: those drawn by default (Canada and the U.S.).
+    if not any(values[nation.show_field] for nation in NATIONS):
+        values.update({nation.show_field: nation.shown_by_default for nation in NATIONS})
 
     check_single_measure(values)
     check_macro_bound_units(payloads, values)
@@ -1023,19 +1024,8 @@ def _shorter_as_removal(option: Option, text: str) -> str | None:
 
 
 def nation_view(nation: Nation, option: Option, value: object) -> object:
-    """Return what a value of ``option`` draws on ``nation``'s chart: the yield and mortgage terms it has, the spreads of them.
-
-    A term or pair it lacks is left off its chart (with a note), so two
-    lists with the same view draw the same chart (a spread's colour goes by
-    its place among those drawn, ``rates.yield_spreads``).
-    """
-    if option.fields[0] == "yield_terms":
-        return tuple(term for term in value if term in nation.yield_terms)
-    if option.fields[0] == "mortgage_terms":
-        return tuple(term for term in value if term in nation.mortgage_terms)
-    if option.fields[0] == "spread_pairs":
-        return tuple(pair for pair in value if all(term in nation.yield_terms for term in pair))
-    return value
+    """Return what a value of ``option`` draws on ``nation``'s chart (``config.Nation.view``)."""
+    return nation.view(option.fields[0], value)
 
 
 def drawn_config(config: PlotConfig, key: str) -> PlotConfig:
@@ -1110,9 +1100,11 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     defaults, default_flags = choices_from_config(PlotConfig())
     tokens: list[str] = []
 
+    # The nations' switches, unless the ones chosen are those drawn by default.
     countries = [option for option in options_in("country") if option.in_gui]
     chosen = [option for option in countries if flags.get(option.name)]
-    if 0 < len(chosen) < len(countries):
+    by_default = [option for option in countries if option.fields[0] in {n.show_field for n in NATIONS if n.shown_by_default}]
+    if chosen and chosen != by_default:
         tokens += [option.flag for option in chosen]
 
     # Curves: name the ones on, or negate the ones off, whichever is shorter
