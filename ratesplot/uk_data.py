@@ -18,8 +18,10 @@ reach them; ``tools/uk_fixtures/README.md`` holds the measurements):
 * Debt: general government consolidated gross debt (ONS BKPX, the
   Maastricht measure, the counterpart of Canada's general government gross
   debt), monthly from 1975-03. Before it the millennium's national debt
-  (end of each financial year, from 1690/91), joined at the ratio where they
-  meet (1.03 at 31 March 1975), as Canada's archives are joined.
+  (end of each financial year, from 1690/91), a different quantity (central
+  government's debt), so a curve of its own, drawn dotted until BKPX begins,
+  as Canada's federal debt before 1933 is; the two meet within 3 % (£52.1bn
+  and £53.7bn at 31 March 1975).
 * GDP: at market prices, current prices, seasonally adjusted (ONS YBHA),
   quarterly from 1955, summed over four quarters; before it the millennium's
   annual composite estimate, from 1700, joined as Canada's history is.
@@ -66,12 +68,13 @@ from .config import (
     THOUSAND,
     UK_DEBT_COLUMN,
     UK_INTEREST_COLUMN,
+    UK_NATIONAL_DEBT_COLUMN,
     YIELD_TERMS,
     PlotConfig,
     component_column,
 )
 from .http import uk_get
-from .joins import chain, embedded_frame, splice_archived_series
+from .joins import chain, embedded_frame
 from .uk_archive_data import (
     EMBEDDED_UK_10Y_HISTORY,
     EMBEDDED_UK_20Y_HISTORY,
@@ -125,11 +128,6 @@ UK_POPULATION_SERIES = "EBAQ"
 _LEVEL_DEBT_SERIES = {"f": "BKPW", "m": "MDYT"}
 _LEVEL_INTEREST_SERIES = {"f": "NMFX", "m": "NUGW"}
 _LEVEL_ALIASES = {"n": "m"}
-# Debt is joined to its history at the ratio where the two meet: this year
-# only, not over 1975-1994 as Canada's are. From 1974/75 the millennium's
-# spliced series is public sector *net* debt, which drifts away from gross
-# general government debt; before it, it is the national (central) debt.
-_DEBT_JOIN_CALIBRATION_YEAR = 1975
 
 # A quarter's population is dated this many days after the quarter begins:
 # about its middle, where an interpolation of mid-year estimates centres it.
@@ -279,7 +277,7 @@ def uk_series_earliest(config: PlotConfig) -> dict[str, pd.Timestamp]:
             source = "monthly average before the par yield" if history else UK_YIELD_SERIES[column]
             earliest[f"{column} Yield ({source})"] = pd.Timestamp(history[0][0]) if history else UK_YIELD_EARLIEST[column]
     named = {
-        "UK General Government Gross Debt (national debt before 1975)": EMBEDDED_UK_DEBT_HISTORY,
+        "UK National Debt (alone, before 1975)": EMBEDDED_UK_DEBT_HISTORY,
         "TTM Nominal GDP (UK, annual before 1955)": EMBEDDED_UK_GDP_HISTORY,
     }
     earliest.update({name: pd.Timestamp(rows[0][0]) for name, rows in named.items() if rows})
@@ -335,25 +333,23 @@ def fetch_uk_yields(config: PlotConfig) -> pd.DataFrame:
 
 
 def fetch_uk_debt(config: PlotConfig) -> pd.DataFrame | None:
-    """Return general government gross debt (BKPX), monthly, joined to the national debt before 1975.
+    """Return general government gross debt (BKPX), monthly, and the national debt alone before it begins.
 
-    The history is brought to BKPX's level by the ratio where they meet,
-    ramped over its last years (``joins.splice_archived_series``). If ONS
-    fails, the history alone, with a warning.
+    The national debt (``UK_NATIONAL_DEBT_COLUMN``) is kept as it is, a
+    different quantity: its years before BKPX's first month. If ONS fails,
+    the national debt alone, to 2017, with a warning.
     """
     if not config.include_debt:
         return None
-    history = embedded_frame(EMBEDDED_UK_DEBT_HISTORY, UK_DEBT_COLUMN)
+    history = embedded_frame(EMBEDDED_UK_DEBT_HISTORY, UK_NATIONAL_DEBT_COLUMN)
     try:
         live = _ons_stock(UK_DEBT_SERIES).rename(UK_DEBT_COLUMN).to_frame()
     except Exception as exc:
-        print(f"  Warning: ONS {UK_DEBT_SERIES} (UK debt) unavailable ({exc}); using the baked history only (to 2017).")
+        print(f"  Warning: ONS {UK_DEBT_SERIES} (UK debt) unavailable ({exc}); the national debt alone (to 2017).")
         return history
     if history is None:
         return live
-    return splice_archived_series(
-        history, live, UK_DEBT_COLUMN, calibration_end_year=_DEBT_JOIN_CALIBRATION_YEAR
-    )
+    return pd.concat([live, history.loc[history.index < live.index[0]]], axis=1).sort_index()
 
 
 def fetch_uk_gdp(config: PlotConfig) -> pd.DataFrame | None:

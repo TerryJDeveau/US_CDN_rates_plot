@@ -90,6 +90,9 @@ _QUOTE_SYMBOLS = {
         "5-Year": "US5Y", "7-Year": "US7Y", "10-Year": "US10Y", "20-Year": "US20Y", "30-Year": "US30Y",
     },
     "cdn": {"3-Month": "CA3M", "2-Year": "CA2Y", "5-Year": "CA5Y", "10-Year": "CA10Y", "30-Year": "CA30Y"},
+    # The UK's three terms (batch 3; seen answering from the laptop 2026-10-06,
+    # tools/uk_fixtures). Not GB3M-GB: that is a gilt repo rate, not a yield.
+    "uk": {"5-Year": "GB5Y-GB", "10-Year": "GB10Y-GB", "20-Year": "GB20Y-GB"},
 }
 # Chart column -> column of the Treasury's yield-curve file (the file has all ten).
 _TREASURY_COLUMNS = {
@@ -524,23 +527,31 @@ def extend_us_yields(yields: pd.DataFrame, config: PlotConfig) -> tuple[pd.DataF
     return pd.concat(parts, ignore_index=True), quote_time
 
 
-def extend_cdn_yields(yields: pd.DataFrame, config: PlotConfig) -> tuple[pd.DataFrame, pd.Timestamp | None]:
-    """Add the day's quotes to the Bank of Canada's yields (date-indexed); see ``extend_us_yields``."""
+def extend_cdn_yields(
+    yields: pd.DataFrame, config: PlotConfig, country: str = "cdn", name: str = "Canadian"
+) -> tuple[pd.DataFrame, pd.Timestamp | None]:
+    """Add the day's quotes to the Bank of Canada's yields (date-indexed); see ``extend_us_yields``.
+
+    The UK's yields, date-indexed as well, are extended the same way
+    (``country`` "uk", ``name`` "UK"). The frame's ``attrs`` are kept.
+    """
     if not config.current or yields.empty:
         return yields, None
     last = yields.index.max()
     if config.end <= last or not _quotes_can_reach(config):
         return yields, None
 
-    print("Fetching the latest Canadian yields (--cur) …")
+    print(f"Fetching the latest {name} yields (--cur) …")
     try:
-        quotes, quote_time = intraday_yields_after("cdn", yields.iloc[-1], last, config)
+        quotes, quote_time = intraday_yields_after(country, yields.iloc[-1], last, config)
     except Exception as exc:
-        print(f"  Warning: intraday Canadian yield quotes unavailable ({exc}); drawn to {last.date()}.")
+        print(f"  Warning: intraday {name} yield quotes unavailable ({exc}); drawn to {last.date()}.")
         return yields, None
     if quotes.empty:
         return yields, None
-    return pd.concat([yields, quotes.rename_axis(yields.index.name)]), quote_time
+    extended = pd.concat([yields, quotes.rename_axis(yields.index.name)])
+    extended.attrs = dict(yields.attrs)
+    return extended, quote_time
 
 
 def extend_us_federal_debt(federal: pd.DataFrame, column: str, config: PlotConfig) -> pd.DataFrame:

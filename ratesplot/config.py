@@ -306,6 +306,9 @@ CDN_INTEREST_COLUMN = "TTM Interest Payable ($)"
 US_DEBT_COLUMN = "Total Aggregate Debt ($)"
 US_INTEREST_COLUMN = "TTM Interest Payments ($)"
 UK_DEBT_COLUMN = "Total UK Debt (£)"
+# Before general government debt begins (1975), the national debt alone: a
+# curve of its own, dotted, as Canada's federal debt before 1933 is.
+UK_NATIONAL_DEBT_COLUMN = "UK National Debt (£)"
 UK_INTEREST_COLUMN = "TTM UK Interest Paid (£)"
 
 # ---------------------------------------------------------------------------
@@ -338,9 +341,19 @@ MORTGAGE_TERMS = {
     "1": ("cdn", "1y"),
     "5v": ("cdn", "5y"),
     "prime": ("cdn", None),
+    # The UK (batch 3): the Bank of England's quoted rates for new loans at
+    # 75 % loan to value, fixed for 2, 3 or 5 years, and the standard
+    # variable rate (SVR) a fixed rate reverts to. Written with an "f" so
+    # they are not Canada's 5 and 3 (posted rates of other lenders).
+    "2f": ("uk", "2y"),
+    "3f": ("uk", None),
+    "5f": ("uk", "5y"),
+    "svr": ("uk", None),
 }
 DEFAULT_MORTGAGE_TERMS = ("30", "5")
-MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f", "prime": "#696969"}
+# The 3-year fixed has Canada's 3-year's colour (the same kind of loan, on
+# another chart); the SVR the prime rate's, a variable base rate as it is.
+MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f", "prime": "#696969", "3f": "#2f4f4f", "svr": "#696969"}
 # Dashed steps (a posted or surveyed rate holds until the next), thinner than
 # the policy rate; the variable rate dash-dotted, as it shares the 5-year's colour.
 MORTGAGE_STYLE = {"linewidth": 1.5, "linestyle": "--", "drawstyle": "steps-post"}
@@ -425,6 +438,19 @@ class Nation:
 NATIONS: tuple[Nation, ...] = (
     Nation("cdn", "Canada", ("ca", "cdn"), DEFAULT_YIELD_TERMS, "Canadian"),
     Nation("us", "United States", ("us",), tuple(YIELD_TERMS), "U.S."),
+    # Batch 3: drawn only when asked for, so every existing command line
+    # draws what it drew. Its own defaults, since the defaults for every
+    # chart would draw two of its three yield terms, none of its mortgage
+    # terms and none of its spreads: all three terms, the 2-year fixed
+    # mortgage (the loan most borrowers take), the 10y-5y and 20y-10y spreads.
+    Nation(
+        "uk", "United Kingdom", ("gb", "uk"), ("5y", "10y", "20y"), "UK", shown_by_default=False,
+        own_defaults=(
+            ("yield_terms", ("5y", "10y", "20y")),
+            ("mortgage_terms", ("2f",)),
+            ("spread_pairs", (("10y", "5y"), ("20y", "10y"))),
+        ),
+    ),
 )
 
 
@@ -731,6 +757,33 @@ US = CountryMetadata(
     component_debt_title="{} US Public Debt",
 )
 
+UK = CountryMetadata(
+    key="uk",
+    country_name="United Kingdom",
+    currency_prefix="£",
+    currency_label="Nominal Units (GBP – Log Scale)",
+    per_capita_label="Nominal Units per Capita (GBP – Log Scale)",
+    # The Bank of England's fitted par yields (monthly averages of gilt
+    # redemption yields before them): the title says which kind they are.
+    yield_title="UK Gilt Yields (fitted par)",
+    debt_column=UK_DEBT_COLUMN,
+    debt_label="UK General Government Gross Debt",
+    debt_title="UK General Government Gross Debt",
+    interest_column=UK_INTEREST_COLUMN,
+    # ONS NMYX: interest (and the odd dividend) the government sector pays
+    # outside itself, so consolidated as the other aggregates are.
+    interest_label="TTM Interest Paid (consolidated)",
+    federal_debt_column=UK_NATIONAL_DEBT_COLUMN,
+    federal_debt_label="UK National Debt (pre-1975)",
+    federal_debt_title="UK National Debt",
+    # Central and local government only: the devolved governments are inside
+    # central government in the UK accounts, so there is no "p" level, and
+    # the non-central level "n" is local government (ratesplot.uk_data).
+    level_names=(("f", "Central"), ("n", "Local"), ("p", "Devolved"), ("m", "Local")),
+    component_debt_label="{} UK Public Debt",
+    component_debt_title="{} UK Public Debt",
+)
+
 
 # ---------------------------------------------------------------------------
 # Runtime configuration
@@ -779,6 +832,8 @@ class PlotConfig:
     include_interest: bool = True
     show_cdn: bool = True
     show_us: bool = True
+    # The UK's chart (batch 3): only when asked for (--uk, --nations:gb).
+    show_uk: bool = False
     # --debt:LETTERS / --interest:LETTERS: the levels of government to split
     # debt and interest into, as letters from COMPONENT_LETTERS in that order
     # ("" = the aggregate lines).
