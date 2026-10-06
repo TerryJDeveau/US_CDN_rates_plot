@@ -1143,7 +1143,8 @@ class RatesPlotApp:
             self.drawn_choices = self.rendering_choices
             self.data_cached = True
             drawn = [TAB_TITLES.get(c.key, c.key) for c in COUNTRIES if getattr(config, c.show_field)]
-            self.status.set(f"Drawn: {' and '.join(drawn)} at {config.width_px} x {config.height_px} px.")
+            names = drawn[0] if len(drawn) == 1 else f"{', '.join(drawn[:-1])} and {drawn[-1]}"
+            self.status.set(f"Drawn: {names} at {config.width_px} x {config.height_px} px.")
             self._remember()
         else:
             self.status.set(f"Drawing failed: {error} (details in the log)")

@@ -144,7 +144,9 @@ PAGE_TITLE = "Canadian and U.S. Bond Yields and Public Debt"
 PAGE_SUMMARY = (
     "Government bond yields against public debt, GDP and interest outlays, for Canada and the "
     "United States, from Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury and the "
-    "U.S. Census Bureau. Choose the charts in the panel on the left (the » button on a phone); each change redraws them."
+    "U.S. Census Bureau; and, when ticked, for the United Kingdom, from the Bank of England and the "
+    "Office for National Statistics. Choose the charts in the panel on the left (the » button on a phone); "
+    "each change redraws them."
 )
 _SCRIPT_NAME = "US_CDN_rates_plot.py"
 # The query parameter that holds the chart's command line.

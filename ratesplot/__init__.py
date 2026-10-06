@@ -1,4 +1,4 @@
-"""ratesplot: Canadian/U.S. bond yields vs public debt, GDP and interest charts.
+"""ratesplot: Canadian/U.S./UK bond yields vs public debt, GDP and interest charts.
 
 Package layout
 --------------
@@ -13,6 +13,8 @@ occupancy         every drawn line sampled into a grid of the axes, for finding 
 endlabels         -l: each line's last value at its end; widens the date axis to fit
 regression        --reg: the right-axis curves fitted by straight pieces on their log
                   axis, each labelled with its growth in %/yr
+joins             a nation's sources joined into one series (baked history to live
+                  tables), and the series laid on the chart's dates
 cdn_data          Bank of Canada / Statistics Canada fetch, splice and align
 cdn_archive_data  baked historical CDN rows: debt, GDP, interest, population, yield
                   stand-ins (rewritten by tools/bake_archives.py)
@@ -23,10 +25,14 @@ latest            --cur: newer values than the regular series (Treasury daily yi
                   debt, intraday quotes)
 us_archive_data   baked Census counts of U.S. state and local debt apart
                   (rewritten by tools/bake_archives.py)
+uk_data           Bank of England database / ONS fetch for the UK's yields and macro
+                  series (batch 3)
+uk_archive_data   baked UK history from the Bank of England's "A millennium of
+                  macroeconomic data" (rewritten by tools/bake_archives.py)
 rates             the yield axis's other curves, each only when chosen: policy rates,
                   mortgage rates, yield spreads
 measures          the right-axis measure: dollars, % of GDP (-r) or per person (-p)
-plotting          line drawing, draw_country, build_figure (no pyplot), COUNTRIES, run_cdn / run_us
+plotting          line drawing, draw_country, build_figure (no pyplot), COUNTRIES, run_cdn / run_us / run_uk
 options           the option table, value parsers/formatters, choices <-> PlotConfig, --help text
 frontend          what the window and the web page share without a GUI toolkit: starting
                   choices, remembered settings, each nation's own controls, option
@@ -39,8 +45,9 @@ Dependency direction is strictly downward: cli -> gui -> {frontend, options,
 plotting, http}; web -> {cli (its token matching), frontend, options,
 plotting, http}; cli -> {options, plotting, http}; frontend -> {options,
 config}; plotting -> {axes, legend, endlabels, regression, measures, rates,
-cdn_data, us_data, latest} -> {frames, http} -> config; rates -> {cdn_data,
-http}; plotting, gui, web -> console;
+cdn_data, us_data, uk_data, joins, latest} -> {frames, http} -> config;
+{cdn_data, uk_data} -> joins; rates -> {cdn_data, uk_data, http};
+plotting, gui, web -> console;
 us_data -> latest; legend -> {axes, endlabels, regression, occupancy};
 regression -> occupancy; options -> config. Data modules never import
 plotting. Nothing imports web or gui, and cli imports gui only when the
