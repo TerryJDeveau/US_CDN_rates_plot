@@ -47,5 +47,5 @@ provisional, and drawn as such.
 ## Layout
 
 `ratesplot/` is the program (its `__init__.py` has the module map); `tools/` holds the checks
-used when it is changed (`regress_charts.py`, `verify_cli.py`, `check_sources.py`) and the bake of
-the historical data (`bake_archives.py`).
+used when it is changed (`regress_charts.py`, `verify_cli.py`, `verify_web.py`, `check_sources.py`)
+and the bake of the historical data (`bake_archives.py`).
