@@ -155,6 +155,9 @@ CASES: list[list[str]] = [
     ["--us:top:20t", "--us:top:30t"], ["--us:yields:"],
     # The Canadian banks' prime rate, a mortgage-list term (batch 2).
     ["--mo:prime"], ["--mo:5,PRIME"], ["--cdn:mo:prime,5v"], ["--us:mo:prime"], ["--mo:pr"], ["--mo:primey"],
+    # --nations:LIST (batch 2): the charts by the nations' codes; the same as their switches.
+    ["--nations:us"], ["--na:ca,us"], ["--nations:CDN"], ["--nations:us", "-c"], ["--nations:uk"], ["--nations:"],
+    ["--nations"], ["--n:us"], ["--us:nations:us"], ["--no-nations:us"], ["--nations:us", "--gdp"],
 ]
 
 

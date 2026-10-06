@@ -159,7 +159,8 @@ def sort_tokens(raw_tokens: list[str]) -> tuple[dict[str, str], dict[str, bool],
     one nation under "NATION:OPTION", ``match_prefixed``); ``unmatched``
     are the tokens the table does not know (``--help``, or unrecognised), for
     argparse; ``misspelled`` holds a message for each token that spells an
-    option in the wrong form (``match_token``). The web page reads a chart's
+    option in the wrong form (``match_token``), or a bad ``--nations:LIST``,
+    which is recorded as the switches of the nations it names. The web page reads a chart's
     command line from its address with this, where exiting is not an option.
     """
     payloads: dict[str, str] = {}
@@ -176,6 +177,12 @@ def sort_tokens(raw_tokens: list[str]) -> tuple[dict[str, str], dict[str, bool],
         if prefixed:
             nation, option, value = prefixed
             payloads[nation_choice(nation, option)] = value
+        elif matched is not None and matched[0].name == "nations":
+            # As if each nation's switch were given (--nations:ca,us is -c -u).
+            try:
+                flags.update({key: True for key in matched[0].parse(str(matched[1]))})
+            except ValueError as exc:
+                misspelled.append(str(exc))
         elif matched is None:
             unmatched.append(token)
         elif matched[0].kind is Kind.VALUE:

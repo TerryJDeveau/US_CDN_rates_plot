@@ -249,6 +249,19 @@ def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
     return tuple(pairs)
 
 
+def parse_nations(spec: str) -> tuple[str, ...]:
+    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us), to their keys in ``NATIONS`` order."""
+    codes = [item.strip().lower() for item in spec.split(",") if item.strip()]
+    if not codes:
+        raise ValueError("empty --nations list: name nations' codes such as ca,us")
+    known = {code: nation.key for nation in NATIONS for code in nation.codes}
+    unknown = [code for code in codes if code not in known]
+    if unknown:
+        listed = ", ".join(code for nation in NATIONS for code in nation.codes)
+        raise ValueError(f"--nations:{spec.strip()}: {unknown[0]} is not a nation's code (codes: {listed})")
+    return tuple(nation.key for nation in NATIONS if nation.key in {known[code] for code in codes})
+
+
 def format_spreads(values: tuple, _config: PlotConfig) -> str:
     """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``."""
     return ",".join(f"{first}-{second}" for first, second in values[0])
@@ -535,6 +548,15 @@ OPTIONS: tuple[Option, ...] = (
         "us", Kind.SWITCH, ("show_us",), "country", "--U / -U / --us / --usa", "U.S. chart only",
         names=("us", "usa"), flag="--U", flag_help="U.S. chart only", label="United States",
     ),
+    # The same by the nations' codes, for when there are more than two
+    # (batch 2). The command line turns it into the switches of the nations it
+    # names (``cli.sort_tokens``), so it sets no field of its own and has no
+    # control: the window and the page show the switches.
+    Option(
+        "nations", Kind.VALUE, (), "country", "--nations:LIST / --na:LIST",
+        "the charts of these nations only, by\ncode: ca or cdn, us (--nations:ca,us)",
+        names=("nations",), shortest=2, parse=parse_nations, in_gui=False,
+    ),
     # Curves. The listing order here is the help order; the selection rule is
     # in ``config_from_choices``.
     Option(
@@ -751,7 +773,7 @@ def by_name(name: str) -> Option:
 
 def per_nation(option: Option) -> bool:
     """True for a value option a nation's code may be put in front of (``--us:top:20t``)."""
-    return option.kind is Kind.VALUE and set(option.fields) <= set(PER_NATION_FIELDS)
+    return option.kind is Kind.VALUE and bool(option.fields) and set(option.fields) <= set(PER_NATION_FIELDS)
 
 
 def nation_choice(nation: Nation, option: Option) -> str:
