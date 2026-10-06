@@ -255,6 +255,24 @@ BILLION = 1_000_000_000
 DATE_COLUMN = "DATE"
 YIELD_COLUMNS = ("3-Month", "2-Year", "5-Year", "10-Year", "30-Year")
 
+# Yield terms (--yields:LIST): the short form a term is written in -> its
+# column. Shortest first, which is the drawing and legend order. The five of
+# YIELD_COLUMNS are drawn by default and are the only Canadian ones; the U.S.
+# has all ten (FRED's DGS series; see us_data.US_YIELD_SERIES).
+YIELD_TERMS = {
+    "1m": "1-Month",
+    "3m": "3-Month",
+    "6m": "6-Month",
+    "1y": "1-Year",
+    "2y": "2-Year",
+    "5y": "5-Year",
+    "7y": "7-Year",
+    "10y": "10-Year",
+    "20y": "20-Year",
+    "30y": "30-Year",
+}
+DEFAULT_YIELD_TERMS = ("3m", "2y", "5y", "10y", "30y")
+
 GDP_COLUMN = "TTM Nominal GDP ($)"
 CDN_DEBT_COLUMN = "Total Canadian Debt ($)"
 # Before 1933 only federal debt is recorded; it is a separate curve, not part of
@@ -270,6 +288,61 @@ US_INTEREST_COLUMN = "TTM Interest Payments ($)"
 # ---------------------------------------------------------------------------
 
 YIELD_LINE_STYLE = {"linewidth": 1.2, "alpha": 0.9}
+# The left axis's label (PlotConfig.left_axis_label): with the yields drawn,
+# or else with only other rates on it (--policy, --mortgages).
+YIELD_AXIS_LABEL = "Bond Yield (%)"
+RATE_AXIS_LABEL = "Rate (%)"
+# --policy (ratesplot.rates): a step line, as a policy rate holds until it is
+# changed; dark brown, a colour no yield term has, a little thicker than the
+# yields so it reads as the anchor of the curve. (Dark gold at first: on
+# real data it was hard to tell from the 2-year's orange where they cross;
+# Terry chose dark brown, 2026-10-06.)
+POLICY_RATE_STYLE = {"color": "#5c4033", "linewidth": 1.8, "drawstyle": "steps-post"}
+# --mortgages (ratesplot.rates): the terms, as written on the command line ->
+# the country that has them and the yield term whose colour they take (None:
+# no yield of that term, so a colour of their own, MORTGAGE_OWN_COLORS). In
+# this order on the chart. "5v" is Canada's 5-year variable rate.
+MORTGAGE_TERMS = {
+    "30": ("us", "30y"),
+    "15": ("us", None),
+    "5": ("cdn", "5y"),
+    "3": ("cdn", None),
+    "1": ("cdn", "1y"),
+    "5v": ("cdn", "5y"),
+}
+DEFAULT_MORTGAGE_TERMS = ("30", "5")
+MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f"}
+# Dashed steps (a posted or surveyed rate holds until the next), thinner than
+# the policy rate; the variable rate dash-dotted, as it shares the 5-year's colour.
+MORTGAGE_STYLE = {"linewidth": 1.5, "linestyle": "--", "drawstyle": "steps-post"}
+VARIABLE_MORTGAGE_STYLE = MORTGAGE_STYLE | {"linestyle": "-."}
+# --spreads[:LIST] (ratesplot.rates): pairs of yield terms, the first less the
+# second, in percentage points. Drawn thick in colours no yield term, rate or
+# right-axis curve has, one per pair in the order given (then round again),
+# with their inverted stretches shaded (SPREAD_INVERSION_ALPHA). When one is
+# drawn the left axis is "Yield and Spread (%)".
+DEFAULT_SPREADS = (("10y", "2y"), ("10y", "3m"), ("30y", "10y"))
+SPREAD_COLORS = ("#4b0082", "#c71585", "#000080", "#800000", "#008080")
+SPREAD_STYLE = {"linewidth": 2.5}
+SPREAD_AXIS_LABEL = "Yield and Spread (%)"
+# The colour of each yield term when the terms are chosen (--yields:LIST,
+# --no-yields:LIST). The five default terms have the colours matplotlib's
+# colour cycle gives them when all five are drawn (blue, orange, green, red,
+# purple), and the other five the rest of that palette. Without a choice of
+# terms the lines still take the cycle in drawing order, as they always have,
+# so those charts are unchanged (plotting._yield_style).
+TERM_COLORS = {
+    "3m": "#1f77b4",
+    "2y": "#ff7f0e",
+    "5y": "#2ca02c",
+    "10y": "#d62728",
+    "30y": "#9467bd",
+    "1m": "#8c564b",
+    "6m": "#e377c2",
+    "1y": "#7f7f7f",
+    "7y": "#bcbd22",
+    "20y": "#17becf",
+}
 
 # The same three semantic macro curves are drawn on both country charts, plus
 # (Canada only) federal debt alone before the aggregate begins: dotted, so the
@@ -309,6 +382,10 @@ PROJECTION_LABEL = "Projected at the past year's pace"
 PROJECTION_LABEL_STEERED = "Projected; debt follows market debt"
 PROJECTION_KEY_COLOR = "0.35"
 PROJECTION_LABEL_PREFIX = "≈"
+
+# --spreads: a spread's inverted stretches (below zero) are shaded between it
+# and zero in its own colour, this opaque (plotting.add_rate_lines).
+SPREAD_INVERSION_ALPHA = 0.2
 
 
 def component_column(kind: str, letter: str) -> str:
@@ -426,7 +503,9 @@ class CountryMetadata:
             specs.insert(1, ("federal_debt", config.include_debt, self.federal_debt_column, self.federal_debt_label))
         return tuple((key, enabled, column, _with_suffix(label, suffix)) for key, enabled, column, label in specs)
 
-    def title_for(self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str], config: PlotConfig) -> str:
+    def title_for(
+        self, *, yields_drawn: bool, macro_keys_drawn: Iterable[str], config: PlotConfig, rate_titles: Iterable[str] = ()
+    ) -> str:
         """Compose the chart title from the series that were actually drawn.
 
         Parts are joined with commas and a final ampersand, e.g.
@@ -435,7 +514,9 @@ class CountryMetadata:
         Under -r and -p the macro phrase is qualified and set off from the
         yields by a semicolon, since the qualifier does not apply to them:
         ``"CDN Benchmark Yields; Aggregate CDN Public Debt & Interest Outlays
-        as % of TTM GDP"``.
+        as % of TTM GDP"``. ``rate_titles`` name the yield axis's other
+        curves drawn (``ratesplot.rates``), after the yields: "U.S. Treasury
+        Yields, Policy Rate, Aggregate US Public Debt …".
         """
         drawn = set(macro_keys_drawn)
         if "debt" in drawn:
@@ -468,7 +549,7 @@ class CountryMetadata:
                 macro_titles[kind] = templates[kind].format(names[kind]).strip()
             macro_parts = [macro_titles[key] for key in macro_titles if key in drawn]
         levels_suffix = LEVELS_TITLE_SUFFIX if by_level else ""
-        yield_parts = [self.yield_title] if yields_drawn else []
+        yield_parts = ([self.yield_title] if yields_drawn else []) + list(dict.fromkeys(rate_titles))
         title_suffix = _measure_suffixes(config)[1]
         if title_suffix and macro_parts:
             macro_phrase = _join_title_parts(macro_parts) + title_suffix + ("," if levels_suffix else "") + levels_suffix
@@ -552,6 +633,22 @@ class PlotConfig:
     macro_bottom: float | None = None
     macro_top: float | None = None
     include_yield: bool = True
+    # --policy: each country's policy rate on the yield axis (ratesplot.rates);
+    # additive, not under the curve rule.
+    policy_rates: bool = False
+    # --mortgages[:LIST]: mortgage rates on the yield axis, the terms of
+    # MORTGAGE_TERMS chosen (each drawn on the chart of its country); additive.
+    mortgages: bool = False
+    mortgage_terms: tuple[str, ...] = DEFAULT_MORTGAGE_TERMS
+    # --spreads[:LIST]: yield spreads on the yield axis, each a pair of
+    # YIELD_TERMS keys (the first less the second); additive. Their terms are
+    # fetched even when the yields are not drawn.
+    spreads: bool = False
+    spread_pairs: tuple[tuple[str, str], ...] = DEFAULT_SPREADS
+    # --yields:LIST / --no-yields:LIST: the yield terms drawn, as keys of
+    # YIELD_TERMS in that order. A term a country has no series for is
+    # simply not drawn on its chart (Canada has the five default terms).
+    yield_terms: tuple[str, ...] = DEFAULT_YIELD_TERMS
     include_debt: bool = True
     include_gdp: bool = True
     include_interest: bool = True
@@ -613,6 +710,28 @@ class PlotConfig:
         would make them fade.
         """
         return max(1.0, self.font_scale)
+
+    @property
+    def yield_columns(self) -> tuple[str, ...]:
+        """Return the yield columns drawn, in drawing order; none when the yield curves are off."""
+        return tuple(YIELD_TERMS[term] for term in self.yield_terms) if self.include_yield else ()
+
+    @property
+    def fetched_yield_columns(self) -> tuple[str, ...]:
+        """Return the yield columns to fetch: those drawn, and those the spreads are taken from, in drawing order."""
+        spread_terms = {term for pair in self.spread_pairs for term in pair} if self.spreads else set()
+        drawn = set(self.yield_terms) if self.include_yield else set()
+        return tuple(column for term, column in YIELD_TERMS.items() if term in drawn | spread_terms)
+
+    @property
+    def has_left_axis_series(self) -> bool:
+        """True when at least one curve on the left (yield) axis is chosen: the yields, or a curve of ``ratesplot.rates``."""
+        return self.include_yield or self.policy_rates or self.mortgages or self.spreads
+
+    @property
+    def left_axis_label(self) -> str:
+        """Return the left axis's label for the curves chosen on it: "Rate (%)" when the yields are not among them."""
+        return YIELD_AXIS_LABEL if self.include_yield else RATE_AXIS_LABEL
 
     @property
     def draws_gdp(self) -> bool:

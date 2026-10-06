@@ -40,6 +40,7 @@ from .options import (
     OPTIONS,
     Kind,
     Option,
+    by_name,
     choices_from_config,
     config_from_choices,
     format_dollar_bound,
@@ -135,6 +136,13 @@ def starting_choices(
         levels_given = any(name in cli_payloads for name in ("debt-parts", "interest-parts"))
         if levels_given:
             payloads["debt-parts"] = cli_config_payloads["debt-parts"]
+        # A list taken out of a field (--no-yields:30y) has no control of its
+        # own: the field's control shows what the command line left.
+        for option in options_of(Kind.VALUE):
+            if option.removes and option.name in cli_payloads:
+                for shown in options_of(Kind.VALUE):
+                    if shown.in_gui and shown.fields == option.fields:
+                        payloads[shown.name] = cli_config_payloads[shown.name]
         # Curves, and countries, are overridden as a group: on the command line
         # "--gdp" means "GDP only", which the resolved config already reflects.
         for group_name in GROUPS_CHOSEN_TOGETHER:
@@ -188,6 +196,65 @@ def level_letters(text: str) -> set[str]:
     ignored here (the option's parser reports them when the chart is drawn).
     """
     return {COMPONENT_SYNONYMS.get(letter, letter) for letter in text.strip().lower()}
+
+
+# ---------------------------------------------------------------------------
+# Tick boxes for a list option (Option.editor == "choices")
+# ---------------------------------------------------------------------------
+# The option's text (its command-line value, "10y-2y,10y-3m") stays the one
+# source of truth, as for the levels and the size: the boxes are a view of it
+# and write it back. The window and the web page share these rules.
+
+
+def choice_values(option: Option, text: str) -> list[str]:
+    """Return the list items ``text`` names, as the option writes them ("2", "10" -> ["2y", "10y"]).
+
+    A blank text is the option's default. Lenient, for ticking the boxes: a
+    text that does not parse names nothing here (the option's parser reports
+    it when the chart is drawn).
+    """
+    default = PlotConfig()
+    try:
+        value = option.parse(text) if text.strip() else getattr(default, option.fields[0])
+    except ValueError:
+        return []
+    written = option.format((value,), default)
+    return [item for item in written.split(",") if item]
+
+
+def choice_rows(option: Option, text: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Return the option's rows of boxes, ``(caption, [(value, box caption), ...])``.
+
+    The offered rows (``Option.choices``), then a row "other" for any item
+    ``text`` names that none of them offers (a spread typed on the command
+    line), so nothing chosen is hidden.
+    """
+    rows = [(caption, list(boxes)) for caption, boxes in option.choices]
+    offered = {value for _caption, boxes in rows for value, _box in boxes}
+    others = [(value, value.replace("-", "–")) for value in choice_values(option, text) if value not in offered]
+    return rows + ([("other", others)] if others else [])
+
+
+def choices_text(option: Option, ticked: list[str]) -> str:
+    """Return the option's text for the ticked items, written as the command line writes it.
+
+    The yield terms in term order ("3m,2y,7y,10y", wherever 7y's box is), the
+    spreads in box order (which sets their colours); "" when none is ticked.
+    """
+    joined = ",".join(ticked)
+    return ",".join(choice_values(option, joined)) if joined else ""
+
+
+def choice_refusal(option: Option) -> str:
+    """Say why a list's last ticked box stays ticked, and which box draws none of it.
+
+    An empty list would read as the default, so the last box stays; drawing
+    none is the job of the curve's own box (Terry, 2026-10-06: "that is what
+    --no-y is for"): the flag a list belongs to, or for the yield terms the
+    yield curve's.
+    """
+    switch = by_name(option.turns_on or "yield")
+    return f"At least one of the {option.label.lower()} stays ticked; to draw none, untick “{switch.label}”."
 
 
 def option_help_lines(option: Option) -> tuple[str, str, str]:
@@ -288,8 +355,9 @@ class ChartGeometry:
 
 
 def _format_percent(value: float) -> str:
-    """Two decimals at most, no trailing zeros: 2.5, 3.14, 4."""
-    return f"{value:.2f}".rstrip("0").rstrip(".")
+    """Two decimals at most, no trailing zeros: 2.5, 3.14, 4, -0.5 (and 0, never "-0")."""
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
 
 
 def _format_dollars(value: float) -> str:
@@ -332,8 +400,9 @@ def axis_updates(geometry: ChartGeometry, config: PlotConfig | None, top_y: floa
     updates: dict[str, str] = {}
     if config is None:
         return updates
-    if config.include_yield:
-        low = max(0.0, geometry.value_at(bottom_y, "left"))
+    if config.has_left_axis_series:
+        # Below zero too: a spread (--spreads) is negative where the curve inverts.
+        low = max(-99.99, geometry.value_at(bottom_y, "left"))
         high = min(99.99, geometry.value_at(top_y, "left"))
         if high - low >= 0.01:
             updates.update({"min": _format_percent(low), "max": _format_percent(high)})

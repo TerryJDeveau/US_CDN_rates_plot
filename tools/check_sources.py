@@ -40,7 +40,8 @@ import contextlib
 import io
 import sys
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -49,7 +50,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot import bake, cdn_data, latest, us_data  # noqa: E402
+from ratesplot import bake, cdn_data, latest, rates, us_data  # noqa: E402
 from ratesplot.cli import parse_args  # noqa: E402
 from ratesplot.config import (  # noqa: E402
     CDN_DEBT_COLUMN,
@@ -57,6 +58,7 @@ from ratesplot.config import (  # noqa: E402
     GDP_COLUMN,
     MARKET_TIMEZONE,
     YIELD_COLUMNS,
+    YIELD_TERMS,
     PlotConfig,
 )
 from ratesplot.frames import at_quarter_end  # noqa: E402
@@ -73,6 +75,8 @@ QUOTES = 4  # Friday's last quotes on the Tuesday after a long weekend
 # A quarter's figures come out one to three months after it ends and stay the
 # newest until the next quarter's do: up to about half a year.
 QUARTERLY = 200
+# The spread cross-checks fail when more than this share of days disagree.
+_SPREAD_MISMATCH_LIMIT = 0.001
 # BEA's annual state and local interest: a calendar year is published the
 # following autumn and stays the newest for another year.
 ANNUAL = 700
@@ -111,12 +115,16 @@ def _fred(series_id: str, *, quarterly: bool) -> Callable[[PlotConfig], tuple[pd
     return run
 
 
-def _all_yields(frame: pd.DataFrame) -> pd.DataFrame:
+# The U.S. terms outside the default five (--yields:LIST).
+EXTRA_US_COLUMNS = tuple(column for column in YIELD_TERMS.values() if column not in YIELD_COLUMNS)
+
+
+def _all_yields(frame: pd.DataFrame, columns: tuple[str, ...] = YIELD_COLUMNS) -> pd.DataFrame:
     """``frame`` if it has every yield column; raises otherwise (a tenor lost is a curve missing from the chart)."""
-    missing = [column for column in YIELD_COLUMNS if column not in frame.columns]
+    missing = [column for column in columns if column not in frame.columns]
     if missing:
         raise ValueError(f"no {', '.join(missing)} column")
-    return frame[list(YIELD_COLUMNS)]
+    return frame[list(columns)]
 
 
 def _cdn_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
@@ -150,8 +158,14 @@ def _us_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     return _last(_all_yields(us_data.fetch_us_yields(config).set_index("DATE"))), ""
 
 
+def _us_extra_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    every = replace(config, yield_terms=tuple(YIELD_TERMS))
+    return _last(_all_yields(us_data.fetch_us_yields(every).set_index("DATE"), EXTRA_US_COLUMNS)), ""
+
+
 def _treasury_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
-    return _last(_all_yields(latest.treasury_yields_after(RECENT, config).set_index("DATE"))), ""
+    columns = tuple(YIELD_TERMS.values())
+    return _last(_all_yields(latest.treasury_yields_after(RECENT, config, columns).set_index("DATE"), columns)), ""
 
 
 def _debt_to_penny(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
@@ -159,9 +173,9 @@ def _debt_to_penny(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     return _last(debt), f"US${debt.iloc[-1] / 1e12:.3f} trillion" if len(debt) else ""
 
 
-def _quotes(country: str) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+def _quotes(country: str, columns: tuple[str, ...] | None = None) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
     def run(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
-        quotes = latest.fetch_quotes(country)
+        quotes = latest.fetch_quotes(country, columns)
         low, high = latest._PLAUSIBLE_YIELD  # the program's own rules for a usable quote
         problems, newest = [], None
         for column, quote in quotes.items():
@@ -180,6 +194,58 @@ def _quotes(country: str) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, s
         return (None if newest is None else newest.tz_localize(None)), f"all {len(quotes)} symbols read; newest {newest:%Y-%m-%d %H:%M %Z}"
 
     return run
+
+
+def _rate(fetch: Callable[[], rates.RateCurve | None]) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+    """A curve of ``ratesplot.rates``, through its own fetcher; its label is the note (it names a join)."""
+
+    def run(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+        curve = fetch()
+        if curve is None:
+            return None, "not fetched"
+        return _last(curve.values), f"{curve.label}, from {curve.first:%Y-%m-%d}"
+
+    return run
+
+
+def _spread_crosscheck(series_id: str, pair: tuple[str, str]) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+    """The program's spread (``rates.yield_spreads``, from the DGS yields) against FRED's own series of it.
+
+    FRED's T10Y2Y and T10Y3M are the same two DGS series subtracted, and agree
+    with the program's to rounding (0.005) on all but a handful of days.
+    On those few FRED's spread is not the difference of the two yields it
+    publishes for that day (Terry's run, 2026-10-06: 3 of 12,582 days, up to
+    0.02 points, and 2 of 11,191, up to 0.10, even on days both yields have
+    their own value). The program's spread is the difference of the yields
+    it draws, so those days are named in the note, not failed. Many such
+    days (more than ``_SPREAD_MISMATCH_LIMIT`` of them) mean the two are
+    misaligned, which fails.
+    """
+
+    def run(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+        chosen = replace(config, start=pd.Timestamp("1900-01-01"), spreads=True, spread_pairs=(pair,))
+        (curve,) = rates.yield_spreads("us", us_data.fetch_us_yields(chosen), chosen)
+        fred = fetch_fred_csv(series_id).set_index("DATE")[series_id].dropna()
+        common = fred.index.intersection(curve.values.index)
+        if common.empty:
+            raise ValueError("no day in common")
+        gap = (curve.values.loc[common] - fred.loc[common]).abs()
+        off = gap[gap > 0.005]
+        if len(off) > max(_SPREAD_MISMATCH_LIMIT * len(common), 5):
+            raise ValueError(f"differs from {series_id} by up to {gap.max():.3f} points ({len(off)} of {len(common)} days)")
+        note = f"{len(common) - len(off)} of {len(common)} days agree with {series_id}; from {fred.index[0]:%Y-%m-%d}"
+        if len(off):
+            days = ", ".join(f"{day:%Y-%m-%d} ({curve.values[day]:+.2f} vs {fred[day]:+.2f})" for day in off.index)
+            note += f"; FRED's spread is not its yields' difference on {days}"
+        return _last(fred), note
+
+    return run
+
+
+def _cmhc_history(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    # Used only before the weekly posted rate begins (1975), so its age does not matter.
+    history = rates.cdn_mortgage_history()
+    return None, f"{len(history)} months, {history.index[0]:%Y-%m} to {history.index[-1]:%Y-%m}"
 
 
 def _census(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
@@ -202,6 +268,7 @@ CHECKS: tuple[Check, ...] = (
     Check("statcan_levels", "StatCan 10-10-0015 debt and interest by level", QUARTERLY, _cdn_levels),
     Check("statcan_population", "StatCan 17-10-0009 population", QUARTERLY, _cdn_population),
     Check("fred_yields", "FRED Treasury yields (DGS3MO, DGS2, DGS5, DGS10, DGS30)", DAILY, _us_yields),
+    Check("fred_yields_more", "FRED Treasury yields (DGS1MO, DGS6MO, DGS1, DGS7, DGS20)", DAILY, _us_extra_yields),
     Check("fred_gfdebtn", "FRED GFDEBTN federal debt", QUARTERLY, _fred("GFDEBTN", quarterly=True)),
     Check("fred_slgsdodns", "FRED SLGSDODNS state and local debt", QUARTERLY, _fred("SLGSDODNS", quarterly=True)),
     Check("fred_gdp", "FRED GDP", QUARTERLY, _fred("GDP", quarterly=True)),
@@ -211,10 +278,22 @@ CHECKS: tuple[Check, ...] = (
     Check("fred_interest_p", "FRED W756RC1A027NBEA state interest (annual)", ANNUAL, _fred("W756RC1A027NBEA", quarterly=False)),
     Check("fred_interest_m", "FRED W856RC1A027NBEA local interest (annual)", ANNUAL, _fred("W856RC1A027NBEA", quarterly=False)),
     Check("fred_population", "FRED B230RC0Q173SBEA population", QUARTERLY, _fred("B230RC0Q173SBEA", quarterly=True)),
-    Check("treasury_yields", "U.S. Treasury daily par yield curve", DAILY, _treasury_yields),
+    Check("fred_dff", "FRED DFF effective federal funds rate (--policy)", DAILY, _rate(rates.us_policy_rate)),
+    Check("boc_policy", "Bank of Canada Bank Rate V122530, CORRA AVG.INTWO (--policy)", DAILY, _rate(rates.cdn_policy_rate)),
+    Check("fred_mortgage30", "FRED MORTGAGE30US (--mortgages:30)", DAILY, _rate(partial(rates.mortgage_rate, "30"))),
+    Check("fred_mortgage15", "FRED MORTGAGE15US (--mortgages:15)", DAILY, _rate(partial(rates.mortgage_rate, "15"))),
+    Check("boc_mortgage5", "Bank of Canada V80691335 posted 5-year, StatCan 34-10-0145 before", DAILY, _rate(partial(rates.mortgage_rate, "5"))),
+    Check("boc_mortgage3", "Bank of Canada V80691334 posted 3-year", DAILY, _rate(partial(rates.mortgage_rate, "3"))),
+    Check("boc_mortgage1", "Bank of Canada V80691333 posted 1-year", DAILY, _rate(partial(rates.mortgage_rate, "1"))),
+    Check("boc_mortgage5v", "Bank of Canada BROKER_AVERAGE_5YR_VRM 5-year variable", DAILY, _rate(partial(rates.mortgage_rate, "5v"))),
+    Check("statcan_mortgage", "StatCan 34-10-0145 CMHC 5-year rate (monthly; before 1975)", None, _cmhc_history),
+    Check("fred_t10y2y", "FRED T10Y2Y against the program's 10y-2y spread (--spreads)", DAILY, _spread_crosscheck("T10Y2Y", ("10y", "2y"))),
+    Check("fred_t10y3m", "FRED T10Y3M against the program's 10y-3m spread (--spreads)", DAILY, _spread_crosscheck("T10Y3M", ("10y", "3m"))),
+    Check("treasury_yields", "U.S. Treasury daily par yield curve (all ten terms)", DAILY, _treasury_yields),
     Check("debt_to_penny", "U.S. Treasury Debt to the Penny", DAILY, _debt_to_penny),
     Check("cnbc_cdn", "CNBC quote feed, Canadian yields (unofficial)", QUOTES, _quotes("cdn")),
     Check("cnbc_us", "CNBC quote feed, U.S. yields (unofficial)", QUOTES, _quotes("us")),
+    Check("cnbc_us_more", "CNBC quote feed, U.S. 1m 6m 1y 7y 20y (unofficial)", QUOTES, _quotes("us", EXTRA_US_COLUMNS)),
     Check("census", "U.S. Census state and local finances: a year newer than baked?", None, _census),
 )
 

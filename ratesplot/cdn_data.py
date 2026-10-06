@@ -348,10 +348,18 @@ def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
     """Return Canadian benchmark yields: transcribed history through 2000, live after.
 
     The 2- and 5-year history is extended back by stand-ins (see
-    ``with_yield_stand_ins``). The result is date-indexed with the
-    ``YIELD_COLUMNS`` that are available, trimmed to the configured window.
+    ``with_yield_stand_ins``). The result is date-indexed with the chosen
+    yield columns (``config.yield_columns``) that Canada has, the
+    ``YIELD_COLUMNS``, and those the spreads are taken from
+    (``config.fetched_yield_columns``), trimmed to the configured window. A
+    chosen term it does not have (--yields:7) is named, and the chart drawn
+    without it.
     """
-    if not config.include_yield:
+    chosen = [column for column in config.fetched_yield_columns if column in YIELD_COLUMNS]
+    absent = [column for column in config.yield_columns if column not in YIELD_COLUMNS]
+    if absent:
+        print(f"  Note: no Canadian {', '.join(absent)} yield; the Canadian chart is drawn without it.")
+    if not chosen:
         return pd.DataFrame()
 
     print("Fetching Bank of Canada benchmark yields …")
@@ -369,7 +377,7 @@ def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
     historical = with_yield_stand_ins(build_cdn_hist_yields())
     live_part = yields[yields.index > historical.index.max()]
     all_yields = pd.concat([historical, live_part]).sort_index().ffill(limit=3)
-    return all_yields.loc[config.start : config.end]
+    return all_yields.loc[config.start : config.end, [column for column in all_yields.columns if column in chosen]]
 
 
 def fetch_cdn_debt(config: PlotConfig) -> pd.DataFrame | None:

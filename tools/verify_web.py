@@ -33,6 +33,7 @@ Usage (from the project root)::
     python tools/verify_web.py                 # both parts (a few minutes once the cache is warm)
     python tools/verify_web.py --only charts   # or --only page
     python tools/verify_web.py --list          # the chart cases
+    python tools/verify_web.py --synthetic     # made-up data, no network (tools/synthetic_sources.py)
 
 Exit code 1 on any DIFFER or FAIL.
 """
@@ -61,6 +62,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 
 import verify_charts  # noqa: E402  (first: it sets the Agg backend before pyplot is imported)
 import pandas as pd  # noqa: E402
+import synthetic_sources  # noqa: E402
 from regress_charts import CASES, PINNED_END, install_disk_cache  # noqa: E402
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
@@ -82,7 +84,11 @@ TIMEOUT_SECONDS = 180  # per AppTest run: a drawing whose downloads are not cach
 
 # Regression cases drawn both ways: the defaults, each measure, levels, -l,
 # --reg with and without a tolerance, the history to 1867, a small canvas.
-CHART_CASES = ("default", "c2015", "u_reg_r", "c_lv_r", "c_l_lv", "u_reg_tol3", "c_reg1867", "c_p", "c1100")
+CHART_CASES = (
+    "default", "c2015", "u_reg_r", "c_lv_r", "c_l_lv", "u_reg_tol3", "c_reg1867", "c_p", "c1100",
+    # Batch 1 (2026-10-06): --no-yields read from the address, and the yield axis's other curves.
+    "u_noy", "all_rates",
+)
 
 VIEW_BUTTONS = ("◀ Back", "Unzoom", "◀ Earlier", "Later ▶", "Zoom out")
 
@@ -413,7 +419,43 @@ def check_size_boxes(check: Check) -> None:
     check("a bad box: reported, not drawn", any("Size" in e.value for e in one.error), [e.value for e in one.error])
 
 
-PAGE_CHECKS = (check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes)
+def check_choice_boxes(check: Check) -> None:
+    """The tick boxes of the list options (yield terms, mortgage terms, spreads): the text stays the source of truth."""
+
+    def ticked(at: AppTest, name: str) -> list[str]:
+        prefix = f"choice:{name}:"
+        return [box.key[len(prefix):] for box in at.checkbox if box.key and box.key.startswith(prefix) and box.value]
+
+    page = new_page("-u --e:2026-09-01 --no-y:30 --mo:15 --sp:10-2,7-1m")
+    check(
+        "the address's lists ticked; a pair not offered gets its own box",
+        ticked(page, "yields") == ["3m", "2y", "5y", "10y"]
+        and ticked(page, "mortgage-terms") == ["15"]
+        and ticked(page, "spread-pairs") == ["10y-2y", "7y-1m"],
+        (ticked(page, "yields"), ticked(page, "mortgage-terms"), ticked(page, "spread-pairs")),
+    )
+    page.checkbox(key="choice:yields:7y").check()
+    page.run()
+    check("ticking 7y adds it to the address", "--yields:3m,2y,5y,7y,10y" in address(page), address(page))
+    page.checkbox(key="choice:mortgage-terms:15").uncheck()
+    page.run()
+    check(
+        "the last mortgage box cannot be unticked",
+        ticked(page, "mortgage-terms") == ["15"] and any("untick “Mortgage rates”" in str(item.value) for item in list(page.info) + list(page.warning)),
+        ticked(page, "mortgage-terms"),
+    )
+    page.checkbox(key="flag:spreads").uncheck()
+    page.run()
+    check(
+        "spread boxes greyed while --spreads is off, and left out of the address",
+        page.checkbox(key="choice:spread-pairs:10y-2y").disabled and "--spreads" not in address(page),
+        address(page),
+    )
+
+
+PAGE_CHECKS = (
+    check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
+)
 
 
 def check_page() -> bool:
@@ -436,7 +478,10 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", choices=("charts", "page"), help="run one part only")
     parser.add_argument("--cases", help=f"comma-separated regression cases for the charts part (default: {','.join(CHART_CASES)})")
-    parser.add_argument("--cache", type=Path, default=ROOT / "out" / "download_cache", help="download cache folder")
+    parser.add_argument("--cache", type=Path, help="download cache folder (default out/download_cache, or out/synthetic_cache)")
+    parser.add_argument(
+        "--synthetic", action="store_true", help="made-up data in each source's format, no network (tools/synthetic_sources.py)"
+    )
     parser.add_argument("--verbose", action="store_true", help="show the command line's own output")
     parser.add_argument("--list", action="store_true", help="list the chart cases and exit")
     args = parser.parse_args(argv)
@@ -446,7 +491,11 @@ def main(argv: list[str]) -> int:
             print(f"{name:12} {' '.join(CASES[name])}")
         return 0
 
-    install_disk_cache(http, args.cache.resolve())
+    if args.synthetic:
+        print("[web] SYNTHETIC data (tools/synthetic_sources.py): proves code paths, not the data")
+        synthetic_sources.install_synthetic_cache(http, (args.cache or ROOT / "out" / "synthetic_cache").resolve())
+    else:
+        install_disk_cache(http, (args.cache or ROOT / "out" / "download_cache").resolve())
     passed = True
     if args.only in (None, "charts"):
         print(f"[web] charts: the page's drawing against the command line's, {len(cases)} case(s)")

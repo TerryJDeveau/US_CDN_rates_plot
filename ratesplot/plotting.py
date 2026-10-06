@@ -7,8 +7,10 @@ and interest as % of GDP; with -p dollars per person; see ``measures``; with
 legend, a title and a subtitle naming the dates the drawn data cover (which
 can be narrower than the axis), with -l each line's last value at its
 end, and with --reg straight pieces fitted to the right-axis curves, each
-labelled with its growth in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
-monthly and drawn as steps.
+labelled with its growth in %/yr. With --policy, --mortgages and --spreads
+the yield axis has their curves too (``ratesplot.rates``, ``add_rate_lines``).
+Only the yield-line style differs: the Canadian pre-2001 history is monthly
+and drawn as steps.
 
 Without --start the charts begin on ``config.DEFAULT_START_FLOOR``, or
 on the first date on which every chosen curve has data if that is later
@@ -31,7 +33,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from .axes import apply_axes_formatting, format_currency, format_percent, format_yield
+from .axes import apply_axes_formatting, format_currency, format_percent, format_spread, format_yield
 from .cdn_data import (
     CANADIAN_SERIES_EARLIEST,
     align_cdn_macro,
@@ -48,6 +50,7 @@ from .config import (
     CDN,
     DATE_COLUMN,
     DEFAULT_START_FLOOR,
+    DEFAULT_YIELD_TERMS,
     EARLIEST_DATA_START,
     MACRO_PLOT_STYLES,
     MIN_WINDOW_DAYS,
@@ -56,9 +59,12 @@ from .config import (
     PROJECTION_LABEL,
     PROJECTION_LABEL_PREFIX,
     PROJECTION_LABEL_STEERED,
+    SPREAD_AXIS_LABEL,
+    SPREAD_INVERSION_ALPHA,
+    TERM_COLORS,
     US,
-    YIELD_COLUMNS,
     YIELD_LINE_STYLE,
+    YIELD_TERMS,
     CountryMetadata,
     PlotConfig,
 )
@@ -77,9 +83,10 @@ from .latest import (
 )
 from .legend import finish_legend_and_title
 from .measures import express
+from .rates import RateCurve, in_window, rate_curves
 from .regression import SlopeLabel, add_regression_segments
 from .regression import legend_entry as regression_legend_entry
-from .us_data import US_SERIES_EARLIEST, fetch_us_macro, fetch_us_population, fetch_us_yields
+from .us_data import fetch_us_macro, fetch_us_population, fetch_us_yields, us_series_earliest
 
 YieldLineDrawer = Callable[[Axes, pd.DataFrame, PlotConfig], list[Line2D]]
 
@@ -166,6 +173,21 @@ def add_macro_line(
     return line
 
 
+def _yield_style(column: str, config: PlotConfig) -> dict:
+    """Return the line style of one yield column: its term's own colour, unless the terms are the default five.
+
+    With the default terms (no --yields:LIST) the lines take matplotlib's
+    colour cycle in drawing order, as they always have, so those charts are
+    unchanged; the cycle's colours are the default terms' ``TERM_COLORS``
+    when all five are drawn. With terms chosen, each term has its own
+    colour, so the 10-year is red however few are drawn.
+    """
+    if config.yield_terms == DEFAULT_YIELD_TERMS:
+        return YIELD_LINE_STYLE
+    term = next(key for key, name in YIELD_TERMS.items() if name == column)
+    return YIELD_LINE_STYLE | {"color": TERM_COLORS[term]}
+
+
 def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> list[Line2D]:
     """Plot Canadian yield curves: monthly history as steps, daily live data as lines.
 
@@ -173,7 +195,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
     the live segment reuses the history segment's colour and is hidden from the
     legend so each tenor appears once.
     """
-    if not config.include_yield or yields.empty:
+    if not config.yield_columns or yields.empty:
         return []
 
     data = filter_to_date_range(yields.reset_index(), DATE_COLUMN, config).set_index(DATE_COLUMN)
@@ -181,7 +203,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
         return []
 
     legend_lines: list[Line2D] = []
-    for column in YIELD_COLUMNS:
+    for column in config.yield_columns:
         if column not in data.columns:
             continue
         series = data[column].dropna()
@@ -191,7 +213,9 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
         color = None
 
         if not historical.empty:
-            (line,) = ax.plot(historical.index, historical.values, label=label, drawstyle="steps-post", **YIELD_LINE_STYLE)
+            (line,) = ax.plot(
+                historical.index, historical.values, label=label, drawstyle="steps-post", **_yield_style(column, config)
+            )
             color = line.get_color()
             legend_lines.append(line)
 
@@ -200,8 +224,7 @@ def add_canadian_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig)
                 current.index,
                 current.values,
                 label="_nolegend_" if color is not None else label,
-                color=color,
-                **YIELD_LINE_STYLE,
+                **(_yield_style(column, config) | ({"color": color} if color is not None else {})),
             )
             if color is None:
                 legend_lines.append(line)
@@ -214,16 +237,65 @@ def add_us_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
 
     ``yields`` has a ``DATE`` column (FRED frames are not date-indexed).
     """
-    if not config.include_yield or yields.empty:
+    if not config.yield_columns or yields.empty:
         return []
 
     data = filter_to_date_range(yields, DATE_COLUMN, config)
     lines: list[Line2D] = []
-    for column in YIELD_COLUMNS:
+    for column in config.yield_columns:
         if column in data.columns:
-            (line,) = ax.plot(data[DATE_COLUMN], data[column], label=f"{column} Yield", **YIELD_LINE_STYLE)
+            (line,) = ax.plot(data[DATE_COLUMN], data[column], label=f"{column} Yield", **_yield_style(column, config))
             lines.append(line)
     return lines
+
+
+def add_rate_lines(
+    ax: Axes, rates: Iterable[RateCurve], config: PlotConfig, yield_lines: Iterable[Line2D] = ()
+) -> list[tuple[Line2D, RateCurve]]:
+    """Plot the yield axis's other curves (``ratesplot.rates``); return each drawn curve's legend line with it.
+
+    Each is drawn from the value in effect at the window's start
+    (``rates.in_window``). Where ``steps_until`` is set, the part up to it is
+    drawn as steps and the rest as a line in the same colour, as the Canadian
+    yields are. A spread's stretches below zero (an inverted curve) are
+    shaded between it and zero, in its colour. A curve with ``color_of`` (a
+    mortgage) takes the colour of that yield's line among ``yield_lines``
+    when it is drawn, so the two match whatever colour the yield was given.
+    """
+    yield_colours = {line.get_label(): line.get_color() for line in yield_lines}
+    drawn: list[tuple[Line2D, RateCurve]] = []
+    for curve in rates:
+        values = in_window(curve.values, config)
+        if values.empty:
+            continue
+        style = curve.style
+        if curve.color_of is not None and f"{curve.color_of} Yield" in yield_colours:
+            style = style | {"color": yield_colours[f"{curve.color_of} Yield"]}
+        if curve.steps_until is None:
+            parts = [(values, style)]
+        else:
+            monthly = values.loc[values.index <= curve.steps_until]
+            daily = values.loc[values.index > curve.steps_until]
+            parts = [(monthly, style | {"drawstyle": "steps-post"}), (daily, style)]
+        first: Line2D | None = None
+        for part, part_style in parts:
+            if part.empty:
+                continue
+            # The second part in the first's colour, and only the first in the legend.
+            colour = {} if first is None else {"color": first.get_color()}
+            label = curve.label if first is None else "_nolegend_"
+            (drawn_line,) = ax.plot(part.index, part.to_numpy(), label=label, **(part_style | colour))
+            first = first or drawn_line
+            if curve.spread:
+                as_steps = part_style.get("drawstyle") == "steps-post"
+                ax.fill_between(
+                    part.index, part.to_numpy(), 0.0, where=part.to_numpy() < 0, interpolate=not as_steps,
+                    step="post" if as_steps else None, color=drawn_line.get_color(), alpha=SPREAD_INVERSION_ALPHA,
+                    linewidth=0, label="_nolegend_",
+                )
+        if first is not None:
+            drawn.append((first, curve))
+    return drawn
 
 
 def drawn_date_span(axes: Iterable[Axes]) -> tuple[pd.Timestamp, pd.Timestamp] | None:
@@ -254,6 +326,7 @@ def draw_country(
     ax_yield: Axes,
     yields: pd.DataFrame,
     macro: pd.DataFrame,
+    rates: list[RateCurve],
     config: PlotConfig,
     metadata: CountryMetadata,
     draw_yield_lines: YieldLineDrawer,
@@ -266,6 +339,9 @@ def draw_country(
     quote_time = yields.attrs.get(QUOTE_TIME_ATTR)  # --cur: when the day's quotes were taken, if any
     projected = macro.attrs.get(PROJECTION_ATTR, {})  # --cur: {column: date its data end}
     yield_lines = draw_yield_lines(ax_yield, yields, config)
+    # Policy and mortgage rates and spreads (ratesplot.rates): on the yield
+    # axis, listed with the yields.
+    rate_lines = add_rate_lines(ax_yield, rates, config, yield_lines)
 
     ax_macro = ax_yield.twinx()
     macro_in_range = filter_to_date_range(macro, DATE_COLUMN, config)
@@ -287,7 +363,9 @@ def draw_country(
             macro_keys_drawn.append(style_key)
             macro_columns_drawn.append(column)
 
-    apply_axes_formatting(ax_yield, ax_macro, config, metadata)
+    # The left axis says "Spread" when one is drawn.
+    left_label = SPREAD_AXIS_LABEL if any(curve.spread for _line, curve in rate_lines) else None
+    apply_axes_formatting(ax_yield, ax_macro, config, metadata, left_label)
     warn_macro_limits_coverage(macro_in_range, macro_columns_drawn, config)
     # --reg: each right-axis curve fitted by straight pieces on its log axis,
     # drawn now that the axis limits (which set the tolerance) are known; their
@@ -303,6 +381,8 @@ def draw_country(
     if config.end_labels:
         macro_format = format_percent if config.relative else partial(format_currency, prefix=metadata.currency_prefix)
         end_labels = [(line, format_yield) for line in yield_lines] + [
+            (line, format_spread if curve.spread else format_yield) for line, curve in rate_lines
+        ] + [
             (line, (lambda value, fmt=macro_format: PROJECTION_LABEL_PREFIX + fmt(value)) if column in projected else macro_format)
             for line, column in zip(macro_lines, macro_columns_drawn)
         ]
@@ -319,10 +399,15 @@ def draw_country(
     # The title names only what is on the chart, and the subtitle only the
     # dates it covers; the legend keeps yields and macro curves as separate
     # column groups.
-    title = metadata.title_for(yields_drawn=bool(yield_lines), macro_keys_drawn=macro_keys_drawn, config=config)
+    title = metadata.title_for(
+        yields_drawn=bool(yield_lines),
+        macro_keys_drawn=macro_keys_drawn,
+        config=config,
+        rate_titles=[curve.title for _line, curve in rate_lines],
+    )
     finish_legend_and_title(
         ax_yield,
-        [yield_lines, legend_macro],
+        [yield_lines + [line for line, _curve in rate_lines], legend_macro],
         title,
         config,
         drawn_date_span((ax_yield, ax_macro)),
@@ -335,13 +420,14 @@ def draw_country(
 def plot_country(
     yields: pd.DataFrame,
     macro: pd.DataFrame,
+    rates: list[RateCurve],
     config: PlotConfig,
     metadata: CountryMetadata,
     draw_yield_lines: YieldLineDrawer,
 ) -> None:
     """Build one country's chart on a pyplot figure and show it in a matplotlib window."""
     _figure, ax_yield = plt.subplots(figsize=config.figsize_inches)
-    draw_country(ax_yield, yields, macro, config, metadata, draw_yield_lines)
+    draw_country(ax_yield, yields, macro, rates, config, metadata, draw_yield_lines)
     plt.show()
 
 
@@ -350,15 +436,19 @@ def plot_country(
 # ---------------------------------------------------------------------------
 
 
-def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch and align all selected Canadian inputs, in the configured measure; return ``(yields, macro)``.
+def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[RateCurve]]:
+    """Fetch and align all selected Canadian inputs, in the configured measure; return ``(yields, macro, rates)``.
 
     With --cur the yields run on to the day's quotes, and the macro curves
     with them; the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
+    ``rates`` are the yield axis's other chosen curves (``ratesplot.rates``).
     """
     _require_start(config)
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields, quote_time = extend_cdn_yields(fetch_cdn_yields(config), config)
+    rates = rate_curves("cdn", yields, config)
+    # A spread is cut where its yields are (from the start): their own coverage is the one warned about.
+    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates if not curve.spread})
     if config.components:
         # Debt and interest by level of government replace the aggregate lines.
         series = (fetch_cdn_components(config), fetch_cdn_gdp(config))
@@ -378,21 +468,25 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     expressed = express(macro, config, CDN, population)
     expressed.attrs[PROJECTION_ATTR] = projected
     expressed.attrs[STEERED_ATTR] = steered
-    return yields, expressed
+    return yields, expressed, rates
 
 
-def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro)``.
+def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[RateCurve]]:
+    """Fetch all selected U.S. inputs, trimmed to the end date, in the configured measure; return ``(yields, macro, rates)``.
 
     With --cur the yields run on to the day's quotes and federal debt daily
     (see ``ratesplot.latest``); the quotes' time is in ``yields.attrs[QUOTE_TIME_ATTR]``.
+    ``rates`` are the yield axis's other chosen curves (``ratesplot.rates``).
     """
     _require_start(config)
-    warn_series_coverage(config.start, US_SERIES_EARLIEST)
+    warn_series_coverage(config.start, us_series_earliest(config))
     yields, quote_time = extend_us_yields(fetch_us_yields(config), config)
     if not yields.empty:
         yields = yields.loc[yields[DATE_COLUMN] <= config.end]
     last_yield_date = yields[DATE_COLUMN].max() if not yields.empty else config.end
+    rates = rate_curves("us", yields, config)
+    # A spread is cut where its yields are (from the start): their own coverage is the one warned about.
+    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates if not curve.spread})
 
     macro = fetch_us_macro(config, last_yield_date)
     projected = macro.attrs.get(PROJECTION_ATTR, {})
@@ -402,7 +496,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     yields.attrs[QUOTE_TIME_ATTR] = quote_time
     expressed = express(macro, config, US, population)
     expressed.attrs[PROJECTION_ATTR] = projected
-    return yields, expressed
+    return yields, expressed, rates
 
 
 @dataclass(frozen=True)
@@ -412,7 +506,7 @@ class Country:
     key: str  # short name, as used for its tab and output file
     show_field: str  # PlotConfig field that selects it
     metadata: CountryMetadata
-    prepare: Callable[[PlotConfig], tuple[pd.DataFrame, pd.DataFrame]]
+    prepare: Callable[[PlotConfig], tuple[pd.DataFrame, pd.DataFrame, list[RateCurve]]]
     draw_yield_lines: YieldLineDrawer
 
 
@@ -435,7 +529,7 @@ def _require_start(config: PlotConfig) -> None:
 
 
 def curve_first_dates(
-    yields: pd.DataFrame, macro: pd.DataFrame, config: PlotConfig, metadata: CountryMetadata
+    yields: pd.DataFrame, macro: pd.DataFrame, rates: list[RateCurve], config: PlotConfig, metadata: CountryMetadata
 ) -> dict[str, pd.Timestamp]:
     """Return the first date on which each curve ``draw_country`` would draw has a value, by its legend label.
 
@@ -443,7 +537,8 @@ def curve_first_dates(
     yields are date-indexed, the other frames have a ``DATE`` column). The
     curves are every yield tenor, if yields are chosen, and each chosen
     right-axis curve (``metadata.macro_specs``) in the chosen measure: under
-    -r debt begins where both debt and GDP do.
+    -r debt begins where both debt and GDP do; and the yield axis's other
+    curves (``rates``), which are there only when chosen.
     """
     firsts: dict[str, pd.Timestamp] = {}
 
@@ -453,15 +548,17 @@ def curve_first_dates(
             if has_value.any():
                 firsts[label] = dates[has_value][0]
 
-    if config.include_yield and not yields.empty:
+    if config.yield_columns and not yields.empty:
         dates = pd.DatetimeIndex(yields[DATE_COLUMN] if DATE_COLUMN in yields.columns else yields.index)
-        for column in YIELD_COLUMNS:
+        for column in config.yield_columns:
             note(yields, dates, column, f"{column} Yield")
     if not macro.empty:
         dates = pd.DatetimeIndex(macro[DATE_COLUMN])
         for _key, enabled, column, label in metadata.macro_specs(config):
             if enabled:
                 note(macro, dates, column, label)
+    for curve in rates:
+        firsts[curve.label] = curve.first
     return firsts
 
 
@@ -503,8 +600,8 @@ def resolve_start(config: PlotConfig) -> PlotConfig:
     with this_thread_output_to(None):
         for country in COUNTRIES:
             if getattr(config, country.show_field):
-                yields, macro = country.prepare(trial)
-                for label, first in curve_first_dates(yields, macro, trial, country.metadata).items():
+                yields, macro, rates = country.prepare(trial)
+                for label, first in curve_first_dates(yields, macro, rates, trial, country.metadata).items():
                     firsts[(country.metadata.country_name, label)] = first
 
     def named(curves: list[tuple[str, str]]) -> str:
@@ -548,20 +645,20 @@ def build_figure(country: Country, config: PlotConfig) -> Figure:
     figure = Figure(figsize=config.figsize_inches, dpi=CANVAS_DPI)
     FigureCanvasAgg(figure)
     ax_yield = figure.subplots()
-    yields, macro = country.prepare(config)
-    draw_country(ax_yield, yields, macro, config, country.metadata, country.draw_yield_lines)
+    yields, macro, rates = country.prepare(config)
+    draw_country(ax_yield, yields, macro, rates, config, country.metadata, country.draw_yield_lines)
     return figure
 
 
 def run_cdn(config: PlotConfig) -> None:
     """Fetch all selected Canadian inputs and show the Canadian chart in a matplotlib window."""
-    yields, macro = prepare_cdn(config)
-    plot_country(yields, macro, config, CDN, add_canadian_yield_lines)
+    yields, macro, rates = prepare_cdn(config)
+    plot_country(yields, macro, rates, config, CDN, add_canadian_yield_lines)
     print("CDN chart finished.\n")
 
 
 def run_us(config: PlotConfig) -> None:
     """Fetch all selected U.S. inputs and show the U.S. chart in a matplotlib window."""
-    yields, macro = prepare_us(config)
-    plot_country(yields, macro, config, US, add_us_yield_lines)
+    yields, macro, rates = prepare_us(config)
+    plot_country(yields, macro, rates, config, US, add_us_yield_lines)
     print("US chart finished.\n")

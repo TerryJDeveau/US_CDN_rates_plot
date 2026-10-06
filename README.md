@@ -36,6 +36,8 @@ python -m pip install -r requirements.txt
 | `-c`, `-u` | Canada or the United States only (both by default) |
 | `-r`, `-p` | debt and interest as % of GDP, or GDP, debt and interest per person |
 | `--debt:fnpm` | debt and interest by level of government |
+| `--yields:2,10`, `--no-yields:30` | the yield terms drawn (U.S. also 1m, 6m, 1, 7 and 20 years), or those dropped |
+| `--policy`, `--mortgages`, `--spreads` | policy rates, mortgage rates (`--mo:30,15`), yield spreads (`--sp:10-2`), on the yield axis |
 | `-l` | each line's last value at its end |
 | `--reg` | each right-axis curve fitted by straight pieces, labelled with its growth in %/yr |
 | `-s:1990`, `-e:2020` | the date window (without `-s` it starts in 2000, or where the chosen curves all have data if later; the year is `DEFAULT_START_FLOOR` in `ratesplot/config.py`) |

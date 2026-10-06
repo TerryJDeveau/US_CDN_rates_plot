@@ -29,9 +29,15 @@ _WITHOUT_VALUE = (Kind.FLAG, Kind.TOGGLE, Kind.SWITCH)
 _WITH_OFF_FORM = (Kind.FLAG, Kind.TOGGLE)  # the kinds that take "no-"
 
 
-def _spelled(token: str, word: str, kinds: tuple[Kind, ...]) -> Option | None:
-    """Return the option of one of ``kinds`` that ``word`` spells, or None; raise if two do."""
-    found = [option for option in OPTIONS if option.kind in kinds and spells(option, word)]
+def _spelled(token: str, word: str, kinds: tuple[Kind, ...], *, removes: bool = False) -> Option | None:
+    """Return the option of one of ``kinds`` that ``word`` spells, or None; raise if two do.
+
+    ``removes`` picks the VALUE options spelled after "no-" (``Option.removes``)
+    instead of the others; it never matters for the other kinds.
+    """
+    found = [
+        option for option in OPTIONS if option.kind in kinds and option.removes == removes and spells(option, word)
+    ]
     if len(found) > 1:
         raise ValueError(f"{token} is ambiguous: it could be " + " or ".join(f"--{option.name}" for option in found))
     return found[0] if found else None
@@ -54,6 +60,11 @@ def match_token(token: str) -> tuple[Option, str | bool] | None:
 
     if ":" in lower:
         key = lower.partition(":")[0]
+        # "no-" before a value: an option that takes its list out (--no-yields:30).
+        if key.startswith("no-"):
+            option = _spelled(token, key[3:], (Kind.VALUE,), removes=True)
+            if option is not None:
+                return option, core.partition(":")[2]
         option = _spelled(token, key, (Kind.VALUE,))
         if option is not None:
             return option, core.partition(":")[2]

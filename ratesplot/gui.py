@@ -16,7 +16,9 @@ Controls
     switches (-r, -p) exclude each other: ticking one unticks the other.
     Changing the measure clears Top and Bottom, whose units it changes
     (dollars, percent, dollars per person), and under -r the GDP box is
-    greyed out, GDP being only the denominator.
+    greyed out, GDP being only the denominator. The controls scroll when the
+    window is too short for them; Redraw and Save sit in a bar under them
+    that does not, so they are always in sight.
 
 Remembered settings
     The choices of the last successful drawing, the preview mode, the selected
@@ -84,6 +86,10 @@ from .frontend import (
     TAB_TITLES,
     ChartGeometry,
     Choices,
+    choice_refusal,
+    choice_rows,
+    choice_values,
+    choices_text,
     level_letters,
     load_state,
     option_help_lines,
@@ -315,6 +321,77 @@ class _LevelsEditor:
             self.syncing = False
 
 
+class _ChoicesEditor:
+    """Keeps a list option's tick boxes (``Option.choices``) and its text (``"10y-2y,10y-3m"``) in step.
+
+    See ``RatesPlotApp._add_choices_control``. As for the levels, the text
+    stays the single source of truth; the boxes are a view of it. The last
+    ticked box cannot be unticked (``refuse`` says why): an empty list would
+    read as the default. A value set from elsewhere that has no box (a spread
+    named on the command line) gets one, in a row "other".
+    """
+
+    def __init__(self, option: Option, payload: tk.StringVar, frame: ttk.Frame, on_change, refuse) -> None:
+        self.option = option
+        self.payload = payload
+        self.frame = frame
+        self.on_change = on_change
+        self.refuse = refuse
+        self.boxes: dict[str, tk.BooleanVar] = {}
+        self.widgets: list[ttk.Checkbutton] = []
+        self.rows = 0
+        self.syncing = False
+        self.payload.trace_add("write", lambda *_args: self._payload_changed())
+
+    def add_row(self, caption: str, boxes: list[tuple[str, str]]) -> None:
+        """Add one row of boxes, its caption at the left."""
+        ttk.Label(self.frame, text=f"{caption}:" if caption else "", foreground="#555555").grid(
+            row=self.rows, column=0, sticky="w", padx=(0, 4)
+        )
+        for column, (value, text) in enumerate(boxes, start=1):
+            variable = tk.BooleanVar(value=False)
+            self.boxes[value] = variable
+            check = ttk.Checkbutton(self.frame, text=text, variable=variable, command=lambda v=value: self.box_changed(v))
+            check.grid(row=self.rows, column=column, sticky="w", padx=(0, 6))
+            _Tooltip(check, _tooltip_text(self.option))
+            self.widgets.append(check)
+        self.rows += 1
+
+    def set_state(self, state: list[str]) -> None:
+        for widget in self.widgets:
+            widget.state(state)
+
+    def box_changed(self, value: str) -> None:
+        if self.syncing:
+            return
+        ticked = [item for item, variable in self.boxes.items() if variable.get()]
+        if not ticked:
+            self.boxes[value].set(True)
+            self.refuse(choice_refusal(self.option))
+            return
+        self.syncing = True
+        try:
+            self.payload.set(choices_text(self.option, ticked))
+        finally:
+            self.syncing = False
+        self.on_change()
+
+    def _payload_changed(self) -> None:
+        """Show a text set from elsewhere (loading, Back, Reset) in the boxes."""
+        if self.syncing:
+            return
+        values = choice_values(self.option, self.payload.get())
+        new = [(value, value.replace("-", "–")) for value in values if value not in self.boxes]
+        if new:
+            self.add_row("other", new)
+        self.syncing = True
+        try:
+            for value, variable in self.boxes.items():
+                variable.set(value in values)
+        finally:
+            self.syncing = False
+
+
 class _SizeEditor:
     """Keeps two boxes (width, height) and one ``WxH`` text variable in step.
 
@@ -439,6 +516,7 @@ class RatesPlotApp:
         self.value_entries: dict[str, ttk.Entry] = {}
         self.size_editors: dict[str, _SizeEditor] = {}
         self.level_editors: dict[str, _LevelsEditor] = {}
+        self.choice_editors: dict[str, _ChoicesEditor] = {}
 
         # Per-country preview state, keyed by Country.key.
         self.tabs: dict[str, ttk.Frame] = {}
@@ -494,9 +572,9 @@ class RatesPlotApp:
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        panel = self._build_control_column()
+        panel, pinned = self._build_control_column()
         self._build_option_controls(panel)
-        self._build_actions(panel)
+        self._build_actions(panel, pinned)
         self._build_log(panel)
 
         self.notebook = ttk.Notebook(self.root)
@@ -516,8 +594,8 @@ class RatesPlotApp:
         self.root.bind("<Control-s>", lambda _event: self._save_png())
         self.root.bind("<Alt-Left>", lambda _event: self._back())
 
-    def _build_control_column(self) -> ttk.Frame:
-        """Return the frame the controls go in: a column that scrolls when the window is too short for it.
+    def _build_control_column(self) -> tuple[ttk.Frame, ttk.Frame]:
+        """Return the frames the controls go in: a column that scrolls when the window is too short, and a bar below it.
 
         On a laptop screen (a 972 px window) the controls filled the column
         exactly, with the log out of sight, and one more row would have hidden
@@ -526,10 +604,16 @@ class RatesPlotApp:
         frame is stretched to the window and the log takes the rest, as
         before; when it is shorter, a scroll bar appears, and the mouse wheel
         scrolls the column while the pointer is over it (over the log, the log).
+        The bar under it does not scroll: Redraw and Save go there, so they
+        are always in sight however many controls there are (Terry,
+        2026-10-06; batch 1 added a panel, and the buttons fell below the
+        fold at 1728x972).
         """
         outer = ttk.Frame(self.root)
         outer.grid(row=0, column=0, sticky="nsew")
         outer.rowconfigure(0, weight=1)
+        pinned = ttk.Frame(outer, padding=(8, 4, 8, 8))
+        pinned.grid(row=1, column=0, columnspan=2, sticky="ew")
         background = ttk.Style(self.root).lookup("TFrame", "background") or None
         canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0, background=background)
         canvas.grid(row=0, column=0, sticky="ns")
@@ -566,7 +650,7 @@ class RatesPlotApp:
         canvas.bind("<Configure>", fit)
         panel.bind("<Configure>", fit)
         self.root.bind_all("<MouseWheel>", wheel, add="+")
-        return panel
+        return panel, pinned
 
     def _build_option_controls(self, panel: ttk.Frame) -> None:
         """One labelled frame per option group, one control per GUI option, all from the table."""
@@ -574,19 +658,36 @@ class RatesPlotApp:
         style.configure("Error.TLabel", foreground=_ERROR_FOREGROUND)
 
         for group in GROUPS:
-            members = [option for option in OPTIONS if option.group == group and option.in_gui]
+            members = [option for option in OPTIONS if (option.panel or option.group) == group and option.in_gui]
             if not members:
                 continue
             frame = ttk.LabelFrame(panel, text=group_title(group), padding=(8, 4))
             frame.pack(fill="x", pady=(0, 6))
             frame.columnconfigure(1, weight=1)
             # A value that belongs to a flag (the regression tolerance) goes on
-            # the flag's own row: on a 972 px window one more row would put the
-            # Redraw and Save buttons below the fold.
-            attached = {option.turns_on: option for option in members if option.kind is Kind.VALUE and option.turns_on}
-            rows = [option for option in members if option not in attached.values()]
+            # the flag's own row, which keeps the column short; tick boxes for
+            # a flag's list (mortgage terms, spreads) go on the rows under it.
+            attached = {
+                option.turns_on: option
+                for option in members
+                if option.kind is Kind.VALUE and option.turns_on and option.editor != "choices"
+            }
+            under = {
+                option.turns_on: option
+                for option in members
+                if option.kind is Kind.VALUE and option.turns_on and option.editor == "choices"
+            }
+            rows: list[Option] = []
+            for option in members:
+                if option in attached.values() or option in under.values():
+                    continue
+                rows.append(option)
+                if option.name in under:
+                    rows.append(under[option.name])
             for row, option in enumerate(rows):
-                if option.kind is Kind.VALUE and option.editor == "size":
+                if option.kind is Kind.VALUE and option.editor == "choices":
+                    self._add_choices_control(frame, row, option)
+                elif option.kind is Kind.VALUE and option.editor == "size":
                     self._add_size_control(frame, row, option)
                 elif option.kind is Kind.VALUE and option.editor == "levels":
                     self._add_levels_control(frame, row, option)
@@ -654,6 +755,30 @@ class RatesPlotApp:
             _Tooltip(check, tip)
         _Tooltip(label, tip)
 
+    def _add_choices_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
+        """A list option as tick boxes (``Option.choices``), one row of boxes per row offered.
+
+        A list that belongs to a flag (mortgage terms, spreads) sits indented
+        under that flag's check box, with no label of its own, and is greyed
+        while the flag is off; one of its own (the yield terms) has its label
+        at the left, as the other fields do.
+        """
+        payload = tk.StringVar()
+        self.payload_vars[option.name] = payload
+        box = ttk.Frame(frame)
+        if option.turns_on:
+            box.grid(row=row, column=0, columnspan=3, sticky="w", padx=(22, 0), pady=(0, 2))
+        else:
+            label = ttk.Label(frame, text=option.label)
+            label.grid(row=row, column=0, sticky="nw", padx=(0, 6), pady=(3, 1))
+            self.value_labels[option.name] = label
+            _Tooltip(label, _tooltip_text(option))
+            box.grid(row=row, column=1, columnspan=2, sticky="w", pady=1)
+        editor = _ChoicesEditor(option, payload, box, on_change=self.request_redraw, refuse=self.status.set)
+        for caption, boxes in choice_rows(option, ""):
+            editor.add_row(caption, boxes)
+        self.choice_editors[option.name] = editor
+
     def _add_size_control(self, frame: ttk.LabelFrame, row: int, option: Option) -> None:
         """Width and height boxes, "x" between them, and a "Preserve aspect ratio" lock.
 
@@ -692,7 +817,8 @@ class RatesPlotApp:
             _Tooltip(widget, tip)
         _Tooltip(lock, "When ticked, changing one box changes the other to keep the current shape.")
 
-    def _build_actions(self, panel: ttk.Frame) -> None:
+    def _build_actions(self, panel: ttk.Frame, pinned: ttk.Frame) -> None:
+        """The Preview panel and the Reload and Reset buttons in the column; Redraw and Save in the ``pinned`` bar."""
         preview = ttk.LabelFrame(panel, text="Preview", padding=(8, 4))
         preview.pack(fill="x", pady=(0, 6))
         preview.columnconfigure((0, 1), weight=1)
@@ -706,19 +832,15 @@ class RatesPlotApp:
             row=2, column=0, columnspan=2, sticky="w", pady=(2, 0)
         )
 
-        buttons = ttk.Frame(panel)
-        buttons.pack(fill="x", pady=(0, 6))
-        actions = (
-            ("Redraw (F5)", lambda: self.request_redraw(force=True)),
-            ("Save PNG… (Ctrl+S)", self._save_png),
-            ("Reload data", self._reload_data),
-            ("Reset to defaults", self._reset),
-        )
-        for index, (text, command) in enumerate(actions):
-            ttk.Button(buttons, text=text, command=command).grid(
-                row=index // 2, column=index % 2, sticky="ew", padx=1, pady=1
-            )
-        buttons.columnconfigure((0, 1), weight=1)
+        for frame, actions in (
+            (pinned, (("Redraw (F5)", lambda: self.request_redraw(force=True)), ("Save PNG… (Ctrl+S)", self._save_png))),
+            (panel, (("Reload data", self._reload_data), ("Reset to defaults", self._reset))),
+        ):
+            buttons = ttk.Frame(frame)
+            buttons.pack(fill="x", pady=(0, 6) if frame is panel else 0)
+            for column, (text, command) in enumerate(actions):
+                ttk.Button(buttons, text=text, command=command).grid(row=0, column=column, sticky="ew", padx=1, pady=1)
+            buttons.columnconfigure((0, 1), weight=1)
 
     def _build_log(self, panel: ttk.Frame) -> None:
         frame = ttk.LabelFrame(panel, text="Log", padding=4)
@@ -815,10 +937,14 @@ class RatesPlotApp:
         if "gdp" in self.flag_boxes:
             self.flag_boxes["gdp"].state(["disabled"] if relative else ["!disabled"])
         for option in options_of(Kind.VALUE):
-            if option.turns_on in self.flag_vars and option.name in self.value_entries:
-                state = ["!disabled"] if self.flag_vars[option.turns_on].get() else ["disabled"]
+            if option.turns_on not in self.flag_vars:
+                continue
+            state = ["!disabled"] if self.flag_vars[option.turns_on].get() else ["disabled"]
+            if option.name in self.value_entries:
                 self.value_entries[option.name].state(state)
                 self.value_labels[option.name].state(state)
+            if option.name in self.choice_editors:
+                self.choice_editors[option.name].set_state(state)
 
     def _text_changed(self) -> None:
         if self._loading:

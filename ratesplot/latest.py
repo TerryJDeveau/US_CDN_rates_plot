@@ -55,6 +55,7 @@ alone. It is a better projection, not data: it is drawn as one.
 from __future__ import annotations
 
 import io
+from typing import Iterable
 
 import pandas as pd
 
@@ -69,6 +70,7 @@ from .config import (
     MARKET_TIMEZONE,
     TREASURY_DEBT_TO_PENNY_URL,
     TREASURY_YIELD_CURVE_URL,
+    YIELD_COLUMNS,
     PlotConfig,
     component_column,
 )
@@ -78,13 +80,22 @@ from .http import latest_get, parse_boc_csv
 # ``attrs``, the time of the newest quote added (for the subtitle).
 QUOTE_TIME_ATTR = "latest_quote_time"
 
-# Chart column -> CNBC symbol, per country (``plotting.Country.key``).
+# Chart column -> CNBC symbol, per country (``plotting.Country.key``). Only the
+# columns a chart draws are asked for (--yields:LIST); the U.S. terms outside
+# the default five are CNBC's symbols of the same pattern, not yet seen
+# answering from here (the cloud copy has no route to the feed).
 _QUOTE_SYMBOLS = {
-    "us": {"3-Month": "US3M", "2-Year": "US2Y", "5-Year": "US5Y", "10-Year": "US10Y", "30-Year": "US30Y"},
+    "us": {
+        "1-Month": "US1M", "3-Month": "US3M", "6-Month": "US6M", "1-Year": "US1Y", "2-Year": "US2Y",
+        "5-Year": "US5Y", "7-Year": "US7Y", "10-Year": "US10Y", "20-Year": "US20Y", "30-Year": "US30Y",
+    },
     "cdn": {"3-Month": "CA3M", "2-Year": "CA2Y", "5-Year": "CA5Y", "10-Year": "CA10Y", "30-Year": "CA30Y"},
 }
-# Chart column -> column of the Treasury's yield-curve file.
-_TREASURY_COLUMNS = {"3-Month": "3 Mo", "2-Year": "2 Yr", "5-Year": "5 Yr", "10-Year": "10 Yr", "30-Year": "30 Yr"}
+# Chart column -> column of the Treasury's yield-curve file (the file has all ten).
+_TREASURY_COLUMNS = {
+    "1-Month": "1 Mo", "3-Month": "3 Mo", "6-Month": "6 Mo", "1-Year": "1 Yr", "2-Year": "2 Yr",
+    "5-Year": "5 Yr", "7-Year": "7 Yr", "10-Year": "10 Yr", "20-Year": "20 Yr", "30-Year": "30 Yr",
+}
 # A quoted yield outside this range (percent) is a bad print and is left out.
 _PLAUSIBLE_YIELD = (-5.0, 50.0)
 # From this hour (market time) the feed's U.S. quotes are the next day's session:
@@ -273,20 +284,24 @@ def _market_steered(
 # ---------------------------------------------------------------------------
 
 
-def treasury_yields_after(last: pd.Timestamp, config: PlotConfig) -> pd.DataFrame:
+def treasury_yields_after(
+    last: pd.Timestamp, config: PlotConfig, columns: Iterable[str] = YIELD_COLUMNS
+) -> pd.DataFrame:
     """Return the Treasury's daily par yields after ``last``, up to ``config.end``, as a ``DATE``-column frame.
 
     The Treasury publishes one CSV per calendar year, newest day first.
+    ``columns`` are the chart columns wanted (the drawn yields).
     """
+    wanted = {column: _TREASURY_COLUMNS[column] for column in columns}
     frames = []
     for year in range(last.year, config.end.year + 1):
         params = {"type": "daily_treasury_yield_curve", "field_tdr_date_value": year, "_format": "csv"}
         table = pd.read_csv(io.StringIO(latest_get(TREASURY_YIELD_CURVE_URL.format(year=year), params).text))
-        missing = {"Date", *_TREASURY_COLUMNS.values()} - set(table.columns)
+        missing = {"Date", *wanted.values()} - set(table.columns)
         if missing:
             raise ValueError(f"the {year} yield-curve file has no column {sorted(missing)}")
         frame = pd.DataFrame({DATE_COLUMN: pd.to_datetime(table["Date"], format="%m/%d/%Y")})
-        for column, source in _TREASURY_COLUMNS.items():
+        for column, source in wanted.items():
             frame[column] = pd.to_numeric(table[source], errors="coerce")
         frames.append(frame)
     data = pd.concat(frames).sort_values(DATE_COLUMN)
@@ -382,13 +397,20 @@ def _day_change(quote: dict) -> float:
         return _percent(quote["last"]) - _percent(quote["previous_day_closing"])
 
 
-def fetch_quotes(country: str) -> dict[str, dict | None]:
-    """Return the feed's quote of the moment for each of one country's yield columns (None where it has none).
+def _quote_symbols(country: str, columns: Iterable[str] | None) -> dict[str, str]:
+    """Return {chart column: symbol} for ``columns`` (None: the default five) that the feed has for ``country``."""
+    every = _QUOTE_SYMBOLS[country]
+    return {column: every[column] for column in (YIELD_COLUMNS if columns is None else columns) if column in every}
 
-    Not cached: each drawing gets fresh quotes. ``tools/check_sources.py``
-    uses it to check the feed still answers in the expected form.
+
+def fetch_quotes(country: str, columns: Iterable[str] | None = None) -> dict[str, dict | None]:
+    """Return the feed's quote of the moment for each of one country's yield ``columns`` (None where it has none).
+
+    ``columns`` defaults to the five default terms. Not cached: each drawing
+    gets fresh quotes. ``tools/check_sources.py`` uses it to check the feed
+    still answers in the expected form.
     """
-    symbols = _QUOTE_SYMBOLS[country]
+    symbols = _quote_symbols(country, columns)
     params = {
         "symbols": "|".join(symbols.values()),
         "requestMethod": "itv",
@@ -426,8 +448,8 @@ def intraday_yields_after(
     Friday figures and are left out. Fetched afresh every time (not cached),
     so each drawing shows the quotes of the moment.
     """
-    symbols = _QUOTE_SYMBOLS[country]
-    quotes = fetch_quotes(country)
+    symbols = _quote_symbols(country, official.index)
+    quotes = fetch_quotes(country, symbols)
 
     rows: dict[pd.Timestamp, dict[str, float]] = {}
     newest: pd.Timestamp | None = None
@@ -481,7 +503,7 @@ def extend_us_yields(yields: pd.DataFrame, config: PlotConfig) -> tuple[pd.DataF
     parts = [yields]
     official = yields.set_index(DATE_COLUMN).iloc[-1]
     try:
-        treasury = treasury_yields_after(last, config)
+        treasury = treasury_yields_after(last, config, yields.columns.drop(DATE_COLUMN))
     except Exception as exc:
         print(f"  Warning: U.S. Treasury daily yields unavailable ({exc}); FRED's, to {last.date()}, are the last official ones.")
     else:

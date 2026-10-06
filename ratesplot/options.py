@@ -20,7 +20,9 @@ regression. Nothing is matched by its first letter alone any more (Terry,
   any other token against the rest. A value given to an option that takes
   none (``-r:1``, ``--cur:1``) is an error, never another option that shares
   its first letter; so is a ``VALUE`` option named without a value.
-* ``no-`` is accepted by ``FLAG`` and ``TOGGLE`` options only.
+* ``no-`` is accepted by ``FLAG`` and ``TOGGLE`` options, and before the
+  value of a ``VALUE`` option that takes its list out of a field
+  (``Option.removes``: ``--no-yields:30`` drops the 30-year yield).
 * A token that spells two options is an error (``--m:5``: --min or --max).
   ``shortest`` keeps apart the names that share a first letter: "c" is
   Canada and "cur" the latest values, "r" the measure and "reg" the
@@ -49,11 +51,16 @@ from .config import (
     COMPONENT_LETTERS,
     COMPONENT_SYNONYMS,
     DEFAULT_REGRESSION_TOLERANCE_PCT,
+    DEFAULT_MORTGAGE_TERMS,
+    DEFAULT_SPREADS,
     DEFAULT_START_FLOOR,
+    DEFAULT_YIELD_TERMS,
     EARLIEST_DATA_START,
     MIN_CANVAS_PX,
     MIN_REGRESSION_TOLERANCE_PCT,
     MIN_WINDOW_DAYS,
+    MORTGAGE_TERMS,
+    YIELD_TERMS,
     PlotConfig,
 )
 
@@ -128,7 +135,11 @@ def parse_dimensions_spec(spec: str) -> tuple[int, int]:
 
 
 def parse_yield_bound(spec: str, *, kind: str) -> float:
-    """Parse a yield-axis bound in percent, allowed range ``[0, 100)``."""
+    """Parse a yield-axis bound in percent, allowed range ``(-100, 100)``.
+
+    Negative since 2026-10-06 (Terry): spreads (--spreads) go below zero
+    when the curve inverts, and some yields have, so a zoom must reach there.
+    """
     value = spec.strip()
     if not value:
         raise ValueError(f"empty {kind} yield bound")
@@ -136,8 +147,8 @@ def parse_yield_bound(spec: str, *, kind: str) -> float:
         parsed = float(value)
     except ValueError:
         raise ValueError(f"invalid {kind} yield bound {spec!r}: must be a decimal number") from None
-    if not 0 <= parsed < 100:
-        raise ValueError(f"{kind} yield bound must be non-negative and < 100, got {parsed}")
+    if not -100 < parsed < 100:
+        raise ValueError(f"{kind} yield bound must be above -100 and below 100, got {parsed}")
     return parsed
 
 
@@ -155,6 +166,81 @@ def parse_regression_tolerance(spec: str) -> float:
     if not 0 < parsed <= 100:
         raise ValueError(f"--reg tolerance must be above 0 and at most 100 (% of the axis height), got {spec.strip()}")
     return parsed
+
+
+_TERM_SPEC = re.compile(r"^(\d+)\s*([my]?)$")
+
+
+def parse_term(spec: str, *, kind: str) -> str:
+    """Parse one yield term, ``3m``, ``2``, ``5y`` or ``10``, to its key in ``YIELD_TERMS`` ("3m", "2y" …).
+
+    Years unless ``m`` (months) is given. ``kind`` names the option in messages.
+    """
+    match = _TERM_SPEC.match(spec.strip().lower())
+    key = f"{int(match.group(1))}{match.group(2) or 'y'}" if match else None
+    if key not in YIELD_TERMS:
+        terms = ", ".join(YIELD_TERMS)
+        raise ValueError(f"invalid {kind} term {spec.strip()!r}: use {terms} (y may be left out)")
+    return key
+
+
+def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
+    """Parse a comma-separated list of yield terms into ``YIELD_TERMS`` keys, in that order (repeats are harmless)."""
+    items = [item for item in spec.split(",") if item.strip()]
+    if not items:
+        raise ValueError(f"empty {kind} list: name terms such as 3m,2,10")
+    chosen = {parse_term(item, kind=kind) for item in items}
+    return tuple(term for term in YIELD_TERMS if term in chosen)
+
+
+def format_terms(values: tuple, _config: PlotConfig) -> str:
+    """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``."""
+    return ",".join(values[0])
+
+
+def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
+    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v Canada), in that order.
+
+    A "y" after the years is accepted ("30y"), and repeats are harmless.
+    """
+    items = [item.strip().lower() for item in spec.split(",") if item.strip()]
+    if not items:
+        raise ValueError("empty --mortgages list: name terms such as 30,5")
+    chosen = set()
+    for item in items:
+        term = item[:-1] if item.endswith("y") else item.replace("yv", "v")
+        if term not in MORTGAGE_TERMS:
+            raise ValueError(
+                f"invalid --mortgages term {item!r}: use 30 or 15 (U.S.), 5, 3, 1 or 5v (Canada, 5v the 5-year variable)"
+            )
+        chosen.add(term)
+    return tuple(term for term in MORTGAGE_TERMS if term in chosen)
+
+
+def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
+    """Parse ``--spreads:LIST``: pairs of yield terms such as ``10y-2y,10-3m``, each the first less the second.
+
+    Kept in the order given (it sets their colours); a repeated pair is drawn once.
+    """
+    items = [item.strip() for item in spec.split(",") if item.strip()]
+    if not items:
+        raise ValueError("empty --spreads list: name pairs such as 10y-2y,10y-3m")
+    pairs: list[tuple[str, str]] = []
+    for item in items:
+        legs = item.split("-")
+        if len(legs) != 2:
+            raise ValueError(f"invalid --spreads pair {item!r}: write two terms joined by '-', e.g. 10y-2y")
+        pair = (parse_term(legs[0], kind="--spreads"), parse_term(legs[1], kind="--spreads"))
+        if pair[0] == pair[1]:
+            raise ValueError(f"invalid --spreads pair {item!r}: the two terms must differ")
+        if pair not in pairs:
+            pairs.append(pair)
+    return tuple(pairs)
+
+
+def format_spreads(values: tuple, _config: PlotConfig) -> str:
+    """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``."""
+    return ",".join(f"{first}-{second}" for first, second in values[0])
 
 
 def is_percent_bound(spec: str) -> bool:
@@ -356,6 +442,9 @@ class Option:
     parse: Callable[[str], object] | None = None  # VALUE: payload -> value (a tuple if several fields)
     check: Callable[[Mapping[str, object]], None] | None = None  # VALUE: run after this option is parsed
     turns_on: str | None = None  # VALUE: the FLAG option that giving this value turns on (--reg:TOL is --reg)
+    # VALUE: spelled after "no-" (--no-yields:LIST); its list is taken out of
+    # its field (the default, or what the option before it in the table gave).
+    removes: bool = False
     flag: str | None = None  # SWITCH: the argparse flag
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
@@ -367,9 +456,38 @@ class Option:
     in_gui: bool = True
     # GUI editor for a VALUE option: None = a plain text field; "date" = text
     # field plus calendar button; "size" = width and height boxes with an
-    # aspect-ratio lock (for a "WxH" option such as the canvas size).
+    # aspect-ratio lock (for a "WxH" option such as the canvas size);
+    # "choices" = a tick box per item of a list (``choices``).
     editor: str | None = None
+    # GUI editor "choices": the tick boxes offered, in rows, each row a caption
+    # ("" for none) and its (value, box caption) pairs. The values are the
+    # items of the option's list as ``format`` writes them ("10y", "5v",
+    # "10y-2y"); a value given on the command line that is not offered gets a
+    # box of its own (``frontend.choice_rows``). Terry, 2026-10-06: tick boxes
+    # show what can be chosen.
+    choices: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+    # GUI: the panel (a key of GROUPS) the control is shown in, when not its
+    # help group. The yield spreads are listed under "rates" in --help, as an
+    # additive option, but shown with the yield terms (Terry, 2026-10-06).
+    panel: str | None = None
 
+
+# The tick boxes of the list options (Option.choices). Yield terms: the five
+# both countries have, then those only the U.S. has. Mortgage terms by
+# country. Spreads: the usual pairs (the defaults first); any other pair
+# named on the command line gets a box of its own.
+_YIELD_CHOICES = (
+    ("", tuple((term, term) for term in DEFAULT_YIELD_TERMS)),
+    ("U.S. only", tuple((term, term) for term in YIELD_TERMS if term not in DEFAULT_YIELD_TERMS)),
+)
+_MORTGAGE_CHOICES = (
+    ("U.S.", (("30", "30y"), ("15", "15y"))),
+    ("Canada", (("5", "5y"), ("3", "3y"), ("1", "1y"), ("5v", "5y var."))),
+)
+_SPREAD_CHOICES = (
+    ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in DEFAULT_SPREADS)),
+    ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in (("2y", "3m"), ("5y", "2y"), ("30y", "2y")))),
+)
 
 # Help-listing sections, in display order: key -> heading (and any notes).
 # The GUI titles its panels with the heading up to the first " (" or ":".
@@ -378,6 +496,10 @@ GROUPS: dict[str, str] = {
     "curves": (
         "Curve selection (naming any curve positively shows *only* the named curves;\n"
         "``--no-`` forms hide curves from the default set of all four):"
+    ),
+    "rates": (
+        'Rates on the yield axis (policy, mortgages, spreads; each only when asked\n'
+        'for, hiding nothing; at least "po", "mo", "sp"):'
     ),
     "units": "Measure of debt, GDP and interest:",
     "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
@@ -416,9 +538,79 @@ OPTIONS: tuple[Option, ...] = (
         "interest", Kind.TOGGLE, ("include_interest",), "curves", "--interest / --no-interest", "TTM interest outlays",
         names=("interest",), label="TTM interest outlays",
     ),
+    # Curve sub-options: debt and interest by level of government ("--d:" is
+    # debt; the size needs at least "dim"). They set one field; see
+    # ``config_from_choices`` for how they name their curves. The window has
+    # one control for both, under the debt and interest boxes (Terry,
+    # 2026-10-06).
+    Option(
+        "debt-parts", Kind.VALUE, ("components",), "curves", "--debt:LETTERS / --d:LETTERS",
+        "debt and interest by level instead of\nin total: f federal, n non-federal,\n"
+        "p or s provincial/state, m municipal",
+        names=("debt",), parse=partial(parse_components, kind="debt"),
+        label="By level", format=format_components, editor="levels",
+    ),
+    Option(
+        "interest-parts", Kind.VALUE, ("components",), "curves", "--interest:LETTERS / --i:LETTERS",
+        "the same letters; given on both --debt\nand --interest they must agree",
+        names=("interest",), parse=partial(parse_components, kind="interest"), in_gui=False,
+    ),
     Option(
         "yield", Kind.TOGGLE, ("include_yield",), "curves", "--yield / --no-yield", "bond yields",
         names=("yield", "yields"), label="Bond yields",
+    ),
+    # The yield terms (config.YIELD_TERMS): named, or dropped from the default
+    # five. They choose which yield lines the curve draws; they do not name a
+    # curve under the curve rule, so the other curves stay. The window has the
+    # one field; --no-yields:LIST is a command-line convenience (Terry,
+    # 2026-10-06: drop a few defaults rather than list all the wanted ones).
+    Option(
+        "yields", Kind.VALUE, ("yield_terms",), "curves", "--yields:LIST / --y:LIST",
+        "the yield terms drawn: 1m 3m 6m 1 2 5 7\n10 20 30 (years unless m; default\n"
+        f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only",
+        names=("yields",), parse=partial(parse_terms, kind="--yields"), label="Yield terms", format=format_terms,
+        editor="choices", choices=_YIELD_CHOICES,
+    ),
+    Option(
+        "no-yields", Kind.VALUE, ("yield_terms",), "curves", "--no-yields:LIST / --no-y:LIST",
+        "drop these terms from the default five\n(or from --yields:LIST)",
+        names=("yields",), parse=partial(parse_terms, kind="--no-yields"), removes=True, in_gui=False,
+    ),
+    # The yield axis's other curves (ratesplot.rates). Flags, not curves under
+    # the curve rule: each adds its curve and hides nothing. At least "po", so
+    # "-p" stays per capita.
+    Option(
+        "policy", Kind.FLAG, ("policy_rates",), "rates", "--policy / --no-policy",
+        "each country's policy rate: the effective\nfed funds rate; the Bank Rate, then\n"
+        "CORRA from 1997 (a quarter point lower)",
+        names=("policy-rates",), shortest=2, label="Policy rate",
+    ),
+    # At least "mo": "--m:" stays ambiguous (--min or --max).
+    Option(
+        "mortgages", Kind.FLAG, ("mortgages",), "rates", "--mortgages / --no-mortgages",
+        "mortgage rates, dashed in the colour of\nthe yield of their term: U.S. survey\n"
+        "averages; Canadian posted rates",
+        names=("mortgages",), shortest=2, label="Mortgage rates",
+    ),
+    Option(
+        "mortgage-terms", Kind.VALUE, ("mortgage_terms",), "rates", "--mortgages:LIST / --mo:LIST",
+        "the terms: 30 15 (U.S.), 5 3 1 5v\n(Canada; 5v variable, broker average);\n"
+        f"default {','.join(DEFAULT_MORTGAGE_TERMS)}; turns --mortgages on",
+        names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
+        label="Mortgage terms", format=format_terms, editor="choices", choices=_MORTGAGE_CHOICES,
+    ),
+    # At least "sp": "--s:" stays the start date.
+    Option(
+        "spreads", Kind.FLAG, ("spreads",), "rates", "--spreads / --no-spreads",
+        "yield spreads in percentage points, drawn\nthick, their inverted stretches shaded",
+        names=("spreads",), shortest=2, label="Yield spreads", panel="curves",
+    ),
+    Option(
+        "spread-pairs", Kind.VALUE, ("spread_pairs",), "rates", "--spreads:LIST / --sp:LIST",
+        "pairs of yield terms, the first less the\nsecond (default "
+        f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())});\nturns --spreads on",
+        names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
+        label="Spreads", format=format_spreads, editor="choices", choices=_SPREAD_CHOICES, panel="curves",
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.
@@ -468,22 +660,6 @@ OPTIONS: tuple[Option, ...] = (
         "dimensions", Kind.VALUE, ("width_px", "height_px"), "canvas", "--dimensions:WxH / --dim:W / --dim:xH",
         f"(minimum {MIN_CANVAS_PX} px each way)", names=("dimensions",), shortest=3, parse=parse_dimensions_spec,
         label="Size", format=format_dimensions, editor="size",
-    ),
-    # Curve sub-options: debt and interest by level of government ("--d:" is
-    # debt; the size needs at least "dim"). They set one field; see
-    # ``config_from_choices`` for how they name their curves. The window has
-    # one control for both.
-    Option(
-        "debt-parts", Kind.VALUE, ("components",), "curves", "--debt:LETTERS / --d:LETTERS",
-        "debt and interest by level instead of\nin total: f federal, n non-federal,\n"
-        "p or s provincial/state, m municipal",
-        names=("debt",), parse=partial(parse_components, kind="debt"),
-        label="By level", format=format_components, editor="levels",
-    ),
-    Option(
-        "interest-parts", Kind.VALUE, ("components",), "curves", "--interest:LETTERS / --i:LETTERS",
-        "the same letters; given on both --debt\nand --interest they must agree",
-        names=("interest",), parse=partial(parse_components, kind="interest"), in_gui=False,
     ),
     Option(
         "start", Kind.VALUE, ("start",), "dates", "--start:DATE / --s:DATE",
@@ -593,6 +769,19 @@ _PART_OPTIONS = {"debt-parts": "debt", "interest-parts": "interest"}
 #   flags:    FLAG / TOGGLE / SWITCH option -> True or False (absent = not given)
 
 
+def _removed(option: Option, spec: str, current: tuple) -> tuple:
+    """Return ``current`` without the items ``spec`` names (``option.removes``); raise if one is not there or none is left."""
+    dropped = option.parse(spec)
+    spelling = option.usage.split(":")[0]
+    absent = [item for item in dropped if item not in current]
+    if absent:
+        raise ValueError(f"{spelling}:{spec.strip()}: {','.join(absent)} is not drawn anyway (drawn: {','.join(current)})")
+    left = tuple(item for item in current if item not in dropped)
+    if not left:
+        raise ValueError(f"{spelling}:{spec.strip()} drops every term; to hide the yield curves use --no-yield")
+    return left
+
+
 def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> PlotConfig:
     """Build the PlotConfig the choices describe; raise ValueError naming the first problem.
 
@@ -609,6 +798,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
       levels, so given on both they must agree. Each also names its curve,
       as --debt and --interest do, unless that curve's flag was given
       explicitly (the window gives every flag, so there it names nothing).
+    * A value option that removes (``--no-yields:LIST``) takes its items out
+      of its field as the options before it left it; an item not there, or
+      none left, is an error.
     * A value that belongs to a flag (``turns_on``: --reg:TOL) turns it on,
       unless the flag was given explicitly (--reg:2 --no-reg is off).
     * Measure: -r and -p exclude each other (``check_single_measure``).
@@ -617,7 +809,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     """
     values = dataclasses.asdict(PlotConfig())
     for option in options_of(Kind.VALUE):
-        if option.name in payloads:
+        if option.name in payloads and option.removes:
+            values[option.fields[0]] = _removed(option, payloads[option.name], values[option.fields[0]])
+        elif option.name in payloads:
             parsed = option.parse(payloads[option.name])
             values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
         if option.check is not None:
@@ -679,6 +873,31 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
     return payloads, flags
 
 
+def _shorter_as_removal(option: Option, text: str) -> str | None:
+    """Return the option's value written as what it drops from the default, when that is shorter; else None.
+
+    ``--no-yields:30y`` rather than ``--yields:3m,2y,5y,10y`` (an option
+    with a remover, ``Option.removes``, on its field). None also when the
+    text does not parse; the caller then writes it as it is. "" when it
+    is the default, spelled another way: nothing need be written.
+    """
+    remover = next((other for other in options_of(Kind.VALUE) if other.removes and other.fields == option.fields), None)
+    if remover is None:
+        return None
+    try:
+        chosen = option.parse(text)
+    except ValueError:
+        return None
+    default = getattr(PlotConfig(), option.fields[0])
+    dropped = [item for item in default if item not in chosen]
+    if tuple(chosen) == tuple(default):
+        return ""
+    if not dropped or not set(chosen) <= set(default):
+        return None
+    removal = f"{remover.usage.split(':')[0]}:{','.join(dropped)}"
+    return removal if len(removal) < len(f"{option.usage.split(':')[0]}:{text}") else None
+
+
 def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) -> list[str]:
     """Return the shortest command line (after the script name) that reproduces the GUI choices.
 
@@ -729,7 +948,9 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
                 continue
             stood_for.add(option.turns_on)
         key = f"--{level_key}" if option.name in _PART_OPTIONS else option.usage.split(":")[0]
-        values.append(f"{key}:{text}")
+        shorter = _shorter_as_removal(option, text)
+        if shorter != "":  # "": the default, spelled another way ("3m,2,5,10,30")
+            values.append(shorter or f"{key}:{text}")
 
     # On/off flags in the window (--cur, --reg): only when not at their default.
     for option in options_of(Kind.FLAG):

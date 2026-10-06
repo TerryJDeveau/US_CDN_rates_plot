@@ -25,6 +25,12 @@ Usage (from the project root)::
     python tools/regress_charts.py out/x --only default,c_r     # a few cases
     python tools/regress_charts.py --list                       # the case names
 
+``--synthetic`` feeds every case made-up data in each source's own format
+(``tools/synthetic_sources.py``, kept in ``out/synthetic_cache``) and refuses
+the network: for a machine that cannot reach the sources, such as the cloud
+copy. Two runs with it prove a change neutral in the code, not against real
+data, and its charts show nothing about the data themselves.
+
 ``--commit REV`` exports that revision with ``git archive`` into ``out/tree_REV``
 and renders from it; ``--root DIR`` renders from any other tree. With
 ``--compare`` each chart is reported IDENTICAL, DIFFER or MISSING, and the exit
@@ -43,6 +49,10 @@ import subprocess
 import sys
 import tarfile
 from pathlib import Path
+
+# This tool's own copy, imported before an exported tree's tools/ is put on
+# the path: an older tree has none, and the data must be the same for both.
+import synthetic_sources  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PINNED_END = "--e:2026-09-01"
@@ -118,6 +128,32 @@ CASES: dict[str, list[str]] = {
     # --reg:TOL: a coarser and a finer tolerance than the default 1 % of the axis.
     "u_reg_tol3": ["-u", "--reg:3"],
     "c_reg_tol05": ["-c", "--reg:0.5", "-s:1990"],
+    # --yields:LIST / --no-yields:LIST: all ten U.S. terms (the five new ones in
+    # colours of their own), defaults dropped, and a term Canada does not have.
+    "u_y_all_l": ["-u", "--yields:1m,3m,6m,1,2,5,7,10,20,30", "-l", "-s:2001"],
+    "u_noy": ["-u", "--no-y:30,3m", "--yield", "-s:2019"],
+    "y7_10": ["--yields:7,10", "-l"],
+    # --policy: with the default curves and -l; alone over its whole span (the
+    # Bank Rate from 1935, CORRA from 1997); the U.S. one with the yields.
+    "policy_l": ["--policy", "-l"],
+    "c_policy_only": ["-c", "--policy", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1935", "-l"],
+    "u_policy_y1990": ["-u", "--policy", "--yield", "-s:1990"],
+    # --mortgages[:LIST]: the default terms with -l; every Canadian term over the
+    # posted rates' span; the U.S. terms with their yields chosen; and the
+    # automatic start set by a mortgage rate alone (the 15-year, 1991).
+    "mo_l": ["--mo", "-l"],
+    "c_mo_all": ["-c", "--mo:5,3,1,5v", "--yield", "-s:1975", "-l"],
+    "u_mo_y": ["-u", "--mo:30,15", "--yields:10,30", "-s:1971"],
+    "u_mo_auto": ["-u", "--mo:15", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "--e:1999"],
+    # --spreads[:LIST]: the default pairs with -l; spreads alone, their terms
+    # fetched though not drawn; Canada across 2001 (monthly steps, then daily);
+    # with -r, where the right axis is a percentage too.
+    "sp_l": ["--sp", "-l"],
+    "u_sp_only": ["-u", "--sp:10-2,10-3m", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1976", "-l"],
+    "c_sp1990_05": ["-c", "--sp", "-s:1990", "--e:2005"],
+    "u_sp_r": ["-u", "--sp", "-r"],
+    # All three together on both charts.
+    "all_rates": ["--policy", "--mo", "--sp:10-2", "-l", "-s:2015"],
 }
 
 
@@ -172,7 +208,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--extra", default="", help="tokens added to every case, e.g. --extra=--no-cur to prove a default-on option neutral"
     )
-    parser.add_argument("--cache", type=Path, default=ROOT / "out" / "download_cache", help="download cache folder")
+    parser.add_argument("--cache", type=Path, help="download cache folder (default out/download_cache, or out/synthetic_cache)")
+    parser.add_argument(
+        "--synthetic", action="store_true", help="made-up data in each source's format, no network (tools/synthetic_sources.py)"
+    )
     parser.add_argument("--verbose", action="store_true", help="show the program's own output")
     parser.add_argument("--list", action="store_true", help="list the cases and exit")
     args = parser.parse_args(argv)
@@ -189,7 +228,13 @@ def main(argv: list[str]) -> int:
     sys.path[:0] = [str(tree / "tools"), str(tree)]
     verify_charts = importlib.import_module("verify_charts")
     http = importlib.import_module("ratesplot.http")
-    if not install_disk_cache(http, args.cache.resolve()):
+    if args.synthetic:
+        install = synthetic_sources.install_synthetic_cache
+        cache = args.cache or ROOT / "out" / "synthetic_cache"
+        print("[regress] SYNTHETIC data (tools/synthetic_sources.py): proves code paths, not the data")
+    else:
+        install, cache = install_disk_cache, args.cache or ROOT / "out" / "download_cache"
+    if not install(http, cache.resolve()):
         print(f"[regress] {tree} has no download cache; downloading live")
     print(f"[regress] rendering {len(cases)} case(s) from {tree}")
 

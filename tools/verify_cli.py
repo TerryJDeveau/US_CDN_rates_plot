@@ -119,6 +119,30 @@ CASES: list[list[str]] = [
     ["--reg:2", "--no-reg"], ["--no-reg", "--reg:2"], ["--reg", "--reg:2"], ["--reg:2", "-r", "-c"],
     ["--reg:0"], ["--reg:-1"], ["--reg:100"], ["--reg:101"], ["--reg:"], ["--reg:x"], ["--reg:%"], ["--reg:nan"],
     ["--re:1"], ["-r:1.5"],
+    # --yields:LIST / --no-yields:LIST (2026-10-06): the yield terms; years unless m. "--y:" is now
+    # --yields: (it was "--yield takes no value"); "no-" before a value is new to the matcher.
+    ["--yields:3m,10"], ["--y:2,10y"], ["--yield:30"], ["--yields:1m,6m,1,7,20"], ["--yields:10,3m,10"], ["--Y:10Y"],
+    ["--yields:4"], ["--yields:3x"], ["--yields:"], ["--yields:,"], ["--yields:12m"], ["--yields: 10 , 2 "],
+    ["--no-yields:30"], ["--no-y:30y,3m"], ["--no-yield:30"], ["--NO-Y:2"], ["--no-y:7"], ["--no-y:3m,2,5,10,30"],
+    ["--no-y:"], ["--no-y:x"], ["--yields:7,1m,10", "--no-y:10"], ["--yields:7", "--no-y:7"],
+    ["--no-y:30", "--yields:10"], ["--y:10", "--no-yield"], ["--y:10", "-c"], ["--y:10", "--gdp"],
+    ["--no-debt:fp"], ["--no-dim:1100"], ["--no-reg:2"], ["--no-s:2001"], ["--yieldsx:10"],
+    # --policy: a flag, off by default, adds its curve; at least "po", so "-p" stays per capita.
+    ["--policy"], ["--po"], ["--pol"], ["--policy-rates"], ["--policyrates"], ["policy"], ["--no-policy"], ["--no-po"],
+    ["--policy", "--no-policy"], ["--policy", "--gdp"], ["--policy", "-c", "--no-yield"], ["--policy", "-p"],
+    ["--po:1"], ["--policyx"], ["--no-p"], ["--p"], ["--pe"],
+    # --mortgages[:LIST]: a flag and its terms (turning it on); at least "mo", so "--m:" stays ambiguous.
+    ["--mortgages"], ["--mo"], ["--mort"], ["mortgage"], ["--no-mortgages"], ["--no-mo"], ["--mo:30"], ["--mort:15,30"],
+    ["--mortgages:5,3,1,5v"], ["--mo:30y,5"], ["--mo:5V"], ["--mo:5,5"], ["--mo:20"], ["--mo:x"], ["--mo:"], ["--mo:,"],
+    ["--mo:30", "--no-mo"], ["--no-mo", "--mo:30"], ["--mo", "--mo:1"], ["--mo:1", "--gdp"], ["--mo:5", "-c", "--no-yield"],
+    ["--m"], ["--m:5"], ["--mo:1", "--min:1"], ["--mortgagesx"], ["--no-mo:30"],
+    # --spreads[:LIST]: a flag and its pairs (turning it on); at least "sp", so "--s:" stays the start.
+    ["--spreads"], ["--sp"], ["--spr"], ["spreads"], ["--no-spreads"], ["--no-sp"], ["--sp:10-2"], ["--spreads:10y-3m,30-10"],
+    ["--sp:2-10"], ["--sp:10-2,10y-2y"], ["--sp:10-10"], ["--sp:10"], ["--sp:10-2-1"], ["--sp:10-4"], ["--sp:"], ["--sp:-"],
+    ["--sp:10-2", "--no-sp"], ["--sp", "--no-yield"], ["--sp:7-1m", "-u"], ["--sp", "--gdp"], ["--s"], ["--s:2001", "--sp"],
+    ["--spreadsx"], ["--no-sp:10-2"], ["--po", "--mo", "--sp"],
+    # Yield-axis bounds may be negative since 2026-10-06 (spreads invert), above -100.
+    ["--min:-0.5"], ["--min:-1", "--max:2"], ["--min:-100"], ["--max:-1"], ["--min:1", "--max:-1"],
 ]
 
 
