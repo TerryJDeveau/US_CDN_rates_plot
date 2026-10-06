@@ -7,8 +7,10 @@ and interest as % of GDP; with -p dollars per person; see ``measures``; with
 legend, a title and a subtitle naming the dates the drawn data cover (which
 can be narrower than the axis), with -l each line's last value at its
 end, and with --reg straight pieces fitted to the right-axis curves, each
-labelled with its growth in %/yr. Only the yield-line style differs: the Canadian pre-2001 history is
-monthly and drawn as steps.
+labelled with its growth in %/yr. With --policy, --mortgages and --spreads
+the yield axis has their curves too (``ratesplot.rates``, ``add_rate_lines``).
+Only the yield-line style differs: the Canadian pre-2001 history is monthly
+and drawn as steps.
 
 Without --start the charts begin on ``config.DEFAULT_START_FLOOR``, or
 on the first date on which every chosen curve has data if that is later
@@ -48,6 +50,7 @@ from .config import (
     CDN,
     DATE_COLUMN,
     DEFAULT_START_FLOOR,
+    DEFAULT_YIELD_TERMS,
     EARLIEST_DATA_START,
     MACRO_PLOT_STYLES,
     MIN_WINDOW_DAYS,
@@ -58,9 +61,8 @@ from .config import (
     PROJECTION_LABEL_STEERED,
     SPREAD_AXIS_LABEL,
     SPREAD_INVERSION_ALPHA,
-    US,
-    DEFAULT_YIELD_TERMS,
     TERM_COLORS,
+    US,
     YIELD_LINE_STYLE,
     YIELD_TERMS,
     CountryMetadata,
@@ -272,21 +274,23 @@ def add_rate_lines(
         if curve.steps_until is None:
             parts = [(values, style)]
         else:
-            steps = values.loc[values.index <= curve.steps_until]
-            line = values.loc[values.index > curve.steps_until]
-            parts = [(steps, style | {"drawstyle": "steps-post"}), (line, style)]
+            monthly = values.loc[values.index <= curve.steps_until]
+            daily = values.loc[values.index > curve.steps_until]
+            parts = [(monthly, style | {"drawstyle": "steps-post"}), (daily, style)]
         first: Line2D | None = None
-        for part, style in parts:
+        for part, part_style in parts:
             if part.empty:
                 continue
+            # The second part in the first's colour, and only the first in the legend.
             colour = {} if first is None else {"color": first.get_color()}
-            (line,) = ax.plot(part.index, part.to_numpy(), label=curve.label if first is None else "_nolegend_", **(style | colour))
-            first = first or line
+            label = curve.label if first is None else "_nolegend_"
+            (drawn_line,) = ax.plot(part.index, part.to_numpy(), label=label, **(part_style | colour))
+            first = first or drawn_line
             if curve.spread:
-                steps = style.get("drawstyle") == "steps-post"
+                as_steps = part_style.get("drawstyle") == "steps-post"
                 ax.fill_between(
-                    part.index, part.to_numpy(), 0.0, where=part.to_numpy() < 0, interpolate=not steps,
-                    step="post" if steps else None, color=line.get_color(), alpha=SPREAD_INVERSION_ALPHA,
+                    part.index, part.to_numpy(), 0.0, where=part.to_numpy() < 0, interpolate=not as_steps,
+                    step="post" if as_steps else None, color=drawn_line.get_color(), alpha=SPREAD_INVERSION_ALPHA,
                     linewidth=0, label="_nolegend_",
                 )
         if first is not None:
