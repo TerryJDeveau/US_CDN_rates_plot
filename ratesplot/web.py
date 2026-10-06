@@ -51,7 +51,7 @@ Zoom and dates
     rules, ``frontend.zoom_updates``). The chart is a small in-page component
     (``_chart_component``) because ``st.image`` reports no mouse events.
     "◀ Earlier" and "Later ▶" move the dates by half the window, "Zoom out"
-    doubles their span (``frontend.move_dates_updates``: between 1867 and
+    doubles their span (``frontend.move_dates_updates``: between 1680 and
     today, keeping the span). "Back" undoes one zoom, move or Reset;
     "Unzoom" returns to the charts before the first. The axis limits are
     each nation's own, so zooming one chart's axes leaves the other's; the
@@ -59,7 +59,7 @@ Zoom and dates
 
 Dates
     Beside each date field a 📅 button opens Streamlit's calendar (between
-    1867 and today) and a "Blank (default)" button, as the window's does:
+    1680 and today) and a "Blank (default)" button, as the window's does:
     picking a day writes ``YYYY-MM-DD`` in the field, and typing ``YYYY`` or
     ``YYYY-MM`` still works (``_date_control``).
 
@@ -512,7 +512,7 @@ def _apply_view(updates: dict[str, str], key: str | None = None) -> None:
     """Write a zoom's or a date move's texts into the fields, undoably (Back), as the window does.
 
     Nothing is kept for Back when the fields already say it (e.g. Zoom out
-    from 1867 to today). The axis limits go into the fields of the chart's
+    from 1680 to today). The axis limits go into the fields of the chart's
     own nation (``key``); the dates are the same for every chart.
     """
     nation = next((nation for nation in NATIONS if nation.key == key), None)

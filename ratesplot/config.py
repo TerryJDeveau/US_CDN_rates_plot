@@ -19,10 +19,16 @@ import requests
 # ---------------------------------------------------------------------------
 
 # Without --start the chart begins where the last of the chosen curves begins
-# (plotting.resolve_start). It is found by preparing the data from this date,
-# which no series precedes: Canadian population (1 June 1867) and federal
-# debt (31 December 1867), the oldest, begin with Confederation.
-EARLIEST_DATA_START = pd.Timestamp("1867-01-01")
+# (plotting.resolve_start). It is found by preparing the data from this date;
+# it is also the first date the page's calendar and its "Earlier" button
+# reach. Terry, 2026-10-06 (batch 3): as early as pandas allows, with a
+# small margin. pandas' timestamps (nanoseconds) begin 1677-09-21; 1680-01-01
+# leaves two years, and precedes every series: the UK's national debt (1691)
+# and GDP (1700), Canada's from Confederation (1867). Spans longer than
+# pandas' 292-year Timedelta are added as date offsets
+# (frontend.move_dates_updates). Before batch 3 it was 1867-01-01; no Canadian
+# or U.S. curve begins before that, so their automatic start is as it was.
+EARLIEST_DATA_START = pd.Timestamp("1680-01-01")
 # Without --start the chart begins no earlier than this date (Terry,
 # 2026-10-06: he kept setting the start by hand, "so maybe just making the
 # default 2000 is just as good as anything else"). The start is the later of
