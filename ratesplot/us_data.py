@@ -96,9 +96,11 @@ def us_series_earliest(config: PlotConfig) -> dict[str, pd.Timestamp]:
     """Return the first observation of the U.S. inputs, by name, for the coverage warning.
 
     The yields are those of the chosen terms, as before --yields:LIST, even
-    with the yield curves off (the warning has always listed them).
+    with the yield curves off (the warning has always listed them), and
+    those the spreads are taken from.
     """
-    columns = [YIELD_TERMS[term] for term in config.yield_terms]
+    terms = set(config.yield_terms) | ({term for pair in config.spread_pairs for term in pair} if config.spreads else set())
+    columns = [column for term, column in YIELD_TERMS.items() if term in terms]
     yields = {f"{column} Yield ({US_YIELD_SERIES[column]})": US_YIELD_EARLIEST[column] for column in columns}
     return {**yields, **US_SERIES_EARLIEST}
 
@@ -106,16 +108,17 @@ def us_series_earliest(config: PlotConfig) -> dict[str, pd.Timestamp]:
 def fetch_us_yields(config: PlotConfig) -> pd.DataFrame:
     """Return the chosen U.S. Treasury yield curves as a ``DATE``-column frame from ``config.start``.
 
-    Series are outer-joined on date and forward-filled so holidays in one
-    tenor do not create gaps in the others.
+    The columns are those drawn and those the spreads are taken from
+    (``config.fetched_yield_columns``). Series are outer-joined on date and
+    forward-filled so holidays in one tenor do not create gaps in the others.
     """
-    if not config.yield_columns:
+    if not config.fetched_yield_columns:
         return pd.DataFrame()
 
     print("Fetching FRED Treasury yields …")
     frames = [
         fetch_fred_csv(US_YIELD_SERIES[label]).set_index(DATE_COLUMN).rename(columns={US_YIELD_SERIES[label]: label})
-        for label in config.yield_columns
+        for label in config.fetched_yield_columns
     ]
     data = pd.concat(frames, axis=1).sort_index().ffill().reset_index()
     return data.loc[data[DATE_COLUMN] >= config.start]

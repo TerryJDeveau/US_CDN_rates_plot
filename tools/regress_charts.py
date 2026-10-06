@@ -135,6 +135,15 @@ CASES: dict[str, list[str]] = {
     "c_mo_all": ["-c", "--mo:5,3,1,5v", "--yield", "-s:1975", "-l"],
     "u_mo_y": ["-u", "--mo:30,15", "--yields:10,30", "-s:1971"],
     "u_mo_auto": ["-u", "--mo:15", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "--e:1999"],
+    # --spreads[:LIST]: the default pairs with -l; spreads alone, their terms
+    # fetched though not drawn; Canada across 2001 (monthly steps, then daily);
+    # with -r, where the right axis is a percentage too.
+    "sp_l": ["--sp", "-l"],
+    "u_sp_only": ["-u", "--sp:10-2,10-3m", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1976", "-l"],
+    "c_sp1990_05": ["-c", "--sp", "-s:1990", "--e:2005"],
+    "u_sp_r": ["-u", "--sp", "-r"],
+    # All three together on both charts.
+    "all_rates": ["--policy", "--mo", "--sp:10-2", "-l", "-s:2015"],
 }
 
 

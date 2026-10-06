@@ -136,6 +136,11 @@ CASES: list[list[str]] = [
     ["--mortgages:5,3,1,5v"], ["--mo:30y,5"], ["--mo:5V"], ["--mo:5,5"], ["--mo:20"], ["--mo:x"], ["--mo:"], ["--mo:,"],
     ["--mo:30", "--no-mo"], ["--no-mo", "--mo:30"], ["--mo", "--mo:1"], ["--mo:1", "--gdp"], ["--mo:5", "-c", "--no-yield"],
     ["--m"], ["--m:5"], ["--mo:1", "--min:1"], ["--mortgagesx"], ["--no-mo:30"],
+    # --spreads[:LIST]: a flag and its pairs (turning it on); at least "sp", so "--s:" stays the start.
+    ["--spreads"], ["--sp"], ["--spr"], ["spreads"], ["--no-spreads"], ["--no-sp"], ["--sp:10-2"], ["--spreads:10y-3m,30-10"],
+    ["--sp:2-10"], ["--sp:10-2,10y-2y"], ["--sp:10-10"], ["--sp:10"], ["--sp:10-2-1"], ["--sp:10-4"], ["--sp:"], ["--sp:-"],
+    ["--sp:10-2", "--no-sp"], ["--sp", "--no-yield"], ["--sp:7-1m", "-u"], ["--sp", "--gdp"], ["--s"], ["--s:2001", "--sp"],
+    ["--spreadsx"], ["--no-sp:10-2"], ["--po", "--mo", "--sp"],
 ]
 
 

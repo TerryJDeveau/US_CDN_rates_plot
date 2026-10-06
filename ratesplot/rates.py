@@ -21,10 +21,14 @@ import pandas as pd
 
 from .cdn_data import boc_valet_series, statcan_zip_table
 from .config import (
+    CANADIAN_YIELD_HIST_END,
+    DATE_COLUMN,
     MORTGAGE_OWN_COLORS,
     MORTGAGE_STYLE,
     MORTGAGE_TERMS,
     POLICY_RATE_STYLE,
+    SPREAD_COLORS,
+    SPREAD_STYLE,
     TERM_COLORS,
     VARIABLE_MORTGAGE_STYLE,
     YIELD_TERMS,
@@ -207,6 +211,38 @@ def mortgage_rate(term: str) -> RateCurve | None:
     return RateCurve(f"mortgage_{term}", label, values, _mortgage_style(term), title="Mortgage Rates", color_of=color_of)
 
 
+def spread_label(pair: tuple[str, str]) -> str:
+    """Return a spread's legend label: ``("10y", "2y")`` -> "10Y–2Y Spread"."""
+    return f"{pair[0].upper()}–{pair[1].upper()} Spread"
+
+
+def yield_spreads(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[RateCurve]:
+    """Return the chosen spreads (``config.spread_pairs``), each the first term's yield less the second's.
+
+    Taken from the country's prepared yields, so with --cur they run on to
+    the day's quotes. A value is drawn where both terms have one. Canada's
+    yields are monthly before 2001, so its spreads are steps there, as its
+    yields are. A pair with a term the country has no yield for is named and
+    left out.
+    """
+    if yields.empty:
+        return []
+    frame = yields.set_index(DATE_COLUMN) if DATE_COLUMN in yields.columns else yields
+    curves = []
+    for index, pair in enumerate(config.spread_pairs):
+        first, second = (YIELD_TERMS[term] for term in pair)
+        if first not in frame.columns or second not in frame.columns:
+            name = "U.S." if country == "us" else "Canadian"
+            print(f"  Note: no {name} {first if first not in frame.columns else second} yield; no {spread_label(pair)} on this chart.")
+            continue
+        values = _clean(frame[first] - frame[second])
+        style = SPREAD_STYLE | {"color": SPREAD_COLORS[index % len(SPREAD_COLORS)]}
+        steps_until = CANADIAN_YIELD_HIST_END if country == "cdn" else None
+        key = f"spread_{pair[0]}-{pair[1]}"
+        curves.append(RateCurve(key, spread_label(pair), values, style, steps_until, spread=True, title="Spreads"))
+    return curves
+
+
 def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[RateCurve]:
     """Return one country's chosen curves for the yield axis ("cdn" or "us"), in drawing order.
 
@@ -227,6 +263,8 @@ def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[
         else:
             print("Fetching mortgage rates …")
         curves += [mortgage_rate(term) for term in terms]
+    if config.spreads:
+        curves += yield_spreads(country, yields, config)
     chosen = []
     for curve in curves:
         if curve is None:

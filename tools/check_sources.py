@@ -206,6 +206,28 @@ def _rate(fetch: Callable[[], rates.RateCurve | None]) -> Callable[[PlotConfig],
     return run
 
 
+def _spread_crosscheck(series_id: str, pair: tuple[str, str]) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+    """The program's spread (``rates.yield_spreads``, from the DGS yields) against FRED's own series of it.
+
+    FRED's T10Y2Y and T10Y3M are the same two DGS series subtracted, so on
+    every day FRED has a value the two must agree to rounding (0.005).
+    """
+
+    def run(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+        chosen = replace(config, start=pd.Timestamp("1900-01-01"), spreads=True, spread_pairs=(pair,))
+        (curve,) = rates.yield_spreads("us", us_data.fetch_us_yields(chosen), chosen)
+        fred = fetch_fred_csv(series_id).set_index("DATE")[series_id].dropna()
+        common = fred.index.intersection(curve.values.index)
+        if common.empty:
+            raise ValueError("no day in common")
+        gap = (curve.values.loc[common] - fred.loc[common]).abs()
+        if gap.max() > 0.005:
+            raise ValueError(f"differs from {series_id} by up to {gap.max():.3f} points ({(gap > 0.005).sum()} of {len(common)} days)")
+        return _last(fred), f"{len(common)} days agree with {series_id} (largest gap {gap.max():.4f}); from {fred.index[0]:%Y-%m-%d}"
+
+    return run
+
+
 def _cmhc_history(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     # Used only before the weekly posted rate begins (1975), so its age does not matter.
     history = rates.cdn_mortgage_history()
@@ -251,6 +273,8 @@ CHECKS: tuple[Check, ...] = (
     Check("boc_mortgage1", "Bank of Canada V80691333 posted 1-year", DAILY, _rate(partial(rates.mortgage_rate, "1"))),
     Check("boc_mortgage5v", "Bank of Canada BROKER_AVERAGE_5YR_VRM 5-year variable", DAILY, _rate(partial(rates.mortgage_rate, "5v"))),
     Check("statcan_mortgage", "StatCan 34-10-0145 CMHC 5-year rate (monthly; before 1975)", None, _cmhc_history),
+    Check("fred_t10y2y", "FRED T10Y2Y against the program's 10y-2y spread (--spreads)", DAILY, _spread_crosscheck("T10Y2Y", ("10y", "2y"))),
+    Check("fred_t10y3m", "FRED T10Y3M against the program's 10y-3m spread (--spreads)", DAILY, _spread_crosscheck("T10Y3M", ("10y", "3m"))),
     Check("treasury_yields", "U.S. Treasury daily par yield curve (all ten terms)", DAILY, _treasury_yields),
     Check("debt_to_penny", "U.S. Treasury Debt to the Penny", DAILY, _debt_to_penny),
     Check("cnbc_cdn", "CNBC quote feed, Canadian yields (unofficial)", QUOTES, _quotes("cdn")),

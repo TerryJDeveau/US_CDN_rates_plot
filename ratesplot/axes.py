@@ -407,13 +407,14 @@ def scale_line_widths(ax_yield: Axes, ax_macro: Axes, line_scale: float) -> None
 
 
 def apply_axes_formatting(
-    ax_yield: Axes, ax_macro: Axes, config: PlotConfig, metadata: CountryMetadata
+    ax_yield: Axes, ax_macro: Axes, config: PlotConfig, metadata: CountryMetadata, left_label: str | None = None
 ) -> None:
     """Configure the shared x-axis and both y-axes after all lines are plotted.
 
     ``ax_macro`` is a ``twinx()`` of ``ax_yield``. When only one family of
     curves is selected the unused axis mirrors the other so the chart never
-    shows a second, meaningless scale.
+    shows a second, meaningless scale. ``left_label`` is the left axis's
+    label when it is not ``config.left_axis_label`` (a spread drawn).
     """
     scale = config.font_scale
     scale_line_widths(ax_yield, ax_macro, config.line_scale)
@@ -435,7 +436,7 @@ def apply_axes_formatting(
     ax_yield.grid(True, which="major", linestyle="--", alpha=0.40, linewidth=grid_width)
     ax_yield.grid(True, which="minor", linestyle=":", alpha=0.22, linewidth=grid_width)
 
-    label = config.left_axis_label
+    label = left_label or config.left_axis_label
     if config.has_left_axis_series and config.has_macro_series:
         configure_yield_axis(ax_yield, font_scale=scale, label=label)
         set_yield_ylim(ax_yield, config)

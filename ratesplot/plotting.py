@@ -56,6 +56,7 @@ from .config import (
     PROJECTION_LABEL,
     PROJECTION_LABEL_PREFIX,
     PROJECTION_LABEL_STEERED,
+    SPREAD_AXIS_LABEL,
     SPREAD_INVERSION_ALPHA,
     US,
     DEFAULT_YIELD_TERMS,
@@ -358,7 +359,9 @@ def draw_country(
             macro_keys_drawn.append(style_key)
             macro_columns_drawn.append(column)
 
-    apply_axes_formatting(ax_yield, ax_macro, config, metadata)
+    # The left axis says "Spread" when one is drawn.
+    left_label = SPREAD_AXIS_LABEL if any(curve.spread for _line, curve in rate_lines) else None
+    apply_axes_formatting(ax_yield, ax_macro, config, metadata, left_label)
     warn_macro_limits_coverage(macro_in_range, macro_columns_drawn, config)
     # --reg: each right-axis curve fitted by straight pieces on its log axis,
     # drawn now that the axis limits (which set the tolerance) are known; their
@@ -440,7 +443,8 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Ra
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields, quote_time = extend_cdn_yields(fetch_cdn_yields(config), config)
     rates = rate_curves("cdn", yields, config)
-    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates})
+    # A spread is cut where its yields are (from the start): their own coverage is the one warned about.
+    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates if not curve.spread})
     if config.components:
         # Debt and interest by level of government replace the aggregate lines.
         series = (fetch_cdn_components(config), fetch_cdn_gdp(config))
@@ -477,7 +481,8 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
         yields = yields.loc[yields[DATE_COLUMN] <= config.end]
     last_yield_date = yields[DATE_COLUMN].max() if not yields.empty else config.end
     rates = rate_curves("us", yields, config)
-    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates})
+    # A spread is cut where its yields are (from the start): their own coverage is the one warned about.
+    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates if not curve.spread})
 
     macro = fetch_us_macro(config, last_yield_date)
     projected = macro.attrs.get(PROJECTION_ATTR, {})

@@ -314,6 +314,15 @@ MORTGAGE_OWN_COLORS = {"15": "#556b2f", "3": "#2f4f4f"}
 # the policy rate; the variable rate dash-dotted, as it shares the 5-year's colour.
 MORTGAGE_STYLE = {"linewidth": 1.5, "linestyle": "--", "drawstyle": "steps-post"}
 VARIABLE_MORTGAGE_STYLE = MORTGAGE_STYLE | {"linestyle": "-."}
+# --spreads[:LIST] (ratesplot.rates): pairs of yield terms, the first less the
+# second, in percentage points. Drawn thick in colours no yield term, rate or
+# right-axis curve has, one per pair in the order given (then round again),
+# with their inverted stretches shaded (SPREAD_INVERSION_ALPHA). When one is
+# drawn the left axis is "Yield and Spread (%)".
+DEFAULT_SPREADS = (("10y", "2y"), ("10y", "3m"), ("30y", "10y"))
+SPREAD_COLORS = ("#4b0082", "#c71585", "#000080", "#800000", "#008080")
+SPREAD_STYLE = {"linewidth": 2.5}
+SPREAD_AXIS_LABEL = "Yield and Spread (%)"
 # The colour of each yield term when the terms are chosen (--yields:LIST,
 # --no-yields:LIST). The five default terms have the colours matplotlib's
 # colour cycle gives them when all five are drawn (blue, orange, green, red,
@@ -629,6 +638,11 @@ class PlotConfig:
     # MORTGAGE_TERMS chosen (each drawn on the chart of its country); additive.
     mortgages: bool = False
     mortgage_terms: tuple[str, ...] = DEFAULT_MORTGAGE_TERMS
+    # --spreads[:LIST]: yield spreads on the yield axis, each a pair of
+    # YIELD_TERMS keys (the first less the second); additive. Their terms are
+    # fetched even when the yields are not drawn.
+    spreads: bool = False
+    spread_pairs: tuple[tuple[str, str], ...] = DEFAULT_SPREADS
     # --yields:LIST / --no-yields:LIST: the yield terms drawn, as keys of
     # YIELD_TERMS in that order. A term a country has no series for is
     # simply not drawn on its chart (Canada has the five default terms).
@@ -701,9 +715,16 @@ class PlotConfig:
         return tuple(YIELD_TERMS[term] for term in self.yield_terms) if self.include_yield else ()
 
     @property
+    def fetched_yield_columns(self) -> tuple[str, ...]:
+        """Return the yield columns to fetch: those drawn, and those the spreads are taken from, in drawing order."""
+        spread_terms = {term for pair in self.spread_pairs for term in pair} if self.spreads else set()
+        drawn = set(self.yield_terms) if self.include_yield else set()
+        return tuple(column for term, column in YIELD_TERMS.items() if term in drawn | spread_terms)
+
+    @property
     def has_left_axis_series(self) -> bool:
         """True when at least one curve on the left (yield) axis is chosen: the yields, or a curve of ``ratesplot.rates``."""
-        return self.include_yield or self.policy_rates or self.mortgages
+        return self.include_yield or self.policy_rates or self.mortgages or self.spreads
 
     @property
     def left_axis_label(self) -> str:

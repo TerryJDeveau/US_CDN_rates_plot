@@ -52,6 +52,7 @@ from .config import (
     COMPONENT_SYNONYMS,
     DEFAULT_REGRESSION_TOLERANCE_PCT,
     DEFAULT_MORTGAGE_TERMS,
+    DEFAULT_SPREADS,
     DEFAULT_START_FLOOR,
     DEFAULT_YIELD_TERMS,
     EARLIEST_DATA_START,
@@ -210,6 +211,32 @@ def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
             )
         chosen.add(term)
     return tuple(term for term in MORTGAGE_TERMS if term in chosen)
+
+
+def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
+    """Parse ``--spreads:LIST``: pairs of yield terms such as ``10y-2y,10-3m``, each the first less the second.
+
+    Kept in the order given (it sets their colours); a repeated pair is drawn once.
+    """
+    items = [item.strip() for item in spec.split(",") if item.strip()]
+    if not items:
+        raise ValueError("empty --spreads list: name pairs such as 10y-2y,10y-3m")
+    pairs: list[tuple[str, str]] = []
+    for item in items:
+        legs = item.split("-")
+        if len(legs) != 2:
+            raise ValueError(f"invalid --spreads pair {item!r}: write two terms joined by '-', e.g. 10y-2y")
+        pair = (parse_term(legs[0], kind="--spreads"), parse_term(legs[1], kind="--spreads"))
+        if pair[0] == pair[1]:
+            raise ValueError(f"invalid --spreads pair {item!r}: the two terms must differ")
+        if pair not in pairs:
+            pairs.append(pair)
+    return tuple(pairs)
+
+
+def format_spreads(values: tuple, _config: PlotConfig) -> str:
+    """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``."""
+    return ",".join(f"{first}-{second}" for first, second in values[0])
 
 
 def is_percent_bound(spec: str) -> bool:
@@ -437,7 +464,7 @@ GROUPS: dict[str, str] = {
         "Curve selection (naming any curve positively shows *only* the named curves;\n"
         "``--no-`` forms hide curves from the default set of all four):"
     ),
-    "rates": 'Rates on the yield axis, each only when asked for (at least "po", "mo"):',
+    "rates": 'Rates and spreads on the yield axis, each only when asked for (at least "po", "mo", "sp"):',
     "units": "Measure of debt, GDP and interest:",
     "labels": "Line labels and regression segments (--reg needs at least \"reg\"):",
     "dates": "Date window (YYYY, YYYY-MM or YYYY-MM-DD; '/' also accepted):",
@@ -517,6 +544,19 @@ OPTIONS: tuple[Option, ...] = (
         f"default {','.join(DEFAULT_MORTGAGE_TERMS)}; turns --mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
         label="terms", format=format_terms,
+    ),
+    # At least "sp": "--s:" stays the start date.
+    Option(
+        "spreads", Kind.FLAG, ("spreads",), "rates", "--spreads / --sp / --no-spreads",
+        "yield spreads in percentage points, drawn\nthick, their inverted stretches shaded",
+        names=("spreads",), shortest=2, label="Yield spreads",
+    ),
+    Option(
+        "spread-pairs", Kind.VALUE, ("spread_pairs",), "rates", "--spreads:LIST / --sp:LIST",
+        "pairs of yield terms, the first less the\nsecond (default "
+        f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())});\nturns --spreads on",
+        names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
+        label="pairs", format=format_spreads,
     ),
     # Measure of the right-axis curves: argparse store_true flags, like the
     # countries.
