@@ -16,7 +16,7 @@ hand-edit it.
 # BEGIN AUTO-GENERATED UK ARCHIVE DATA
 # Generated on 2026-10-06 from the Bank of England's "A millennium of
 # macroeconomic data for the UK" (version 3.1), read from:
-# rebuilt from tools-uk_fixtures-millennium_values.csv, not the real workbook.xlsx
+# https://www.bankofengland.co.uk/-/media/boe/files/statistics/research-datasets/a-millennium-of-macroeconomic-data-for-the-uk.xlsx
 # Historical observations in the source's own terms; uk_data and rates join
 # them to the live series at run time.
 
