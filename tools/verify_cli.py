@@ -143,6 +143,16 @@ CASES: list[list[str]] = [
     ["--spreadsx"], ["--no-sp:10-2"], ["--po", "--mo", "--sp"],
     # Yield-axis bounds may be negative since 2026-10-06 (spreads invert), above -100.
     ["--min:-0.5"], ["--min:-1", "--max:2"], ["--min:-100"], ["--max:-1"], ["--min:1", "--max:-1"],
+    # A nation's code in front (batch 2): a value for that chart only; exact codes ca, cdn, us.
+    ["--us:top:20t"], ["--US:t:20t"], ["--cdn:yields:2,10"], ["--ca:y:2,10"], ["-us:max:8"], ["us:min:-1"],
+    ["--us:no-y:30"], ["--y:10,30", "--us:no-y:30"], ["--us:y:7,20", "--cdn:y:10"], ["--max:8", "--us:max:10"],
+    ["--cdn:mo:5,3"], ["--us:mo:15"], ["--cdn:sp:10-2"], ["--us:sp:7-1m", "--sp:10-2"], ["--cdn:sp:10-2", "--no-sp"],
+    ["--ca:y:7"], ["--cdn:sp:10-1"], ["--us:mo:5"], ["--cdn:no-y:7"], ["--cdn:no-y:3m,2,5,10,30"],
+    ["--us:min:3", "--us:max:2"], ["--max:5", "--us:min:6"], ["--min:3", "--cdn:max:2"], ["--us:top:150%"],
+    ["-r", "--us:top:150%"], ["-r", "--us:top:20t"], ["--top:20t", "--us:bottom:30t"],
+    ["--us:start:2000"], ["--us:reg"], ["--us:reg:2"], ["--us:top"], ["--us:zz:1"], ["--us:m:5"], ["--us:"],
+    ["--u:top:20t"], ["--usa:top:20t"], ["--c:top:20t"], ["--canada:top:20t"], ["--cdn:x"], ["--us:dim:800"],
+    ["--us:top:20t", "--us:top:30t"], ["--us:yields:"],
 ]
 
 

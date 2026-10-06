@@ -15,8 +15,19 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .config import PlotConfig
-from .options import OPTIONS, Kind, Option, config_from_choices, help_epilog, options_of, spells
+from .config import NATIONS, Nation, PlotConfig, nation_by_code
+from .options import (
+    OPTIONS,
+    Kind,
+    Option,
+    config_from_choices,
+    help_epilog,
+    nation_choice,
+    options_in,
+    options_of,
+    per_nation,
+    spells,
+)
 from .http import enable_download_cache
 from .plotting import resolve_start, run_cdn, run_us
 
@@ -86,6 +97,39 @@ def match_token(token: str) -> tuple[Option, str | bool] | None:
     return None
 
 
+def match_prefixed(token: str) -> tuple[Nation, Option, str] | None:
+    """Return ``(nation, option, raw value)`` for a value given for one nation (``--us:top:20t``), or None.
+
+    The part before the first colon must be a nation's code exactly; the rest
+    is matched as a token of its own (``match_token``), and must be a value
+    option that can differ by nation (``options.per_nation``). None when the
+    token has no nation's code in front (a country written otherwise,
+    ``--u:top:20t``, is an error), or when the rest spells nothing and
+    has no value (``--cdn:x``, which ``match_token`` then reports as before:
+    --cdn takes no value). Raises ValueError for anything else after a code.
+    """
+    code, colon, rest = token.lstrip("-").partition(":")
+    nation = nation_by_code(code) if colon else None
+    if nation is None and ":" in rest and _spelled(token, code.lower(), (Kind.SWITCH,)) in options_in("country"):
+        codes = ", ".join(code for nation in NATIONS for code in nation.codes)
+        raise ValueError(f"{token}: a nation's code is written in full ({codes})")
+    if nation is None or not rest:
+        return None
+    try:
+        matched = match_token(f"--{rest}")
+    except ValueError as exc:
+        raise ValueError(f"{token}: {exc}") from None
+    if matched is None:
+        if ":" not in rest:
+            return None
+        raise ValueError(f"{token}: {rest.partition(':')[0]} is not an option")
+    option, value = matched
+    if not per_nation(option):
+        allowed = ", ".join(other.usage.split(" / ")[0] for other in OPTIONS if per_nation(other))
+        raise ValueError(f"{token}: --{option.name} is the same for every chart; a nation's code goes only on {allowed}")
+    return nation, option, str(value)
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -111,7 +155,8 @@ def build_parser() -> argparse.ArgumentParser:
 def sort_tokens(raw_tokens: list[str]) -> tuple[dict[str, str], dict[str, bool], list[str], list[str]]:
     """Sort command-line tokens into ``(payloads, flags, unmatched, misspelled)``; never exits.
 
-    Table-matched tokens are recorded (the last occurrence wins); ``unmatched``
+    Table-matched tokens are recorded (the last occurrence wins; a value for
+    one nation under "NATION:OPTION", ``match_prefixed``); ``unmatched``
     are the tokens the table does not know (``--help``, or unrecognised), for
     argparse; ``misspelled`` holds a message for each token that spells an
     option in the wrong form (``match_token``). The web page reads a chart's
@@ -123,11 +168,15 @@ def sort_tokens(raw_tokens: list[str]) -> tuple[dict[str, str], dict[str, bool],
     misspelled: list[str] = []
     for token in raw_tokens:
         try:
-            matched = match_token(token)
+            prefixed = match_prefixed(token)
+            matched = None if prefixed else match_token(token)
         except ValueError as exc:
             misspelled.append(str(exc))
             continue
-        if matched is None:
+        if prefixed:
+            nation, option, value = prefixed
+            payloads[nation_choice(nation, option)] = value
+        elif matched is None:
             unmatched.append(token)
         elif matched[0].kind is Kind.VALUE:
             payloads[matched[0].name] = str(matched[1])

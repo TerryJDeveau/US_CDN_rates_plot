@@ -154,6 +154,9 @@ CASES: dict[str, list[str]] = {
     "u_sp_r": ["-u", "--sp", "-r"],
     # All three together on both charts.
     "all_rates": ["--policy", "--mo", "--sp:10-2", "-l", "-s:2015"],
+    # Batch 2: values for one nation's chart (--us:..., --cdn:...).
+    "nat_limits": ["--us:top:40t", "--us:bottom:5t", "--cdn:max:12", "--min:0", "-s:2010"],
+    "nat_terms": ["--us:y:7,20", "--cdn:y:2,10", "--us:sp:10-2", "--cdn:sp:30-10", "--cdn:mo:5,3", "-s:2015", "-l"],
 }
 
 
