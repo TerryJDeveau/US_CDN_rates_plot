@@ -309,6 +309,8 @@ UK_DEBT_COLUMN = "Total UK Debt (£)"
 # Before general government debt begins (1975), the national debt alone: a
 # curve of its own, dotted, as Canada's federal debt before 1933 is.
 UK_NATIONAL_DEBT_COLUMN = "UK National Debt (£)"
+# The UK's headline debt, beside the gross (Terry, 2026-10-06: "add net too").
+UK_NET_DEBT_COLUMN = "UK Net Debt (£)"
 UK_INTEREST_COLUMN = "TTM UK Interest Paid (£)"
 
 # ---------------------------------------------------------------------------
@@ -504,6 +506,9 @@ MACRO_PLOT_STYLES = {
     "federal_debt": {"color": "black", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": ":"},
     "gdp": {"color": "darkgreen", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "-."},
     "interest": {"color": "darkred", "linewidth": 2.5, "drawstyle": "steps-post", "linestyle": "--"},
+    # Net debt (the UK's, batch 3), drawn with gross debt: solid as debt is,
+    # in slate grey, a colour no other right-axis curve has.
+    "net_debt": {"color": "#708090", "linewidth": 2.5, "drawstyle": "steps-post"},
 }
 
 # Components of debt and interest (--debt:LETTERS / --interest:LETTERS): f
@@ -603,6 +608,10 @@ class CountryMetadata:
     federal_debt_column: str | None = None
     federal_debt_label: str = ""
     federal_debt_title: str = ""
+    # Net debt, drawn with the (gross) debt curve (None: no such curve).
+    net_debt_column: str | None = None
+    net_debt_label: str = ""
+    net_debt_title: str = ""
     # Components (--debt:LETTERS): the name of each level, and the wording
     # around a name ("{}" is replaced by it, or in a title by nothing).
     level_names: tuple[tuple[str, str], ...] = (
@@ -650,6 +659,9 @@ class CountryMetadata:
             ("gdp", config.draws_gdp, self.gdp_column, self.gdp_label),
             ("interest", config.include_interest, self.interest_column, self.interest_label),
         ]
+        if self.net_debt_column is not None:
+            # Chosen with the debt curve; listed after it.
+            specs.insert(1, ("net_debt", config.include_debt, self.net_debt_column, self.net_debt_label))
         if self.federal_debt_column is not None:
             # Chosen with the debt curve; listed straight after it.
             specs.insert(1, ("federal_debt", config.include_debt, self.federal_debt_column, self.federal_debt_label))
@@ -676,6 +688,7 @@ class CountryMetadata:
         macro_titles = {
             "debt": self.debt_title,
             "federal_debt": self.federal_debt_title,
+            "net_debt": self.net_debt_title,
             "gdp": self.gdp_title,
             "interest": self.interest_title,
         }
@@ -777,6 +790,11 @@ UK = CountryMetadata(
     federal_debt_column=UK_NATIONAL_DEBT_COLUMN,
     federal_debt_label="UK National Debt (pre-1975)",
     federal_debt_title="UK National Debt",
+    # ONS HF6W: public sector net debt excluding the public sector banks,
+    # the UK's own headline measure, beside gross general government debt.
+    net_debt_column=UK_NET_DEBT_COLUMN,
+    net_debt_label="UK Public Sector Net Debt (ex banks)",
+    net_debt_title="Net Debt",
     # Central and local government only: the devolved governments are inside
     # central government in the UK accounts, so there is no "p" level, and
     # the non-central level "n" is local government (ratesplot.uk_data).

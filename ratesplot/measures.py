@@ -31,8 +31,8 @@ def express(
 
 
 def _debt_and_interest_columns(macro: pd.DataFrame, metadata: CountryMetadata) -> list[str]:
-    """The debt and interest columns present in ``macro``: the aggregates, federal debt alone, and each level."""
-    candidates = [metadata.debt_column, metadata.federal_debt_column, metadata.interest_column] + [
+    """The debt and interest columns present in ``macro``: the aggregates, federal debt alone, net debt, and each level."""
+    candidates = [metadata.debt_column, metadata.federal_debt_column, metadata.net_debt_column, metadata.interest_column] + [
         component_column(kind, letter) for kind in ("debt", "interest") for letter in COMPONENT_LETTERS
     ]
     return [column for column in candidates if column is not None and column in macro.columns]

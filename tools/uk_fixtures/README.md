@@ -6,9 +6,9 @@ extract of one) saved that day, for writing and testing parsers offline.
 
 **What is kept here (pruned in batch 3, before the merge):** only the small responses
 `tools/check_uk_parsers.py` reads: the Bank of England database's CSVs (daily, monthly, the
-described layout, the error-page redirect), CNBC's UK quotes, and five ONS series (BKPX, MDYT,
-EBAQ, YBHA, NMYX), each trimmed to its description and value lists. The rest (the fitted-curve
-workbook and its month-end CSV, the millennium extract, four more ONS series) served the build
+described layout, the error-page redirect), CNBC's UK quotes, and six ONS series (BKPX, HF6W,
+MDYT, EBAQ, YBHA, NMYX), each trimmed to its description and value lists. The rest (the fitted-curve
+workbook and its month-end CSV, the millennium extract, three more ONS series) served the build
 and was deleted; the sections below still record what they held. The millennium extract is what
 `ratesplot/uk_archive_data.py` was first baked from (through a rebuilt workbook; the module's
 header says so); the laptop's real bake (`python tools/bake_archives.py --only uk`) replaces it.

@@ -21,7 +21,9 @@ reach them; ``tools/uk_fixtures/README.md`` holds the measurements):
   (end of each financial year, from 1690/91), a different quantity (central
   government's debt), so a curve of its own, drawn dotted until BKPX begins,
   as Canada's federal debt before 1933 is; the two meet within 3 % (£52.1bn
-  and £53.7bn at 31 March 1975).
+  and £53.7bn at 31 March 1975). Beside it, public sector net debt
+  excluding the public sector banks (ONS HF6W, the UK's headline measure),
+  monthly from 1975-03 (Terry, 2026-10-06: "add net too").
 * GDP: at market prices, current prices, seasonally adjusted (ONS YBHA),
   quarterly from 1955, summed over four quarters; before it the millennium's
   annual composite estimate, from 1700, joined as Canada's history is.
@@ -69,6 +71,7 @@ from .config import (
     UK_DEBT_COLUMN,
     UK_INTEREST_COLUMN,
     UK_NATIONAL_DEBT_COLUMN,
+    UK_NET_DEBT_COLUMN,
     YIELD_TERMS,
     PlotConfig,
     component_column,
@@ -120,6 +123,7 @@ ONS_SERIES = {
     "EBAQ": ("/economy/grossdomesticproductgdp/timeseries/ebaq/ukea", ",000", THOUSAND),
 }
 UK_DEBT_SERIES = "BKPX"
+UK_NET_DEBT_SERIES = "HF6W"
 UK_INTEREST_SERIES = "NMYX"
 UK_GDP_SERIES = "YBHA"
 UK_POPULATION_SERIES = "EBAQ"
@@ -333,23 +337,31 @@ def fetch_uk_yields(config: PlotConfig) -> pd.DataFrame:
 
 
 def fetch_uk_debt(config: PlotConfig) -> pd.DataFrame | None:
-    """Return general government gross debt (BKPX), monthly, and the national debt alone before it begins.
+    """Return general government gross debt (BKPX), the national debt alone before it begins, and net debt (HF6W); monthly.
 
     The national debt (``UK_NATIONAL_DEBT_COLUMN``) is kept as it is, a
-    different quantity: its years before BKPX's first month. If ONS fails,
-    the national debt alone, to 2017, with a warning.
+    different quantity: its years before BKPX's first month. If BKPX fails,
+    the national debt alone, to 2017, with a warning; if HF6W fails, no
+    net debt, with a warning.
     """
     if not config.include_debt:
         return None
+    parts: list[pd.DataFrame] = []
     history = embedded_frame(EMBEDDED_UK_DEBT_HISTORY, UK_NATIONAL_DEBT_COLUMN)
     try:
         live = _ons_stock(UK_DEBT_SERIES).rename(UK_DEBT_COLUMN).to_frame()
     except Exception as exc:
         print(f"  Warning: ONS {UK_DEBT_SERIES} (UK debt) unavailable ({exc}); the national debt alone (to 2017).")
-        return history
-    if history is None:
-        return live
-    return pd.concat([live, history.loc[history.index < live.index[0]]], axis=1).sort_index()
+        live = None
+    if live is not None:
+        parts.append(live)
+    if history is not None:
+        parts.append(history if live is None else history.loc[history.index < live.index[0]])
+    try:
+        parts.append(_ons_stock(UK_NET_DEBT_SERIES).rename(UK_NET_DEBT_COLUMN).to_frame())
+    except Exception as exc:
+        print(f"  Warning: ONS {UK_NET_DEBT_SERIES} (UK net debt) unavailable ({exc}); not drawn.")
+    return pd.concat(parts, axis=1).sort_index() if parts else None
 
 
 def fetch_uk_gdp(config: PlotConfig) -> pd.DataFrame | None:

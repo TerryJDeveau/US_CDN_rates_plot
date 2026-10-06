@@ -10,8 +10,8 @@ parser and compares a value read off the response by eye.
 * the Bank of England database's CSV (daily and monthly), and the two
   answers it must refuse: its described layout and a redirect to its error
   page;
-* each kind of ONS series: months, quarters, the units £m, none (MDYT) and
-  thousands, a changed unit refused, and a four-quarter sum against the
+* each kind of ONS series: months, quarters, the units £m, £bn (HF6W),
+  none (MDYT) and thousands, a changed unit refused, and a four-quarter sum against the
   ONS's own annual figure;
 * CNBC's UK quotes: every symbol the chart asks for is there and readable,
   and the 3-month symbol (a repo rate, not a yield) is not asked for;
@@ -105,6 +105,8 @@ def check_ons() -> None:
     mdyt = uk_data.parse_ons_series(ons("MDYT"), "MDYT", "quarters")
     check("ONS MDYT (no unit in its description): 2026 Q2", mdyt.loc["2026-06-30"] == 138_883)
     check("ONS MDYT has no months", uk_data.parse_ons_series(ons("MDYT"), "MDYT", "months").empty)
+    hf6w = uk_data.parse_ons_series(ons("HF6W"), "HF6W", "months")
+    check("ONS HF6W (£bn): August 2026", hf6w.loc["2026-08-31"] == 2_985.5)
     ebaq = uk_data.parse_ons_series(ons("EBAQ"), "EBAQ", "quarters")
     check("ONS EBAQ (thousands): 2026 Q2", ebaq.loc["2026-06-30"] == 69_628)
     changed = ons("YBHA")
