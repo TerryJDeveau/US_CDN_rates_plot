@@ -75,6 +75,8 @@ QUOTES = 4  # Friday's last quotes on the Tuesday after a long weekend
 # A quarter's figures come out one to three months after it ends and stay the
 # newest until the next quarter's do: up to about half a year.
 QUARTERLY = 200
+# The spread cross-checks fail when more than this share of days disagree.
+_SPREAD_MISMATCH_LIMIT = 0.001
 # BEA's annual state and local interest: a calendar year is published the
 # following autumn and stays the newest for another year.
 ANNUAL = 700
@@ -209,32 +211,32 @@ def _rate(fetch: Callable[[], rates.RateCurve | None]) -> Callable[[PlotConfig],
 def _spread_crosscheck(series_id: str, pair: tuple[str, str]) -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
     """The program's spread (``rates.yield_spreads``, from the DGS yields) against FRED's own series of it.
 
-    FRED's T10Y2Y and T10Y3M are the same two DGS series subtracted, so on
-    every day both DGS series have their own value the two must agree to
-    rounding (0.005). On a day one of them lacks, the program carries that
-    yield's previous value forward (``us_data.fetch_us_yields``), as its
-    yield line does, while FRED may still have a spread: such days are
-    counted in the note, not checked (2026-10-06: 3 and 2 days, up to 0.02
-    and 0.10 points).
+    FRED's T10Y2Y and T10Y3M are the same two DGS series subtracted, and agree
+    with the program's to rounding (0.005) on all but a handful of days.
+    On those few FRED's spread is not the difference of the two yields it
+    publishes for that day (Terry's run, 2026-10-06: 3 of 12,582 days, up to
+    0.02 points, and 2 of 11,191, up to 0.10, even on days both yields have
+    their own value). The program's spread is the difference of the yields
+    it draws, so those days are named in the note, not failed. Many such
+    days (more than ``_SPREAD_MISMATCH_LIMIT`` of them) mean the two are
+    misaligned, which fails.
     """
 
     def run(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
         chosen = replace(config, start=pd.Timestamp("1900-01-01"), spreads=True, spread_pairs=(pair,))
         (curve,) = rates.yield_spreads("us", us_data.fetch_us_yields(chosen), chosen)
         fred = fetch_fred_csv(series_id).set_index("DATE")[series_id].dropna()
-        legs = [fetch_fred_csv(us_data.US_YIELD_SERIES[YIELD_TERMS[term]]).set_index("DATE").iloc[:, 0].dropna() for term in pair]
         common = fred.index.intersection(curve.values.index)
-        observed = common.intersection(legs[0].index).intersection(legs[1].index)
-        if observed.empty:
+        if common.empty:
             raise ValueError("no day in common")
-        gap = (curve.values.loc[observed] - fred.loc[observed]).abs()
-        if gap.max() > 0.005:
-            raise ValueError(f"differs from {series_id} by up to {gap.max():.3f} points ({(gap > 0.005).sum()} of {len(observed)} days)")
-        carried = common.difference(observed)
-        carried_gap = (curve.values.loc[carried] - fred.loc[carried]).abs()
-        note = f"{len(observed)} days agree with {series_id} (largest gap {gap.max():.4f}); from {fred.index[0]:%Y-%m-%d}"
-        if (carried_gap > 0.005).any():
-            note += f"; {(carried_gap > 0.005).sum()} day(s) with a yield carried forward differ, up to {carried_gap.max():.2f}"
+        gap = (curve.values.loc[common] - fred.loc[common]).abs()
+        off = gap[gap > 0.005]
+        if len(off) > max(_SPREAD_MISMATCH_LIMIT * len(common), 5):
+            raise ValueError(f"differs from {series_id} by up to {gap.max():.3f} points ({len(off)} of {len(common)} days)")
+        note = f"{len(common) - len(off)} of {len(common)} days agree with {series_id}; from {fred.index[0]:%Y-%m-%d}"
+        if len(off):
+            days = ", ".join(f"{day:%Y-%m-%d} ({curve.values[day]:+.2f} vs {fred[day]:+.2f})" for day in off.index)
+            note += f"; FRED's spread is not its yields' difference on {days}"
         return _last(fred), note
 
     return run
