@@ -77,7 +77,7 @@ from .config import (
     component_column,
 )
 from .http import uk_get
-from .joins import chain, embedded_frame
+from .joins import chain, embedded_frame, ttm_sum
 from .uk_archive_data import (
     EMBEDDED_UK_10Y_HISTORY,
     EMBEDDED_UK_20Y_HISTORY,
@@ -248,18 +248,6 @@ def _ons_stock(cdid: str) -> pd.Series:
         if "has no months" not in str(exc):
             raise
     return ons_series(cdid, "quarters")
-
-
-def ttm_sum(quarterly: pd.Series) -> pd.Series:
-    """Return the sum of each four consecutive quarters (a flow over the trailing year), dated by the last one's end.
-
-    ONS gives the UK's flows per quarter, not as annual rates: the
-    trailing year is the sum, where the U.S.'s and Canada's annualised
-    rates take the mean. A quarter missing inside leaves the sums that
-    include it missing.
-    """
-    regular = quarterly.resample("QE").sum(min_count=1)
-    return regular.rolling(4, min_periods=4).sum().dropna()
 
 
 # ---------------------------------------------------------------------------
