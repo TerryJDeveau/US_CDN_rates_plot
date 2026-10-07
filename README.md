@@ -9,7 +9,7 @@ for the UK's national debt and GDP) is built into the code.
 
 ## Three ways to run it
 
-- **The web page** (`ratesplot/web.py`): open <https://us-cdn-rates.streamlit.app> and choose
+- **The web page** (`ratesplot/web.py`): open <https://ratesplot.streamlit.app> and choose
   the charts in the panel on the left. Drag a box on a chart to zoom to it; buttons move the
   dates and undo a zoom; each date has a calendar; the size keeps its shape when you change
   one side. The page's address holds the chart's settings, so a chart can be bookmarked or
