@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import itertools
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,9 +77,16 @@ def round_trip(line: list[str]) -> tuple[list[str], list[str]] | None:
     differ = [
         nation.key for nation in NATIONS
         if getattr(config, nation.show_field) != getattr(again, nation.show_field)
-        or (getattr(config, nation.show_field) and drawn_config(config, nation.key) != drawn_config(again, nation.key))
+        or (getattr(config, nation.show_field) and _drawn(config, nation.key) != _drawn(again, nation.key))
     ]
     return written, differ
+
+
+def _drawn(config, key: str):
+    """``drawn_config`` for one nation, with each list whose curves are off set aside (it draws nothing either way)."""
+    drawn = drawn_config(config, key)
+    hidden = {field: None for field, flag in _LISTS.items() if not getattr(drawn, flag)}
+    return replace(drawn, **hidden) if hidden else drawn
 
 
 def leaves_a_nation_none(config) -> bool:
