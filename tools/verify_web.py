@@ -554,9 +554,40 @@ def check_de(check: Check) -> None:
     check("the UK ticked too: two charts", charts_shown(page) == 2, charts_shown(page))
 
 
+def check_none_lists(check: Check) -> None:
+    """2026-10-07: a list that leaves a nation none of its terms: its boxes all unticked, the address kept, a warning logged."""
+
+    def ticked(at: AppTest, name: str) -> list[str]:
+        prefix = f"choice:{name}:"
+        return [box.key[len(prefix):] for box in at.checkbox if box.key and box.key.startswith(prefix) and box.value]
+
+    page = new_page("-c --y:7,20 --e:2026-09-01")
+    check("no exception", not page.exception, page.exception)
+    check("Canada's yield boxes all unticked (it has neither 7y nor 20y)", ticked(page, "cdn:yields") == [], ticked(page, "cdn:yields"))
+    check("no box 'none'", "choice:cdn:yields:none" not in {box.key for box in page.checkbox}, "")
+    check("address kept", address(page) == "--C --yields:7y,20y --end:2026-09-01", address(page))
+    check("one chart drawn", charts_shown(page) == 1, charts_shown(page))
+    warned = [line.strip() for c in page.code for line in c.value.splitlines() if "Warning: no yield" in line]
+    check("the warning in the log", any("on the Canadian chart" in line for line in warned), warned)
+    page.checkbox(key="choice:cdn:yields:10y").check()
+    page.run()
+    drawn = drawn_config(config_from_choices(*sort_tokens(address(page).split())[:2]), "cdn").yield_terms
+    check("10y ticked: the address draws Canada's 10-year", drawn == ("10y",), (address(page), drawn))
+    own = new_page("--cdn:y:none --e:2026-09-01")
+    check(
+        "a nation's own none: its boxes unticked, the other's at its default, the address kept",
+        ticked(own, "cdn:yields") == [] and ticked(own, "us:yields") == ["3m", "2y", "5y", "10y", "30y"]
+        and address(own) == "--cdn:yields:none --end:2026-09-01",
+        (ticked(own, "cdn:yields"), address(own)),
+    )
+    bad = new_page("--yields:none --e:2026-09-01")
+    warnings = [w.value for w in bad.warning]
+    check("a list of none for every chart reported, naming --no-yield", any("--no-yield" in w for w in warnings), warnings)
+
+
 PAGE_CHECKS = (
     check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
-    check_nation_sections, check_uk, check_de,
+    check_nation_sections, check_uk, check_de, check_none_lists,
 )
 
 

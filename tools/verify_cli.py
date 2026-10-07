@@ -189,6 +189,13 @@ CASES: list[list[str]] = [
     ["--usa", "--na:gb"], ["--canada", "--na:de"], ["--nations:gb", "--nations:de"],
     # Germany's ISO three-letter code as a prefix too (Terry, 2026-10-07: "--deu:max:6 is ok").
     ["--na:de", "--deu:max:6"], ["--DEU:y:10,30"], ["--nations:deu"], ["--deu:"], ["--deu:fp"],
+    # 2026-10-07 (Terry): a list for every chart that leaves a shown nation none of its terms draws
+    # none of them there, with a warning. A nation's own list may be "none"; a list for every chart
+    # may not (each has its --no- switch), and a removal of none drops nothing.
+    ["--cdn:yields:none"], ["--cdn:y:NONE"], ["--us:mo:none"], ["--ger:sp:none"], ["--uk:y:none", "--na:gb"],
+    ["--yields:none"], ["--y:none"], ["--mo:none"], ["--sp:none"], ["--no-y:none"], ["--us:no-y:none"],
+    ["-c", "--y:7,20"], ["--na:gb", "--mo:30"], ["--na:de", "--sp:10-3m"], ["--cdn:y:none", "--us:y:none"],
+    ["--cdn:y:none,10"],
 ]
 
 

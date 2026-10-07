@@ -492,7 +492,7 @@ def _choice_values_offered(key: str) -> list[str]:
 
 
 def _choice_changed(key: str, value: str) -> None:
-    """Keep at least one box of a list ticked: an empty list would read as the default (``choice_refusal``)."""
+    """Keep at least one box of a list ticked: drawing none is the curve's own box (``choice_refusal``)."""
     if not any(st.session_state.get(_CHOICE + key + ":" + item, False) for item in _choice_values_offered(key)):
         st.session_state[_CHOICE + key + ":" + value] = True
         st.session_state[_NOTICE] = choice_refusal(option_of(key))

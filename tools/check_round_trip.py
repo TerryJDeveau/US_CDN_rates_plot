@@ -13,11 +13,10 @@ which a nation could draw nothing (Canada's view of ``--yields:7,20``) was
 read back as that nation's default; such a list was then written after a
 nation's code, which the parser refuses; and a nation with its own default
 (Germany's 2 5 10 30) had its list shortened to a removal counted from the
-default for every chart. The last two are fixed. The first is open
-(Terry to decide, 2026-10-07): should that nation's chart draw its own
-default (as the window and the page do) or nothing of the list (as the
-command line does)? Such lines are listed as OPEN and do not fail the run;
-any other difference does.
+default for every chart. The last two were fixed first. The first was
+Terry's to decide (2026-10-07: "plot no yields in that case, but issue a
+warning message"): that nation's field now reads "none", as its chart draws
+(``options.NONE_ITEM``), and every combination must hold.
 
 Usage (from the project root)::
 
@@ -38,10 +37,10 @@ sys.path.insert(0, str(ROOT))
 
 from ratesplot.cli import sort_tokens  # noqa: E402
 from ratesplot.config import NATIONS  # noqa: E402
-from ratesplot.frontend import starting_choices  # noqa: E402
-from ratesplot.options import OPTIONS, Kind, command_line_tokens, config_from_choices, drawn_config, nation_view  # noqa: E402
+from ratesplot.frontend import NATION_OPTIONS, choice_values, choices_text, starting_choices  # noqa: E402
+from ratesplot.options import command_line_tokens, config_from_choices, drawn_config, nation_choice  # noqa: E402
 
-# The lists a nation may be left none of (the open case above), and the flag that draws each.
+# The lists a nation may be left none of, and the flag that draws each.
 _LISTS = {"yield_terms": "include_yield", "mortgage_terms": "mortgages", "spread_pairs": "spreads"}
 
 # The nations drawn, and the lists and values given: for every chart, for
@@ -56,11 +55,20 @@ VALUES = (
     "--uk:mo:2f --mo:30", "--mo:15 --cdn:mo:prime --ger:mo:over10", "--y:20,30 --mo:svr,5-10",
     "--ger:sp:30-2 --sp:10-3m", "--sp:20-10 --cdn:sp:10-3m", "--sp:30-10 --us:sp:7-1m", "--y:7 --mo:15 --sp:7-1m",
     "--max:6 --us:max:8", "--uk:top:5t --ger:top:4t", "-r --uk:top:150%", "--d:fpm --y:7",
+    # A nation's own list of none (2026-10-07), alone, with every nation's, and with a list for every chart.
+    "--cdn:y:none", "--cdn:y:none --us:y:none", "--uk:y:none --y:7", "--ger:mo:none --mo", "--us:mo:none --mo:30,5",
+    "--cdn:sp:none --sp:10-2", "--cdn:mo:none --us:mo:none --uk:mo:none --ger:mo:none --mo",
 )
 
 
 def round_trip(line: list[str]) -> tuple[list[str], list[str]] | None:
-    """Return (the written line, the nations it draws otherwise), or None for a line the parser refuses."""
+    """Return (the written line, the nations it draws otherwise), or None for a line the parser refuses.
+
+    Written twice: from the fields as the window keeps them, and from the
+    fields as the page rebuilds each list from its ticked boxes
+    (``through_boxes``); both must draw what the line drew. The written line
+    returned is the page's where they differ.
+    """
     payloads, flags, unmatched, misspelled = sort_tokens(line)
     if unmatched or misspelled:
         return None
@@ -69,17 +77,31 @@ def round_trip(line: list[str]) -> tuple[list[str], list[str]] | None:
     except ValueError:
         return None
     (choice_payloads, choice_flags), _notes = starting_choices(config, payloads, flags, {})
-    written = command_line_tokens(choice_payloads, choice_flags)
-    try:
-        again = config_from_choices(*sort_tokens(written)[:2])
-    except ValueError as exc:
-        return written, [f"refused: {exc}"]
-    differ = [
-        nation.key for nation in NATIONS
-        if getattr(config, nation.show_field) != getattr(again, nation.show_field)
-        or (getattr(config, nation.show_field) and _drawn(config, nation.key) != _drawn(again, nation.key))
-    ]
+    differ: list[str] = []
+    for fields in (choice_payloads, through_boxes(choice_payloads)):
+        written = command_line_tokens(fields, choice_flags)
+        try:
+            again = config_from_choices(*sort_tokens(written)[:2])
+        except ValueError as exc:
+            return written, [f"refused: {exc}"]
+        differ += [
+            nation.key for nation in NATIONS
+            if (getattr(config, nation.show_field) != getattr(again, nation.show_field)
+                or (getattr(config, nation.show_field) and _drawn(config, nation.key) != _drawn(again, nation.key)))
+            and nation.key not in differ
+        ]
     return written, differ
+
+
+def through_boxes(payloads: dict[str, str]) -> dict[str, str]:
+    """Return ``payloads`` with each nation's list as the page's boxes give it back: the items ticked, "none" for none."""
+    boxed = dict(payloads)
+    for option in NATION_OPTIONS:
+        if option.editor == "choices":
+            for nation in NATIONS:
+                key = nation_choice(nation, option)
+                boxed[key] = choices_text(option, choice_values(option, payloads[key], nation))
+    return boxed
 
 
 def _drawn(config, key: str):
@@ -89,23 +111,8 @@ def _drawn(config, key: str):
     return replace(drawn, **hidden) if hidden else drawn
 
 
-def leaves_a_nation_none(config) -> bool:
-    """True when a drawn nation's chart can draw none of a list it is given (the open case)."""
-    for nation in NATIONS:
-        if not getattr(config, nation.show_field):
-            continue
-        own = config.for_nation(nation.key)
-        for option in OPTIONS:
-            field = option.fields[0] if option.fields else None
-            if option.kind is Kind.VALUE and not option.removes and field in _LISTS and getattr(own, _LISTS[field]):
-                value = getattr(own, field)
-                if value and not nation_view(nation, option, value):
-                    return True
-    return False
-
-
 def main() -> int:
-    checked, failed, open_case = 0, 0, 0
+    checked, failed = 0, 0
     for nations, values in itertools.product(NATION_SETS, VALUES):
         line = f"{nations} {values}".split()
         result = round_trip(line)
@@ -113,15 +120,10 @@ def main() -> int:
             continue
         checked += 1
         written, differ = result
-        if differ and leaves_a_nation_none(config_from_choices(*sort_tokens(line)[:2])):
-            open_case += 1
-            print(f"OPEN {' '.join(line)}  ->  {' '.join(written)}  [{', '.join(differ)}]")
-        elif differ:
+        if differ:
             failed += 1
             print(f"FAIL {' '.join(line)}  ->  {' '.join(written)}  [{', '.join(differ)}]")
-    same = checked - failed - open_case
-    print(f"[round trip] {same} of {checked} command lines come back drawing the same charts; "
-          f"{open_case} OPEN (a nation left none of a list: awaiting Terry's decision); {failed} FAIL")
+    print(f"[round trip] {checked - failed} of {checked} command lines come back drawing the same charts; {failed} FAIL")
     return 1 if failed else 0
 
 

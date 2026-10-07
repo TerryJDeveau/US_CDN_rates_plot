@@ -194,8 +194,23 @@ def parse_term(spec: str, *, kind: str) -> str:
     return key
 
 
+# A nation's own list that draws none of its items (Terry, 2026-10-07: a list
+# for every chart leaving a nation none of its terms draws none of them, with
+# a warning). Written so in that nation's field, its boxes all unticked, and
+# after its code (--cdn:yields:none); a list for every chart cannot be "none"
+# (``config_from_choices``): its curves have their own --no- switch.
+NONE_ITEM = "none"
+
+
+def _is_none(spec: str) -> bool:
+    """True for the list that names no item (``NONE_ITEM``)."""
+    return spec.strip().lower() == NONE_ITEM
+
+
 def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
-    """Parse a comma-separated list of yield terms into ``YIELD_TERMS`` keys, in that order (repeats are harmless)."""
+    """Parse a comma-separated list of yield terms into ``YIELD_TERMS`` keys, in that order (repeats are harmless); "none" is none."""
+    if _is_none(spec):
+        return ()
     items = [item for item in spec.split(",") if item.strip()]
     if not items:
         raise ValueError(f"empty {kind} list: name terms such as 3m,2,10")
@@ -204,15 +219,17 @@ def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
 
 
 def format_terms(values: tuple, _config: PlotConfig) -> str:
-    """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``."""
-    return ",".join(values[0])
+    """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``; none as "none"."""
+    return ",".join(values[0]) or NONE_ITEM
 
 
 def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
     """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v prime Canada; 2f 3f 5f svr UK; 1-5 5-10 over10 Germany), in that order.
 
-    A "y" after the years is accepted ("30y"), and repeats are harmless.
+    A "y" after the years is accepted ("30y"), and repeats are harmless; "none" is none.
     """
+    if _is_none(spec):
+        return ()
     items = [item.strip().lower() for item in spec.split(",") if item.strip()]
     if not items:
         raise ValueError("empty --mortgages list: name terms such as 30,5")
@@ -233,8 +250,10 @@ def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
 def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
     """Parse ``--spreads:LIST``: pairs of yield terms such as ``10y-2y,10-3m``, each the first less the second.
 
-    Kept in the order given (it sets their colours); a repeated pair is drawn once.
+    Kept in the order given (it sets their colours); a repeated pair is drawn once; "none" is none.
     """
+    if _is_none(spec):
+        return ()
     items = [item.strip() for item in spec.split(",") if item.strip()]
     if not items:
         raise ValueError("empty --spreads list: name pairs such as 10y-2y,10y-3m")
@@ -265,8 +284,8 @@ def parse_nations(spec: str) -> tuple[str, ...]:
 
 
 def format_spreads(values: tuple, _config: PlotConfig) -> str:
-    """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``."""
-    return ",".join(f"{first}-{second}" for first, second in values[0])
+    """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``; none as "none"."""
+    return ",".join(f"{first}-{second}" for first, second in values[0]) or NONE_ITEM
 
 
 def is_percent_bound(spec: str) -> bool:
@@ -842,12 +861,22 @@ _PART_OPTIONS = {"debt-parts": "debt", "interest-parts": "interest"}
 # "Choices" are what a user expressed, keyed by option name:
 #   payloads: VALUE option -> its text (absent = not given, so the default)
 #   flags:    FLAG / TOGGLE / SWITCH option -> True or False (absent = not given)
+# The fields holding a list of items (terms, pairs), which a nation's chart
+# draws as far as it has them (``nation_view``) and which may be none.
+_LIST_FIELDS = ("yield_terms", "mortgage_terms", "spread_pairs")
+
+
+def list_switch(option: Option) -> Option:
+    """Return the switch that draws a list's curves: the flag the list turns on (--mortgages), or for the yield terms the yield curve."""
+    return by_name(option.turns_on or "yield")
 
 
 def _removed(option: Option, spec: str, current: tuple) -> tuple:
-    """Return ``current`` without the items ``spec`` names (``option.removes``); raise if one is not there or none is left."""
+    """Return ``current`` without the items ``spec`` names (``option.removes``); raise if it names none, one is not there or none is left."""
     dropped = option.parse(spec)
     spelling = option.usage.split(":")[0]
+    if not dropped:
+        raise ValueError(f"{spelling}:{spec.strip()} drops nothing; name the terms to drop, such as 30")
     absent = [item for item in dropped if item not in current]
     if absent:
         raise ValueError(f"{spelling}:{spec.strip()}: {','.join(absent)} is not drawn anyway (drawn: {','.join(current)})")
@@ -943,6 +972,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     * A value option that removes (``--no-yields:LIST``) takes its items out
       of its field as the options before it left it; an item not there, or
       none left, is an error.
+    * A list for every chart names at least one item: "none" is a nation's
+      own (``--cdn:yields:none``), and every chart's curves of a list have
+      their own switch (--no-yield, --no-mortgages, --no-spreads).
     * A value that belongs to a flag (``turns_on``: --reg:TOL) turns it on,
       unless the flag was given explicitly (--reg:2 --no-reg is off); given
       for one nation (--us:sp:10-2) too, for both charts.
@@ -958,6 +990,11 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
             values[option.fields[0]] = _removed(option, payloads[option.name], values[option.fields[0]])
         elif option.name in payloads:
             parsed = option.parse(payloads[option.name])
+            if option.fields[0] in _LIST_FIELDS and not parsed:
+                raise ValueError(
+                    f"{option.usage.split(':')[0]}:{payloads[option.name].strip()} draws none on every chart; "
+                    f"use --no-{list_switch(option).name} (a nation's own list may be none: --cdn:{option.names[0]}:none)"
+                )
             values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
         if option.check is not None:
             option.check(values)
@@ -1051,6 +1088,8 @@ def _shorter_as_removal(option: Option, text: str, default: tuple | None = None)
         chosen = option.parse(text)
     except ValueError:
         return None
+    if not chosen:
+        return None  # "none": dropping every term is refused (``_removed``)
     default = getattr(PlotConfig(), option.fields[0]) if default is None else default
     dropped = [item for item in default if item not in chosen]
     if tuple(chosen) == tuple(default):
@@ -1093,20 +1132,22 @@ def _nation_tokens(option: Option, texts: dict[str, str], spelling: str) -> list
     (``--yields:3m,2y,5y,7y,10y,30y``); else one nation's own list (the U.S.'s
     spreads "10y-2y,7y-1m" draw Canada's "10y-2y"). Otherwise each nation's
     own value is written after its code (``--us:max:8``), and a nation at the
-    default needs none.
+    default needs none. A list for every chart names at least one item, so
+    nations left none of it all are each written ``--cdn:yields:none``.
     """
     default = getattr(PlotConfig(), option.fields[0])
     nations = {nation.key: nation for nation in NATIONS}
-    if option.fields[0] in ("yield_terms", "mortgage_terms", "spread_pairs"):
+    if option.fields[0] in _LIST_FIELDS:
         try:
             own = {key: option.parse(text) if text else default for key, text in texts.items()}
         except ValueError:
             own = {}
         # The default first: every nation at its own default (the UK's
         # differs from the others') needs nothing written.
-        candidates = [default, *own.values()]
-        if own and option.fields[0] != "spread_pairs":
-            candidates.insert(1, option.parse(",".join(item for value in own.values() for item in value)))
+        candidates = [value for value in (default, *own.values()) if value]
+        union = [item for value in own.values() for item in value]
+        if union and option.fields[0] != "spread_pairs":
+            candidates.insert(1, option.parse(",".join(union)))
         for candidate in candidates:
             if own and all(
                 nation_view(nations[key], option, candidate) == nation_view(nations[key], option, value)
@@ -1200,7 +1241,8 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
             written_for = [n for n in NATIONS if n.shown_by_default or flags.get(switch_of(n), False)]
             texts = {nation.key: payloads.get(nation_choice(nation, option), text).strip() for nation in written_for}
             text = text if len(set(texts.values())) > 1 else next(iter(texts.values()))
-        if len(set(texts.values())) > 1:
+        # "none" in every nation's field is written for each: a list for every chart is never none.
+        if len(set(texts.values())) > 1 or (texts and _is_none(text)):
             if option.turns_on and not flags.get(option.turns_on, default_flags.get(option.turns_on)):
                 continue
             written = _nation_tokens(option, texts, option.usage.split(":")[0])
@@ -1254,7 +1296,9 @@ not be given one (-r:1 is an error).
 _HELP_NATIONS = (
     "A nation's code in front sets a value for its chart only: --us:top:20t, --cdn:yields:2,10, "
     "--us:no-y:30 (codes ca or cdn, us, gb or uk, and ger or deu, written in full; Germany's de only in "
-    "--nations, since --de is --debt). It goes on {names}; the nation's own value replaces the one for both charts."
+    "--nations, since --de is --debt). It goes on {names}; the nation's own value replaces the one for both charts. "
+    "A nation's own list may be none (--cdn:yields:none). A list for every chart draws on each chart the items that "
+    "nation has; a chart left none of them draws none, with a warning (-c --yields:7,20)."
 )
 
 
