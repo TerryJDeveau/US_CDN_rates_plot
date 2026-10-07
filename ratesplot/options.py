@@ -1034,13 +1034,15 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
     return payloads, flags
 
 
-def _shorter_as_removal(option: Option, text: str) -> str | None:
+def _shorter_as_removal(option: Option, text: str, default: tuple | None = None) -> str | None:
     """Return the option's value written as what it drops from the default, when that is shorter; else None.
 
     ``--no-yields:30y`` rather than ``--yields:3m,2y,5y,10y`` (an option
     with a remover, ``Option.removes``, on its field). None also when the
     text does not parse; the caller then writes it as it is. "" when it
     is the default, spelled another way: nothing need be written.
+    ``default``: the list the removal is taken from, when not the default
+    for every chart (a nation's own default: Germany's has no 3-month).
     """
     remover = next((other for other in options_of(Kind.VALUE) if other.removes and other.fields == option.fields), None)
     if remover is None:
@@ -1049,7 +1051,7 @@ def _shorter_as_removal(option: Option, text: str) -> str | None:
         chosen = option.parse(text)
     except ValueError:
         return None
-    default = getattr(PlotConfig(), option.fields[0])
+    default = getattr(PlotConfig(), option.fields[0]) if default is None else default
     dropped = [item for item in default if item not in chosen]
     if tuple(chosen) == tuple(default):
         return ""
@@ -1123,7 +1125,9 @@ def _nation_tokens(option: Option, texts: dict[str, str], spelling: str) -> list
         except ValueError:
             at_default = False
         if not at_default:
-            shorter = _shorter_as_removal(option, text)
+            # Shortened from the nation's own default, which is what its
+            # removal is taken from (Germany's 2 5 10 30 has no 3-month).
+            shorter = _shorter_as_removal(option, text, dict(nations[key].own_defaults).get(option.fields[0], default))
             if shorter != "":
                 # The nation's prefix, not its key: Germany's key "de" would be --debt.
                 tokens.append(f"--{nations[key].prefix}:{(shorter or f'{spelling}:{text}').lstrip('-')}")
