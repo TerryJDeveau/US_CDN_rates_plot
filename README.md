@@ -35,7 +35,7 @@ python -m pip install -r requirements.txt
 
 | | |
 |---|---|
-| `-c`, `-u`, `--uk`, `--ger` | Canada, the United States, the United Kingdom or Germany only (Canada and the U.S. by default; `--nations:ca,us,gb,de` for several) |
+| `-c`, `-u`, `--nations:gb,de` | Canada or the United States only (Canada and the U.S. by default); the United Kingdom and Germany are named only by their codes, `--nations:gb`, `--nations:de` or with others `--nations:ca,us,gb,de` (`-c` and `-u` may join them) |
 | `-r`, `-p` | debt and interest as % of GDP, or GDP, debt and interest per person |
 | `--debt:fnpm` | debt and interest by level of government |
 | `--yields:2,10`, `--no-yields:30` | the yield terms drawn (U.S. also 1m, 6m, 1, 7 and 20 years; the UK 5, 10 and 20; Germany 1, 2, 5, 7, 10, 20 and 30), or those dropped |

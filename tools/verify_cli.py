@@ -181,6 +181,12 @@ CASES: list[list[str]] = [
     ["--ger", "-r", "--ger:top:4t"], ["--ger", "--d:fnpm"], ["--ger:min:3", "--ger:max:2"], ["--ger:dim:800"],
     ["--ger:start:2000"], ["--ger:"], ["--ger", "--policy", "--mo", "--sp", "-l"], ["--ger", "--yields:2,5,10,30"],
     ["--ger", "--yields:3m,2,5,10,30"], ["--ger", "--mo:30,5"],
+    # 2026-10-07 (Terry): only Canada and the U.S. have switches of their own; the UK and Germany are
+    # chosen with --nations:LIST alone. Their former switches are errors naming --nations; their
+    # prefixes (--uk:, --gb:, --ger:) still set their own values.
+    ["--nations:gb", "--uk:max:8"], ["--na:de", "--ger:max:6"], ["--na:ca,gb"], ["-c", "--na:de"], ["--na:gb", "-u"],
+    ["--no-ger"], ["--gb:"], ["--ger:"], ["--germany:1"], ["--deu"], ["--DE"], ["--na:de", "--de:fp"],
+    ["--usa", "--na:gb"], ["--canada", "--na:de"], ["--nations:gb", "--nations:de"],
 ]
 
 

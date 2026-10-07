@@ -495,7 +495,7 @@ def check_nation_sections(check: Check) -> None:
 
 def check_uk(check: Check) -> None:
     """Batch 3: the UK's chart from the address; its section with its own terms and defaults; a second nation ticked."""
-    page = new_page("--uk --e:2026-09-01 --uk:max:9")
+    page = new_page("--nations:gb --e:2026-09-01 --uk:max:9")
     check("no exception", not page.exception, page.exception)
     f = flags(page)
     check("address: the UK only", f["uk"] and not f["cdn"] and not f["us"], f)
@@ -513,11 +513,11 @@ def check_uk(check: Check) -> None:
         and page.checkbox(key="choice:uk:mortgage-terms:svr").value and not page.checkbox(key="choice:uk:mortgage-terms:2f").value,
     )
     check("its value in its own field", page.text_input(key="value:uk:max").value == "9", page.text_input(key="value:uk:max").value)
-    check("address kept", address(page) == "--UK --end:2026-09-01 --uk:max:9", address(page))
+    check("address kept", address(page) == "--nations:gb --end:2026-09-01 --uk:max:9", address(page))
     page.checkbox(key="flag:cdn").check()
     page.run()
     check("Canada ticked too: two charts", charts_shown(page) == 2, charts_shown(page))
-    check("address names both", address(page) == "--C --UK --end:2026-09-01 --uk:max:9", address(page))
+    check("address names both by --nations", address(page) == "--nations:ca,gb --end:2026-09-01 --uk:max:9", address(page))
 
 
 def check_de(check: Check) -> None:
@@ -543,7 +543,7 @@ def check_de(check: Check) -> None:
     )
     check("its value in its own field", page.text_input(key="value:de:max").value == "6", page.text_input(key="value:de:max").value)
     check("address written with --ger:, not --de: (which is --debt:)",
-          address(page) == "--GER --mortgages --end:2026-09-01 --ger:max:6", address(page))
+          address(page) == "--nations:de --mortgages --end:2026-09-01 --ger:max:6", address(page))
     page.checkbox(key="choice:de:mortgage-terms:over10").check()
     page.run()
     tokens = address(page).split()

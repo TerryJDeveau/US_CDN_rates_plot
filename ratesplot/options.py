@@ -472,6 +472,13 @@ class Option:
     # its field (the default, or what the option before it in the table gave).
     removes: bool = False
     flag: str | None = None  # SWITCH: the argparse flag
+    # False: not on the command line at all (no spelling matches it, no
+    # argparse flag, not in --help); the window and the page still show its
+    # control. The nations other than Canada and the U.S. (Terry, 2026-10-07:
+    # "--usa and --canada ... are allowed as base-level CLI switches ...
+    # other national base-level CLI options (such as --uk, --ger, --deu, etc.)
+    # should not be allowed"): those are chosen with --nations:LIST only.
+    command_line: bool = True
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
     # field value(s) back into text a parser accepts, given the rest of the
@@ -554,21 +561,22 @@ OPTIONS: tuple[Option, ...] = (
         "us", Kind.SWITCH, ("show_us",), "country", "--U / -U / --us / --usa", "U.S. chart only",
         names=("us", "usa"), flag="--U", flag_help="U.S. chart only", label="United States",
     ),
-    # Batch 3: drawn only when named (with no nation named, Canada and the
-    # U.S. are). At least "uk" or "gb": "-u" stays the U.S., "-g" the GDP curve.
+    # The other nations (batch 3 the UK, batch 4 Germany): drawn only when
+    # named, and named only by --nations:LIST (Terry, 2026-10-07; batch 3 had
+    # --uk / --gb, batch 4's draft --ger). Switches still, so the window and
+    # the page have a tick box for each; ``command_line=False`` keeps them off
+    # the command line, which writes them as --nations:LIST
+    # (``command_line_tokens``). Their names are kept for that tick box's
+    # key and for messages; ``switch_of`` relates a nation to its switch.
     Option(
-        "uk", Kind.SWITCH, ("show_uk",), "country", "--UK / --uk / --gb",
+        "uk", Kind.SWITCH, ("show_uk",), "country", "--nations:gb",
         "the UK's chart (only when named; with\n-c or -u, those too)",
-        names=("uk", "gb"), shortest=2, flag="--UK", flag_help="the UK's chart", label="United Kingdom",
+        names=("uk", "gb"), shortest=2, label="United Kingdom", command_line=False,
     ),
-    # Batch 4: drawn only when named, as the UK is. At least "ger": "--de" is
-    # --debt (and "--de:fp" --debt:fp), "-g" the GDP curve. Its name is not
-    # its nation's key ("de"), so that a message names it as it is written
-    # ("--germany takes no value"); ``switch_of`` relates the two.
     Option(
-        "germany", Kind.SWITCH, ("show_de",), "country", "--GER / --ger / --germany",
-        "Germany's chart (only when named; with\n-c, -u or --uk, those too)",
-        names=("germany",), shortest=3, flag="--GER", flag_help="Germany's chart", label="Germany",
+        "germany", Kind.SWITCH, ("show_de",), "country", "--nations:de",
+        "Germany's chart (only when named; with\n-c or -u, those too)",
+        names=("germany",), shortest=3, label="Germany", command_line=False,
     ),
     # The same by the nations' codes, for when there are more than two
     # (batch 2). The command line turns it into the switches of the nations it
@@ -576,7 +584,7 @@ OPTIONS: tuple[Option, ...] = (
     # control: the window and the page show the switches.
     Option(
         "nations", Kind.VALUE, (), "country", "--nations:LIST / --na:LIST",
-        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk, de or\nger (--nations:ca,us,gb,de)",
+        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk, de or\nger (--nations:ca,us,gb,de); the only way\nto name the UK's and Germany's",
         names=("nations",), shortest=2, parse=parse_nations, in_gui=False,
     ),
     # Curves. The listing order here is the help order; the selection rule is
@@ -1141,7 +1149,13 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     chosen = [option for option in countries if flags.get(option.name)]
     by_default = [option for option in countries if option.fields[0] in {n.show_field for n in NATIONS if n.shown_by_default}]
     if chosen and chosen != by_default:
-        tokens += [option.flag for option in chosen]
+        if all(option.command_line for option in chosen):
+            tokens += [option.flag for option in chosen]
+        else:
+            # A nation with no switch on the command line: every chosen nation
+            # by its code (its first: ca, us, gb, de), "--nations:ca,gb".
+            nations = {nation.show_field: nation for nation in NATIONS}
+            tokens.append("--nations:" + ",".join(nations[option.fields[0]].codes[0] for option in chosen))
 
     # Curves: name the ones on, or negate the ones off, whichever is shorter
     # (both mean the same under the curve rule; all off needs every "--no-").
@@ -1222,8 +1236,8 @@ _HELP_COLUMN = 36  # width of the spellings column (fits "--interest:LETTERS / -
 _HELP_MIN_GAP = 3  # a spelling longer than the column still gets this many spaces
 _HELP_INTRO = """\
 Run with no flags to open the interactive window with both charts (Canadian,
-then U.S.; the UK's and Germany's when asked for, --uk, --ger). Flags set the
-window's starting values.
+then U.S.; the UK's and Germany's when asked for, --nations:gb or --nations:de,
+which -c and -u may join). Flags set the window's starting values.
 
 Names are case-insensitive, the dashes in front are optional, and any leading
 part of a name will do: -r, --rel and --relative are the same. A name is never
@@ -1249,7 +1263,7 @@ def help_epilog() -> str:
     for group, heading in GROUPS.items():
         lines.append(heading)
         for option in OPTIONS:
-            if option.group != group:
+            if option.group != group or not option.command_line:
                 continue
             width = max(_HELP_COLUMN, len(option.usage) + _HELP_MIN_GAP)
             first, *rest = option.help.split("\n")

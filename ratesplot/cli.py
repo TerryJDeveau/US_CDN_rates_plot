@@ -41,14 +41,20 @@ _WITHOUT_VALUE = (Kind.FLAG, Kind.TOGGLE, Kind.SWITCH)
 _WITH_OFF_FORM = (Kind.FLAG, Kind.TOGGLE)  # the kinds that take "no-"
 
 
-def _spelled(token: str, word: str, kinds: tuple[Kind, ...], *, removes: bool = False) -> Option | None:
+def _spelled(
+    token: str, word: str, kinds: tuple[Kind, ...], *, removes: bool = False, off_command_line: bool = False
+) -> Option | None:
     """Return the option of one of ``kinds`` that ``word`` spells, or None; raise if two do.
 
     ``removes`` picks the VALUE options spelled after "no-" (``Option.removes``)
-    instead of the others; it never matters for the other kinds.
+    instead of the others; it never matters for the other kinds. Only the
+    options on the command line are spelled (``Option.command_line``), or,
+    with ``off_command_line``, only those that are not.
     """
     found = [
-        option for option in OPTIONS if option.kind in kinds and option.removes == removes and spells(option, word)
+        option for option in OPTIONS
+        if option.kind in kinds and option.removes == removes and option.command_line != off_command_line
+        and spells(option, word)
     ]
     if len(found) > 1:
         raise ValueError(f"{token} is ambiguous: it could be " + " or ".join(f"--{option.name}" for option in found))
@@ -84,6 +90,7 @@ def match_token(token: str) -> tuple[Option, str | bool] | None:
         takes_none = _spelled(token, key, _WITHOUT_VALUE)
         if takes_none is not None:
             raise ValueError(f"{token}: --{takes_none.name} takes no value")
+        _refuse_nation_switch(token, key.removeprefix("no-"))
         return None
 
     is_negative = lower.startswith("no-")
@@ -95,7 +102,27 @@ def match_token(token: str) -> tuple[Option, str | bool] | None:
         needs_value = _spelled(token, name, (Kind.VALUE,))
         if needs_value is not None:
             raise ValueError(f"{token} needs a value: {needs_value.usage}")
+    _refuse_nation_switch(token, lower.partition(":")[0].removeprefix("no-"))
     return None
+
+
+def _refuse_nation_switch(token: str, word: str) -> None:
+    """Raise, naming --nations, for a token that would name a nation chosen only by --nations:LIST ("--uk", "--ger").
+
+    Only after the token has matched nothing else ("--de" is --debt). Its
+    nation's codes count too ("--gb"), as does any leading part of its
+    switch's names from the fewest letters allowed.
+    """
+    letters = "".join(ch for ch in word if ch.isalnum())
+    for nation in NATIONS:
+        switch = next(option for option in options_in("country") if option.fields == (nation.show_field,))
+        if switch.command_line:
+            continue
+        if letters in nation.codes or spells(switch, word):
+            raise ValueError(
+                f"{token}: {nation.name} is chosen with --nations:{nation.codes[0]} "
+                f"(with others: --nations:ca,us,{nation.codes[0]})"
+            )
 
 
 def match_prefixed(token: str) -> tuple[Nation, Option, str] | None:
@@ -111,7 +138,8 @@ def match_prefixed(token: str) -> tuple[Nation, Option, str] | None:
     """
     code, colon, rest = token.lstrip("-").partition(":")
     nation = nation_by_code(code, prefix=True) if colon else None
-    if nation is None and ":" in rest and _spelled(token, code.lower(), (Kind.SWITCH,)) in options_in("country"):
+    named = _spelled(token, code.lower(), (Kind.SWITCH,)) or _spelled(token, code.lower(), (Kind.SWITCH,), off_command_line=True)
+    if nation is None and ":" in rest and named in options_in("country"):
         codes = ", ".join(code for nation in NATIONS for code in nation.codes if code not in nation.list_only_codes)
         raise ValueError(f"{token}: a nation's code is written in full ({codes})")
     if nation is None or not rest:
@@ -149,6 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     for option in options_of(Kind.SWITCH):
+        if not option.command_line:
+            continue
         parser.add_argument(option.flag, dest=option.fields[0], action="store_true", default=False, help=option.flag_help)
     return parser
 
