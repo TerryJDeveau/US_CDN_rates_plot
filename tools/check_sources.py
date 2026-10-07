@@ -21,7 +21,10 @@ Two checks are of a different kind:
   symbols and fields are in the us-cdn-rates-plot skill, section 3).
 * ``uk_joins`` measures where the UK's baked history meets its live series
   (the 10- and 20-year yields, debt in 1975, GDP 1955-1994), for the
-  judgement calls of batch 3; a note, never a failure.
+  judgement calls of batch 3; a note, never a failure. ``de_joins`` does the
+  same for Germany (batch 4), and ``de_fred`` tries the FRED German series
+  the laptop could not fetch on 2026-10-06 (a note: which answer, and from
+  when).
 * The Census publishes each fiscal year of state and local government
   finances about a year and a half after it ends. When a year newer than the
   one baked into ``us_archive_data`` is listed, the line says so: run
@@ -53,7 +56,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot import bake, cdn_data, latest, rates, uk_archive_data, uk_data, us_data  # noqa: E402
+from ratesplot import bake, cdn_data, de_archive_data, de_data, latest, rates, uk_archive_data, uk_data, us_data  # noqa: E402
 from ratesplot.cli import parse_args  # noqa: E402
 from ratesplot.config import (  # noqa: E402
     CDN_DEBT_COLUMN,
@@ -63,6 +66,8 @@ from ratesplot.config import (  # noqa: E402
     UK_DEBT_COLUMN,
     UK_INTEREST_COLUMN,
     UK_NET_DEBT_COLUMN,
+    DE_DEBT_COLUMN,
+    DE_INTEREST_COLUMN,
     YIELD_COLUMNS,
     YIELD_TERMS,
     PlotConfig,
@@ -318,6 +323,91 @@ def _uk_joins(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     return None, "; ".join(notes)
 
 
+# ---------------------------------------------------------------------------
+# Germany (batch 4)
+# ---------------------------------------------------------------------------
+
+
+def _de_yields(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    chosen = replace(config, yield_terms=de_data.DE_YIELD_TERMS)
+    frame = de_data.fetch_de_yields(chosen)
+    columns = tuple(de_data.DE_YIELD_SERIES)
+    return _last(_all_yields(frame, columns)), ", ".join(f"{column} {frame[column].dropna().iloc[-1]:.2f}" for column in columns)
+
+
+def _de_column(fetch: Callable[[PlotConfig], pd.DataFrame | None], column: str, *, components: str = "") -> Callable[[PlotConfig], tuple[pd.Timestamp | None, str]]:
+    """One of Germany's macro curves, through its own fetcher; the note gives its newest value."""
+
+    def run(config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+        frame = fetch(replace(config, components=components) if components else config)
+        series = None if frame is None or column not in frame.columns else frame[column].dropna()
+        if series is None or series.empty:
+            return None, "no values"
+        return _last(series), f"€{series.iloc[-1] / 1e9:,.1f} billion, from {series.index[0]:%Y-%m-%d}"
+
+    return run
+
+
+def _de_annual_debt(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    # Used only before Eurostat's quarters begin (2000), so its age does not matter.
+    annual = de_data.ecb_series(*de_data.ECB_ANNUAL_DEBT)
+    return None, f"{len(annual)} year-ends, {annual.index[0]:%Y} to {annual.index[-1]:%Y}"
+
+
+def _de_population(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    people = de_data.fetch_de_population()
+    return _last(people), f"{people.iloc[-1] / 1e6:.2f} million, from {people.index[0]:%Y-%m-%d}; a quarter dated by its middle"
+
+
+def _de_joins(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    """Where Germany's history meets its live series, and its quotes the fitted curve: measured, for the PR's calls (batch 4).
+
+    The baked public debt yield against the fitted end-of-month 10-year
+    (at the join, 1972-09, and over all 1972-2020); the ECB's year-ends
+    against Eurostat's fourth quarters; the annual interest against the
+    four-quarter sums; the population at unification; CNBC's quotes against
+    the latest daily fitted yields. A note, not a pass or fail.
+    """
+    notes = []
+    baked = pd.Series({pd.Timestamp(date): value for date, value in de_archive_data.EMBEDDED_DE_PUBLIC_DEBT_YIELD_HISTORY})
+    fitted = de_data._term_structure("10-Year", "M")
+    fitted.index = fitted.index.to_period("M").start_time
+    gap = (fitted - baked).dropna()
+    notes.append(f"10-year fitted less public debt yield: {gap.iloc[0]:+.2f} at {gap.index[0]:%Y-%m}, "
+                 f"mean {gap.iloc[:12].mean():+.2f} over its first year, {gap.mean():+.2f} over {len(gap)} months")
+    annual = de_data.ecb_series(*de_data.ECB_ANNUAL_DEBT)
+    quarters = de_data.eurostat_series("gov_10q_ggdebt", sector=de_data.GENERAL_GOVERNMENT)
+    common = annual.index.intersection(quarters.index)
+    notes.append(f"debt: ECB year-ends against Eurostat's fourth quarters, largest gap {(annual[common] / quarters[common] - 1).abs().max():.1e} over {len(common)} years")
+    yearly = de_data.eurostat_series("gov_10dd_edpt1", sector=de_data.GENERAL_GOVERNMENT, na_item="D41PAY")
+    sums = de_data.ttm_sum(de_data.eurostat_series("gov_10q_ggnfa", sector=de_data.GENERAL_GOVERNMENT))
+    both = yearly.index.intersection(sums.index)
+    notes.append(f"interest: annual against four-quarter sums, largest gap {(yearly[both] / sums[both] - 1).abs().max():.1e} over {len(both)} years")
+    people = de_data.eurostat_series("demo_pjan")
+    notes.append(f"population 1 January 1990 {people.loc['1990-12-31'] / 1e6:.2f} million (West Germany), 1991 {people.loc['1991-12-31'] / 1e6:.2f} million")
+    quotes = latest.fetch_quotes("de", tuple(de_data.DE_YIELD_SERIES))
+    daily = {column: de_data._term_structure(column, "D") for column in ("2-Year", "10-Year", "30-Year")}
+    gaps = [f"{column} {latest._percent(quotes[column]['last']) - values.iloc[-1]:+.2f}" for column, values in daily.items() if quotes.get(column)]
+    notes.append("CNBC quote less the last fitted yield: " + ", ".join(gaps))
+    return None, "; ".join(notes)
+
+
+# The FRED German series not fetched from the laptop on 2026-10-06 (timed out
+# with a browser's User-Agent; the program fetches FRED without one).
+_DE_FRED_SERIES = ("IRLTLT01DEM156N", "INTDSRDEM193N", "IR3TIB01DEM156N", "IRSTCI01DEM156N", "CPMNACSCAB1GQDE", "GGGDTADEA188N", "DEUPOPNDQ")
+
+
+def _de_fred(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
+    found = []
+    for series_id in _DE_FRED_SERIES:
+        try:
+            values = fetch_fred_csv(series_id).set_index("DATE")[series_id].dropna()
+            found.append(f"{series_id} {values.index[0]:%Y-%m} to {values.index[-1]:%Y-%m}")
+        except Exception as exc:
+            found.append(f"{series_id} failed ({type(exc).__name__})")
+    return None, "; ".join(found)
+
+
 def _census(_config: PlotConfig) -> tuple[pd.Timestamp | None, str]:
     baked = max(pd.Timestamp(date).year for date, _value in EMBEDDED_US_DEBT_BY_LEVEL["p"])
     listed = [year for year in (baked + 1, baked + 2) if bake.census_estimates_url(year)]
@@ -388,6 +478,25 @@ CHECKS: tuple[Check, ...] = (
     Check("ons_population", "ONS EBAQ UK population", QUARTERLY, _uk_population),
     Check("cnbc_uk", "CNBC quote feed, UK gilt yields, 5 10 20 years (unofficial)", QUOTES, _quotes("uk", tuple(uk_data.UK_YIELD_SERIES))),
     Check("uk_joins", "UK history against the live series where they meet (a measurement)", None, _uk_joins),
+    # Germany (batch 4).
+    Check("bbk_yields", "Bundesbank Svensson yields 1 2 5 7 10 20 30 years (daily)", DAILY, _de_yields),
+    Check("ecb_policy", "ECB main refinancing rate, fixed and minimum bid (--policy)", None, _rate(rates.de_policy_rate)),
+    Check("ecb_mortgage1_5", "ECB MIR German housing loans, fixed over 1 to 5 years", MONTHLY, _rate(partial(rates.mortgage_rate, "1-5"))),
+    Check("ecb_mortgage5_10", "ECB MIR German housing loans, fixed over 5 to 10 years", MONTHLY, _rate(partial(rates.mortgage_rate, "5-10"))),
+    Check("ecb_mortgage10", "ECB MIR German housing loans, fixed over 10 years", MONTHLY, _rate(partial(rates.mortgage_rate, "over10"))),
+    Check("ecb_debt_annual", "ECB GFS German debt, year-ends (before 2000)", None, _de_annual_debt),
+    Check("est_debt", "Eurostat gov_10q_ggdebt German debt (quarterly)", QUARTERLY, _de_column(de_data.fetch_de_debt, DE_DEBT_COLUMN)),
+    Check("est_gdp", "Eurostat namq_10_gdp German GDP (four-quarter sums)", QUARTERLY, _de_column(de_data.fetch_de_gdp, GDP_COLUMN)),
+    Check("est_interest", "Eurostat gov_10q_ggnfa German interest (four-quarter sums)", QUARTERLY, _de_column(de_data.fetch_de_interest, DE_INTEREST_COLUMN)),
+    Check("est_federal", "Eurostat S1311 German federal debt", QUARTERLY, _de_column(de_data.fetch_de_components, component_column("debt", "f"), components="fpm")),
+    Check("est_laender", "Eurostat S1312 Laender debt", QUARTERLY, _de_column(de_data.fetch_de_components, component_column("debt", "p"), components="fpm")),
+    Check("est_local", "Eurostat S1313 German local debt", QUARTERLY, _de_column(de_data.fetch_de_components, component_column("debt", "m"), components="fpm")),
+    Check("est_int_federal", "Eurostat S1311 German federal interest", QUARTERLY,
+          _de_column(de_data.fetch_de_components, component_column("interest", "f"), components="fpm")),
+    Check("est_population", "Eurostat namq_10_pe and demo_pjan German population", QUARTERLY, _de_population),
+    Check("cnbc_de", "CNBC quote feed, German yields, 1 2 5 7 10 20 30 years (unofficial)", QUOTES, _quotes("de", tuple(de_data.DE_YIELD_SERIES))),
+    Check("de_joins", "German history against the live series where they meet (a measurement)", None, _de_joins),
+    Check("de_fred", "FRED German series still to be measured (a note)", None, _de_fred),
 )
 
 
