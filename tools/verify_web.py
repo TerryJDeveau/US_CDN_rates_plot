@@ -93,6 +93,8 @@ CHART_CASES = (
     "nat_limits", "nat_terms",
     # Batch 3: the UK, alone with its curves, with its own values, and all three nations.
     "uk_rates", "uk_nat", "all3",
+    # Batch 4: Germany, alone with its curves, with its own values, and all four nations.
+    "de_rates", "de_nat", "all4",
 )
 
 NATION_KEYS = tuple(nation.key for nation in NATIONS)  # in drawing order, as the page's tabs
@@ -518,9 +520,43 @@ def check_uk(check: Check) -> None:
     check("address names both", address(page) == "--C --UK --end:2026-09-01 --uk:max:9", address(page))
 
 
+def check_de(check: Check) -> None:
+    """Batch 4: Germany's chart from the address (by --nations:de); its section; its values written with --ger:, never --de:."""
+    page = new_page("--na:de --e:2026-09-01 --ger:max:6 --mo")
+    check("no exception", not page.exception, page.exception)
+    f = flags(page)
+    check("address: Germany only", f["germany"] and not f["cdn"] and not f["us"] and not f["uk"], f)
+    check("one chart drawn", charts_shown(page) == 1, charts_shown(page))
+    keys = {box.key for box in page.checkbox if box.key}
+    check(
+        "Germany offers its seven terms and its mortgage bands only",
+        {f"choice:de:yields:{term}" for term in ("1y", "2y", "5y", "7y", "10y", "20y", "30y")}
+        | {"choice:de:mortgage-terms:1-5", "choice:de:mortgage-terms:over10"} <= keys
+        and "choice:de:yields:3m" not in keys and "choice:de:mortgage-terms:5" not in keys,
+        sorted(key for key in keys if key.startswith("choice:de:")),
+    )
+    check(
+        "its own defaults ticked: 2 5 10 30, the 5-10 year band",
+        all(page.checkbox(key=f"choice:de:yields:{term}").value for term in ("2y", "5y", "10y", "30y"))
+        and not page.checkbox(key="choice:de:yields:7y").value
+        and page.checkbox(key="choice:de:mortgage-terms:5-10").value and not page.checkbox(key="choice:de:mortgage-terms:1-5").value,
+    )
+    check("its value in its own field", page.text_input(key="value:de:max").value == "6", page.text_input(key="value:de:max").value)
+    check("address written with --ger:, not --de: (which is --debt:)",
+          address(page) == "--GER --mortgages --end:2026-09-01 --ger:max:6", address(page))
+    page.checkbox(key="choice:de:mortgage-terms:over10").check()
+    page.run()
+    tokens = address(page).split()
+    drawn = drawn_config(config_from_choices(*sort_tokens(tokens)[:2]), "de").mortgage_terms
+    check("a band ticked: the address draws Germany's two bands", drawn == ("5-10", "over10"), (address(page), drawn))
+    page.checkbox(key="flag:uk").check()
+    page.run()
+    check("the UK ticked too: two charts", charts_shown(page) == 2, charts_shown(page))
+
+
 PAGE_CHECKS = (
     check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
-    check_nation_sections, check_uk,
+    check_nation_sections, check_uk, check_de,
 )
 
 

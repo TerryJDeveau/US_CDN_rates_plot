@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .config import NATIONS, Nation, PlotConfig, nation_by_code
+from .config import NATIONS, Nation, PlotConfig, nation_by_code, nation_by_key
 from .options import (
     OPTIONS,
     Kind,
@@ -27,9 +27,10 @@ from .options import (
     options_of,
     per_nation,
     spells,
+    switch_of,
 )
 from .http import enable_download_cache
-from .plotting import resolve_start, run_cdn, run_uk, run_us
+from .plotting import resolve_start, run_cdn, run_de, run_uk, run_us
 
 
 # ---------------------------------------------------------------------------
@@ -109,9 +110,9 @@ def match_prefixed(token: str) -> tuple[Nation, Option, str] | None:
     --cdn takes no value). Raises ValueError for anything else after a code.
     """
     code, colon, rest = token.lstrip("-").partition(":")
-    nation = nation_by_code(code) if colon else None
+    nation = nation_by_code(code, prefix=True) if colon else None
     if nation is None and ":" in rest and _spelled(token, code.lower(), (Kind.SWITCH,)) in options_in("country"):
-        codes = ", ".join(code for nation in NATIONS for code in nation.codes)
+        codes = ", ".join(code for nation in NATIONS for code in nation.codes if code not in nation.list_only_codes)
         raise ValueError(f"{token}: a nation's code is written in full ({codes})")
     if nation is None or not rest:
         return None
@@ -180,7 +181,7 @@ def sort_tokens(raw_tokens: list[str]) -> tuple[dict[str, str], dict[str, bool],
         elif matched is not None and matched[0].name == "nations":
             # As if each nation's switch were given (--nations:ca,us is -c -u).
             try:
-                flags.update({key: True for key in matched[0].parse(str(matched[1]))})
+                flags.update({switch_of(nation_by_key(key)): True for key in matched[0].parse(str(matched[1]))})
             except ValueError as exc:
                 misspelled.append(str(exc))
         elif matched is None:
@@ -248,4 +249,6 @@ def main(argv: list[str] | None = None) -> None:
         run_us(config)
     if config.show_uk:
         run_uk(config)
+    if config.show_de:
+        run_de(config)
     print("All requested charts finished.")

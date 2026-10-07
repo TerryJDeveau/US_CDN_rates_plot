@@ -380,6 +380,13 @@ MORTGAGE_TERMS = {
     "3f": ("uk", None),
     "5f": ("uk", "5y"),
     "svr": ("uk", None),
+    # Germany (batch 4): the MFI interest rates on new housing loans to
+    # households (ECB), by initial rate fixation: over 1 and up to 5 years,
+    # over 5 and up to 10, over 10. Named by the band, as the statistics
+    # are; coloured as the yield of the band's top (the 20-year for over 10).
+    "1-5": ("de", "5y"),
+    "5-10": ("de", "10y"),
+    "over10": ("de", "20y"),
 }
 DEFAULT_MORTGAGE_TERMS = ("30", "5")
 # The 3-year fixed has Canada's 3-year's colour (the same kind of loan, on
@@ -432,6 +439,15 @@ class Nation:
     # would draw little or nothing on its chart: (field, value) pairs. With
     # none, the default is simply viewed as far as its chart has the terms.
     own_defaults: tuple[tuple[str, object], ...] = ()
+    # Codes that name it in --nations:LIST only, never in front of a value:
+    # there they would spell another option (batch 4: "--de:fp" is --debt:fp).
+    list_only_codes: tuple[str, ...] = ()
+
+    @property
+    def prefix(self) -> str:
+        """The code written in front of its values in messages ("cdn", "ger"): its key, if that is a prefix."""
+        prefixes = [code for code in self.codes if code not in self.list_only_codes]
+        return self.key if self.key in prefixes else prefixes[0]
 
     @property
     def mortgage_terms(self) -> tuple[str, ...]:
@@ -483,12 +499,30 @@ NATIONS: tuple[Nation, ...] = (
             ("spread_pairs", (("10y", "5y"), ("20y", "10y"))),
         ),
     ),
+    # Batch 4: drawn only when asked for, as the UK is. Its code "de" names it
+    # in --nations only: "--de" is --debt and "--de:fp" --debt:fp, so a value
+    # for Germany alone is written "--ger:max:8". Its own defaults, which are
+    # what the defaults for every chart draw on its chart (it has no 3-month
+    # yield), given so that no default chart notes the 3-month's absence;
+    # and its usual fixation, 5 to 10 years, as its mortgage rate.
+    Nation(
+        "de", "Germany", ("de", "ger"), ("1y", "2y", "5y", "7y", "10y", "20y", "30y"), "German",
+        shown_by_default=False, list_only_codes=("de",),
+        own_defaults=(
+            ("yield_terms", ("2y", "5y", "10y", "30y")),
+            ("mortgage_terms", ("5-10",)),
+            ("spread_pairs", (("10y", "2y"), ("30y", "10y"))),
+        ),
+    ),
 )
 
 
-def nation_by_code(code: str) -> Nation | None:
-    """Return the nation a command-line prefix names ("ca", "CDN", "us"), or None."""
-    return next((nation for nation in NATIONS if code.lower() in nation.codes), None)
+def nation_by_code(code: str, *, prefix: bool = False) -> Nation | None:
+    """Return the nation a code names ("ca", "CDN", "us"), or None; with ``prefix``, only a code allowed in front of a value."""
+    code = code.lower()
+    return next(
+        (nation for nation in NATIONS if code in nation.codes and not (prefix and code in nation.list_only_codes)), None
+    )
 
 
 def nation_by_key(key: str) -> Nation | None:
@@ -832,6 +866,29 @@ UK = CountryMetadata(
     component_debt_title="{} UK Public Debt",
 )
 
+DE = CountryMetadata(
+    key="de",
+    country_name="Germany",
+    currency_prefix="€",
+    currency_label="Nominal Units (EUR – Log Scale)",
+    per_capita_label="Nominal Units per Capita (EUR – Log Scale)",
+    # The Bundesbank's Svensson term structure: zero-coupon yields fitted to
+    # the Federal securities' prices; the title says which kind they are.
+    yield_title="German Federal Yields (Svensson fitted)",
+    debt_column=DE_DEBT_COLUMN,
+    debt_label="German General Government Gross Debt",
+    debt_title="German General Government Gross Debt",
+    interest_column=DE_INTEREST_COLUMN,
+    # D.41 payable by general government, consolidated (less than the sum of
+    # its subsectors' by 0.2 % on average, 2002-2026).
+    interest_label="TTM Interest Payable (consolidated)",
+    # Bund, Länder, Gemeinden (ratesplot.de_data); the social security funds
+    # are no level of the chart.
+    level_names=(("f", "Federal"), ("n", "Länder & Local"), ("p", "Länder"), ("m", "Local")),
+    component_debt_label="{} German Public Debt",
+    component_debt_title="{} German Public Debt",
+)
+
 
 # ---------------------------------------------------------------------------
 # Runtime configuration
@@ -882,6 +939,8 @@ class PlotConfig:
     show_us: bool = True
     # The UK's chart (batch 3): only when asked for (--uk, --nations:gb).
     show_uk: bool = False
+    # Germany's chart (batch 4): only when asked for (--ger, --nations:de).
+    show_de: bool = False
     # --debt:LETTERS / --interest:LETTERS: the levels of government to split
     # debt and interest into, as letters from COMPONENT_LETTERS in that order
     # ("" = the aggregate lines).

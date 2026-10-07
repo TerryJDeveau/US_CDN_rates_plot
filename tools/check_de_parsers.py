@@ -45,7 +45,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot import de_archive_data, de_data, latest  # noqa: E402
+from ratesplot import de_archive_data, de_data, latest, rates  # noqa: E402
 from ratesplot.config import CNBC_QUOTE_URL, PlotConfig, component_column  # noqa: E402
 
 RAW = ROOT / "tools" / "de_fixtures" / "raw"
@@ -220,6 +220,19 @@ def check_fetchers() -> None:
         n = levels[component_column("debt", "n")]
         check("levels: f n p m debt and interest; n is the Länder and local together",
               len(levels.columns) == 8 and (n == levels[component_column("debt", "p")] + levels[component_column("debt", "m")]).all())
+        policy = rates.de_policy_rate().values
+        check("policy: the fixed rate (3 in 1999), the minimum bid 2000-06-28 to 2008-10-14, fixed again from 2008-10-15",
+              policy.loc["1999-01-04"] == 3.0 and policy.loc["2000-06-28"] == 4.25 and policy.loc["2000-10-06"] == 4.75
+              and policy.loc["2008-10-14"] == 4.25 and policy.loc["2008-10-15"] == 3.75,
+              policy.loc["2008-10-13":"2008-10-16"].to_dict())
+        check("policy: each day carried to the next change, the last to today (2.65 since 2026-09-16)",
+              policy.loc["2026-09-30"] == 2.65 and policy.index[-1] >= pd.Timestamp("2026-10-07") and policy.loc["2025-01-01"] == 3.15)
+        mortgage = rates.mortgage_rate("5-10")
+        check("mortgages: the 5-10 year band dated by each month's first day (3.81 for 2026-08), in the 10-year's colour",
+              mortgage.values.loc["2026-08-01"] == 3.81 and mortgage.values.index[0] == pd.Timestamp("2000-01-01")
+              and mortgage.color_of == "10-Year", mortgage.label)
+        check("mortgages: the over-10 band and the 1-5 band answer",
+              rates.mortgage_rate("over10") is not None and rates.mortgage_rate("1-5") is not None)
     finally:
         de_data.de_get = real_get
 

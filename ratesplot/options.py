@@ -209,7 +209,7 @@ def format_terms(values: tuple, _config: PlotConfig) -> str:
 
 
 def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
-    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v prime Canada; 2f 3f 5f svr UK), in that order.
+    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v prime Canada; 2f 3f 5f svr UK; 1-5 5-10 over10 Germany), in that order.
 
     A "y" after the years is accepted ("30y"), and repeats are harmless.
     """
@@ -223,7 +223,8 @@ def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
             raise ValueError(
                 f"invalid --mortgages term {item!r}: use 30 or 15 (U.S.), 5, 3, 1, 5v or prime "
                 "(Canada, 5v the 5-year variable, prime the banks' prime rate), 2f, 3f, 5f or svr "
-                "(UK, fixed for 2, 3 or 5 years; svr the standard variable rate)"
+                "(UK, fixed for 2, 3 or 5 years; svr the standard variable rate), 1-5, 5-10 or over10 "
+                "(Germany, fixed for over 1 to 5, over 5 to 10, or over 10 years)"
             )
         chosen.add(term)
     return tuple(term for term in MORTGAGE_TERMS if term in chosen)
@@ -251,7 +252,7 @@ def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
 
 
 def parse_nations(spec: str) -> tuple[str, ...]:
-    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us, gb or uk), to their keys in ``NATIONS`` order."""
+    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us, gb or uk, de or ger), to their keys in ``NATIONS`` order."""
     codes = [item.strip().lower() for item in spec.split(",") if item.strip()]
     if not codes:
         raise ValueError("empty --nations list: name nations' codes such as ca,us")
@@ -509,6 +510,7 @@ _MORTGAGE_CHOICES = (
     ("U.S.", (("30", "30y"), ("15", "15y"))),
     ("Canada", (("5", "5y"), ("3", "3y"), ("1", "1y"), ("5v", "5y var."), ("prime", "prime"))),
     ("UK", (("2f", "2y fixed"), ("3f", "3y fixed"), ("5f", "5y fixed"), ("svr", "SVR"))),
+    ("Germany", (("1-5", "1–5y fixed"), ("5-10", "5–10y fixed"), ("over10", "over 10y fixed"))),
 )
 _SPREAD_CHOICES = (
     ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in DEFAULT_SPREADS)),
@@ -559,13 +561,22 @@ OPTIONS: tuple[Option, ...] = (
         "the UK's chart (only when named; with\n-c or -u, those too)",
         names=("uk", "gb"), shortest=2, flag="--UK", flag_help="the UK's chart", label="United Kingdom",
     ),
+    # Batch 4: drawn only when named, as the UK is. At least "ger": "--de" is
+    # --debt (and "--de:fp" --debt:fp), "-g" the GDP curve. Its name is not
+    # its nation's key ("de"), so that a message names it as it is written
+    # ("--germany takes no value"); ``switch_of`` relates the two.
+    Option(
+        "germany", Kind.SWITCH, ("show_de",), "country", "--GER / --ger / --germany",
+        "Germany's chart (only when named; with\n-c, -u or --uk, those too)",
+        names=("germany",), shortest=3, flag="--GER", flag_help="Germany's chart", label="Germany",
+    ),
     # The same by the nations' codes, for when there are more than two
     # (batch 2). The command line turns it into the switches of the nations it
     # names (``cli.sort_tokens``), so it sets no field of its own and has no
     # control: the window and the page show the switches.
     Option(
         "nations", Kind.VALUE, (), "country", "--nations:LIST / --na:LIST",
-        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk\n(--nations:ca,us,gb)",
+        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk, de or\nger (--nations:ca,us,gb,de)",
         names=("nations",), shortest=2, parse=parse_nations, in_gui=False,
     ),
     # Curves. The listing order here is the help order; the selection rule is
@@ -611,7 +622,7 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "yields", Kind.VALUE, ("yield_terms",), "curves", "--yields:LIST / --y:LIST",
         "the yield terms drawn: 1m 3m 6m 1 2 5 7\n10 20 30 (years unless m; default\n"
-        f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only, the UK 5 10 20 (its\ndefault)",
+        f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only, the UK 5 10 20 (its\ndefault), Germany 1 2 5 7 10 20 30\n(its default 2 5 10 30)",
         names=("yields",), parse=partial(parse_terms, kind="--yields"), label="Yield terms", format=format_terms,
         editor="choices", choices=_YIELD_CHOICES,
     ),
@@ -626,21 +637,22 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "policy", Kind.FLAG, ("policy_rates",), "rates", "--policy / --no-policy",
         "each country's policy rate: the effective\nfed funds rate; the Bank Rate, then\n"
-        "CORRA from 1997 (a quarter point lower);\nthe UK's Bank Rate",
+        "CORRA from 1997 (a quarter point lower);\nthe UK's Bank Rate; the ECB's main\nrefinancing rate (Germany, from 1999)",
         names=("policy-rates",), shortest=2, label="Policy rate",
     ),
     # At least "mo": "--m:" stays ambiguous (--min or --max).
     Option(
         "mortgages", Kind.FLAG, ("mortgages",), "rates", "--mortgages / --no-mortgages",
         "mortgage rates, dashed in the colour of\nthe yield of their term: U.S. survey\n"
-        "averages; Canadian posted rates; UK\nquoted rates",
+        "averages; Canadian posted rates; UK\nquoted rates; German averages of new\nloans",
         names=("mortgages",), shortest=2, label="Mortgage rates",
     ),
     Option(
         "mortgage-terms", Kind.VALUE, ("mortgage_terms",), "rates", "--mortgages:LIST / --mo:LIST",
         "the terms: 30 15 (U.S.), 5 3 1 5v prime\n(Canada; 5v variable, broker average;\nprime, the banks' prime rate),\n"
-        "2f 3f 5f svr (UK: fixed 2, 3, 5 years;\nthe standard variable rate);\n"
-        f"default {','.join(DEFAULT_MORTGAGE_TERMS)} (the UK's: svr); turns\n--mortgages on",
+        "2f 3f 5f svr (UK: fixed 2, 3, 5 years;\nthe standard variable rate),\n"
+        "1-5 5-10 over10 (Germany: fixed over 1\nto 5, over 5 to 10, over 10 years);\n"
+        f"default {','.join(DEFAULT_MORTGAGE_TERMS)} (the UK's: svr; Germany's:\n5-10); turns --mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
         label="Mortgage terms", format=format_terms, editor="choices", choices=_MORTGAGE_CHOICES,
     ),
@@ -653,7 +665,7 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "spread-pairs", Kind.VALUE, ("spread_pairs",), "rates", "--spreads:LIST / --sp:LIST",
         "pairs of yield terms, the first less the\nsecond (default "
-        f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())};\nthe UK's: 10y-5y,20y-10y); turns\n--spreads on",
+        f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())};\nthe UK's: 10y-5y,20y-10y; Germany's:\n10y-2y,30y-10y); turns --spreads on",
         names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
         label="Spreads", format=format_spreads, editor="choices", choices=_SPREAD_CHOICES, panel="curves",
     ),
@@ -890,7 +902,7 @@ def _nation_settings(payloads: Mapping[str, str], values: Mapping[str, object]) 
                 check_macro_bounds(own)
                 check_macro_bound_units(given, own)
         except ValueError as exc:
-            raise ValueError(f"{exc} (--{nation.key}: {nation.name} only)") from None
+            raise ValueError(f"{exc} (--{nation.prefix}: {nation.name} only)") from None
         # Kept only where the nation's chart differs: Canada's own mortgage
         # terms "5" draw what the default "30,5" draws on its chart.
         fields = {option.fields[0]: option for option in options_of(Kind.VALUE) if per_nation(option) and not option.removes}
@@ -1105,12 +1117,13 @@ def _nation_tokens(option: Option, texts: dict[str, str], spelling: str) -> list
         if not at_default:
             shorter = _shorter_as_removal(option, text)
             if shorter != "":
-                tokens.append(f"--{key}:{(shorter or f'{spelling}:{text}').lstrip('-')}")
+                # The nation's prefix, not its key: Germany's key "de" would be --debt.
+                tokens.append(f"--{nations[key].prefix}:{(shorter or f'{spelling}:{text}').lstrip('-')}")
     return tokens
 
 
-def _switch_of(nation: Nation) -> str:
-    """Return the name of the switch that chooses ``nation``'s chart ("uk")."""
+def switch_of(nation: Nation) -> str:
+    """Return the name of the switch that chooses ``nation``'s chart ("uk", "germany")."""
     return next(option.name for option in options_in("country") if option.fields == (nation.show_field,))
 
 
@@ -1166,7 +1179,7 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
         if per_nation(option):
             # A nation drawn only when asked for, and not asked for, writes
             # nothing (its fields stay in the window for when it is).
-            written_for = [n for n in NATIONS if n.shown_by_default or flags.get(_switch_of(n), False)]
+            written_for = [n for n in NATIONS if n.shown_by_default or flags.get(switch_of(n), False)]
             texts = {nation.key: payloads.get(nation_choice(nation, option), text).strip() for nation in written_for}
             text = text if len(set(texts.values())) > 1 else next(iter(texts.values()))
         if len(set(texts.values())) > 1:
@@ -1209,7 +1222,8 @@ _HELP_COLUMN = 36  # width of the spellings column (fits "--interest:LETTERS / -
 _HELP_MIN_GAP = 3  # a spelling longer than the column still gets this many spaces
 _HELP_INTRO = """\
 Run with no flags to open the interactive window with both charts (Canadian,
-then U.S.; the UK's when asked for, --uk). Flags set the window's starting values.
+then U.S.; the UK's and Germany's when asked for, --uk, --ger). Flags set the
+window's starting values.
 
 Names are case-insensitive, the dashes in front are optional, and any leading
 part of a name will do: -r, --rel and --relative are the same. A name is never
@@ -1221,8 +1235,8 @@ not be given one (-r:1 is an error).
 """
 _HELP_NATIONS = (
     "A nation's code in front sets a value for its chart only: --us:top:20t, --cdn:yields:2,10, "
-    "--us:no-y:30 (codes ca or cdn, us, and gb or uk, written in full). It goes on {names}; the nation's "
-    "own value replaces the one for both charts."
+    "--us:no-y:30 (codes ca or cdn, us, gb or uk, and ger, written in full; Germany's de only in "
+    "--nations, since --de is --debt). It goes on {names}; the nation's own value replaces the one for both charts."
 )
 
 

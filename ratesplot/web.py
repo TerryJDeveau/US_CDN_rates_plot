@@ -145,7 +145,7 @@ PAGE_SUMMARY = (
     "Government bond yields against public debt, GDP and interest outlays, for Canada and the "
     "United States, from Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury and the "
     "U.S. Census Bureau; and, when ticked, for the United Kingdom, from the Bank of England and the "
-    "Office for National Statistics. Choose the charts in the panel on the left (the » button on a phone); "
+    "Office for National Statistics, and for Germany, from the Deutsche Bundesbank, the ECB and Eurostat. Choose the charts in the panel on the left (the » button on a phone); "
     "each change redraws them."
 )
 _SCRIPT_NAME = "ratesplot.py"

@@ -14,9 +14,11 @@ source's own format (FRED frames, Valet CSV, StatCan table ZIPs), so:
   reachable. They are never evidence about the data themselves.
 
 ``synth(key)`` answers one ``ratesplot.http._cached`` key: ``("fred", ID)``
--> DataFrame; ``("canadian", url, params)`` and ``("uk", url, params)`` ->
-Response (the UK's: the Bank of England database's CSV and the ONS's JSON,
-in the layouts saved from the laptop in tools/uk_fixtures; batch 3). A source with no
+-> DataFrame; ``("canadian", url, params)``, ``("uk", url, params)`` and
+``("de", url, params)`` -> Response (the UK's: the Bank of England
+database's CSV and the ONS's JSON, in the layouts saved from the laptop in
+tools/uk_fixtures; batch 3. Germany's: the Bundesbank's CSV, the ECB's
+csvdata and Eurostat's JSON-stat, as saved in tools/de_fixtures; batch 4). A source with no
 synthetic answer (the Treasury, CNBC) raises, as a failed download would,
 and the program falls back with its usual warning. The series end in
 September 2026, past the regression set's pinned end, so a pinned chart
@@ -31,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import itertools
 import json
 import pickle
 import sys
@@ -341,6 +344,147 @@ def ons(cdid: str) -> bytes:
     return json.dumps(data).encode()
 
 
+# Germany (batch 4): Bund yields run this far below the U.S. ones. The
+# Bundesbank's term structure: term code -> (years, first month of the
+# end-of-month series, first day of the daily one).
+_DE_OFFSET = -1.2
+_BUNDESBANK_TERMS = {
+    "R01XX": (1, "1972-09", "1997-08-01"), "R02XX": (2, "1972-09", "1997-08-01"), "R03XX": (3, "1972-09", "1997-08-01"),
+    "R05XX": (5, "1972-09", "1997-08-01"), "R07XX": (7, "1972-09", "1997-08-01"), "R10XX": (10, "1972-09", "1997-08-01"),
+    "R15XX": (15, "1986-06", "1997-08-01"), "R20XX": (20, "1986-06", "1997-08-01"), "R30XX": (30, "2000-01", "2000-08-01"),
+}
+
+
+def bundesbank(url: str) -> bytes:
+    """A Bundesbank series CSV: its key and metadata lines, then ``date,value,flag`` ("." on days without a value)."""
+    key = url.split("/rest/download/")[1].replace("/", ".", 1)
+    frequency, term = key.split(".")[1], key.split(".")[9]
+    years, first_month, first_day = _BUNDESBANK_TERMS[term]
+    if frequency == "M":
+        dates = pd.date_range(first_month, "2026-09-30", freq="ME")
+        labels = [f"{day:%Y-%m}" for day in dates]
+    else:
+        dates = pd.date_range(first_day, "2026-10-02", freq="D")
+        labels = [f"{day:%Y-%m-%d}" for day in dates]
+    values = np.round(_yield_path("de" + key, dates, years, _DE_OFFSET), 2)
+    lines = [f'"",{key},{key}_FLAGS', f'"",synthetic {term} / {frequency},', "BBK_UNIT_ENG,percent,", "unit multiplier,One,"]
+    for day, label, value in zip(dates, labels, values):
+        weekend = frequency == "D" and day.dayofweek >= 5
+        lines.append(f"{label},.,No value available" if weekend else f"{label},{value:.2f},")
+    return ("\ufeff" + "\n".join(lines)).encode()
+
+
+def _ecb_change_days(name: str, margin: float) -> pd.Series:
+    """A key rate on the days it changed: the short rate less ``margin``, in quarter points, from 1999."""
+    months = pd.date_range("1999-01-01", "2026-09-01", freq="MS")
+    path = np.maximum(np.round((_anchors(_SHORT, months) - margin) * 4) / 4, 0.0)
+    rates = pd.Series(path, index=months)
+    return rates.loc[rates.ne(rates.shift())]
+
+
+def ecb(url: str) -> bytes:
+    """An ECB csvdata answer: one row per observation, KEY, TIME_PERIOD, OBS_VALUE, its unit and multiplier."""
+    flow, key = url.split("/service/data/")[1].split("/", 1)
+    unit_column, unit, multiplier = "UNIT", "PCPA", 0
+    if flow == "FM":
+        rates = _ecb_change_days("ecb", 1.0)
+        variable = (rates.index >= "2000-06-28") & (rates.index < "2008-10-15")
+        if key.endswith("MRR_MBR.LEV"):
+            chosen = pd.concat([pd.Series([rates.asof(pd.Timestamp("2000-06-28"))], index=[pd.Timestamp("2000-06-28")]),
+                                rates.loc[variable & (rates.index > "2000-06-28")],
+                                pd.Series([np.nan], index=[pd.Timestamp("2008-10-15")])])
+        else:
+            chosen = pd.concat([rates.loc[~variable & (rates.index < "2000-06-28")],
+                                pd.Series([rates.asof(pd.Timestamp("2008-10-15"))], index=[pd.Timestamp("2008-10-15")]),
+                                rates.loc[rates.index > "2008-10-15"]])
+        periods, values = [f"{day:%Y-%m-%d}" for day in chosen.index], list(chosen.to_numpy())
+    elif flow == "MIR":
+        months = pd.date_range("2000-01-31", "2026-08-31", freq="ME")
+        band = {"I": 3, "O": 10, "P": 20}[key.split(".")[4]]
+        values = list(np.round(_yield_path("demir" + key, months, band, _DE_OFFSET) + 1.4, 2))
+        periods = [f"{day:%Y-%m}" for day in months]
+    elif flow == "GFS":
+        # Unification doubled the debt in the 1990s; from 2000 the year-ends
+        # follow the Eurostat quarters' path (equal on real data).
+        early = pd.date_range("1991-12-31", "1999-12-31", freq="YE")
+        quarters = pd.date_range("2000-03-31", "2026-03-31", freq="QE")
+        later = pd.Series(_growth(quarters, 1_265_509, 2_902_035, "de_debt"), index=quarters).loc[lambda q: q.index.month == 12]
+        years = early.append(later.index)
+        values = list(np.round(np.concatenate([_growth(early, 618_218, 1_253_598, "de_gfs_a"), later.to_numpy()]), 0))
+        periods, unit_column, unit, multiplier = [str(day.year) for day in years], "UNIT_MEASURE", "XDC", 6
+    else:
+        raise KeyError(f"no synthetic ECB series {flow}.{key}")
+    frame = pd.DataFrame({"KEY": f"{flow}.{key}", "TIME_PERIOD": periods, "OBS_VALUE": values,
+                          unit_column: unit, "UNIT_MULT": str(multiplier)})
+    return frame.to_csv(index=False).encode()
+
+
+def _jsonstat(label: str, dims: list[tuple[str, list[str]]], value) -> bytes:
+    """A JSON-stat 2.0 dataset over ``dims`` (the last is time); ``value(categories)`` gives each cell (None: no value)."""
+    sizes = [len(codes) for _dim, codes in dims]
+    values = {}
+    for flat, combo in enumerate(itertools.product(*[codes for _dim, codes in dims])):
+        cell = value(dict(zip([dim for dim, _codes in dims], combo)))
+        if cell is not None:
+            values[str(flat)] = round(float(cell), 1)
+    return json.dumps({
+        "version": "2.0", "class": "dataset", "label": label, "id": [dim for dim, _codes in dims], "size": sizes,
+        "dimension": {dim: {"category": {"index": {code: i for i, code in enumerate(codes)}}} for dim, codes in dims},
+        "value": values,
+    }).encode()
+
+
+# Eurostat: the German series, first and last value (millions of euros,
+# thousands of persons, persons) and each sector's share of the total.
+_DE_SECTOR_SHARES = {"S13": 1.0, "S1311": 0.70, "S1312": 0.235, "S1313": 0.07, "S1314": 0.005}
+
+
+def eurostat(url: str, params: tuple) -> bytes:
+    """A Eurostat JSON-stat answer for the query the program sends (``de_data.EUROSTAT_QUERIES``)."""
+    dataset = url.rstrip("/").rsplit("/", 1)[1]
+    query = dict(params)
+    unit = query.get("unit", "NR")
+    quarters = lambda first, last: [f"{p.year}-Q{p.quarter}" for p in pd.period_range(first, last, freq="Q")]  # noqa: E731
+    fixed = [(dim, [query[dim]]) for dim in ("na_item", "s_adj", "age", "sex") if dim in query]
+    common = [("freq", ["Q"]), ("unit", [unit]), *fixed, ("geo", ["DE"])]
+
+    def path(name: str, periods: list[str], first: float, last: float) -> dict[str, float]:
+        dates = pd.DatetimeIndex([pd.Period(period.replace("-", ""), freq="Q" if "Q" in period else "Y").end_time.normalize() for period in periods])
+        return dict(zip(periods, _growth(dates, first, last, name)))
+
+    if dataset == "gov_10q_ggdebt":
+        times = quarters("2000Q1", "2026Q1")
+        total = path("de_debt", times, 1_265_509, 2_902_035)
+        dims = [*common[:2], ("sector", list(_DE_SECTOR_SHARES)), *common[2:], ("time", times)]
+        return _jsonstat("Quarterly government debt", dims, lambda c: total[c["time"]] * _DE_SECTOR_SHARES[c["sector"]] * (1.01 if c["sector"] != "S13" else 1))
+    if dataset == "gov_10q_ggnfa":
+        times = quarters("2002Q1", "2026Q1")
+        total = path("de_interest", times, 16_304, 12_135)
+        dims = [*common[:2], ("sector", list(_DE_SECTOR_SHARES)), *common[2:], ("time", times)]
+        return _jsonstat("Quarterly non-financial accounts", dims, lambda c: total[c["time"]] * _DE_SECTOR_SHARES[c["sector"]])
+    if dataset == "gov_10dd_edpt1":
+        times = [str(year) for year in range(1995, 2026)]
+        interest = path("de_interest_a", times, 69_498, 49_544)
+        dims = [("freq", ["A"]), ("unit", [unit]), ("sector", ["S13"]), ("na_item", ["D41PAY", "GD"]), ("geo", ["DE"]), ("time", times)]
+        return _jsonstat("Government deficit/surplus, debt", dims, lambda c: interest[c["time"]] if c["na_item"] == "D41PAY" else None)
+    if dataset == "namq_10_gdp":
+        times = quarters("1991Q1", "2026Q2")
+        gdp = path("de_gdp", times, 358_976, 1_151_030)
+        return _jsonstat("GDP", [*common, ("time", times)], lambda c: gdp[c["time"]])
+    if dataset == "namq_10_pe":
+        times = quarters("1991Q1", "2026Q2")
+        people = path("de_pop_q", times, 79_777, 83_337)
+        return _jsonstat("Population", [*common, ("time", times)], lambda c: people[c["time"]])
+    if dataset == "demo_pjan":
+        times = [str(year) for year in range(1960, 2026)]
+        # West Germany to 1990, then unified Germany: two paths, a step between.
+        west = path("de_pop_w", times, 55_257_088, 62_679_035 * 62_679_035 / 55_257_088)
+        unified = path("de_pop_u", times, 75_000_000, 83_577_140)
+        dims = [("freq", ["A"]), ("unit", ["NR"]), *fixed, ("geo", ["DE"]), ("time", times)]
+        return _jsonstat("Population on 1 January", dims, lambda c: west[c["time"]] if int(c["time"]) <= 1990 else unified[c["time"]])
+    raise KeyError(f"no synthetic Eurostat dataset {dataset}")
+
+
 def synth(key: tuple):
     """Return the synthetic answer to one download-cache key; KeyError for a source with none."""
     if key[0] == "fred":
@@ -354,6 +498,12 @@ def synth(key: tuple):
         return _response(iadb(params))
     if "ons.gov.uk" in url:
         return _response(ons(url.split("/timeseries/")[1].split("/")[0].upper()))
+    if "api.statistiken.bundesbank.de/rest/download/" in url:
+        return _response(bundesbank(url))
+    if "data-api.ecb.europa.eu/service/data/" in url:
+        return _response(ecb(url))
+    if "ec.europa.eu/eurostat/api/dissemination" in url:
+        return _response(eurostat(url, params))
     raise KeyError(f"no synthetic source for {key!r}")
 
 

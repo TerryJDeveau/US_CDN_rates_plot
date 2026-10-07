@@ -184,6 +184,24 @@ CASES: dict[str, list[str]] = {
     "all3": ["--na:ca,us,gb", "-s:2010"],
     "uk_nat": ["--na:gb", "--uk:y:10,20", "--uk:max:9", "--uk:top:5t", "--uk:sp:20-5", "-s:2005"],
     "uk1700_1900": ["--uk", "--no-yield", "-s:1700", "--e:1900"],
+    # Batch 4: Germany. Its defaults (the automatic start; its own terms); the
+    # 10-year from 1956 (the public debt yield, then the fitted end-of-month
+    # values, then daily) with -l; the yield axis's other curves with its own
+    # default mortgage band and spreads; every term and band; the ECB rate
+    # alone over its span; each measure (per person from 1991, where
+    # GDP and debt begin); the levels; --reg; all four nations; values for
+    # Germany alone, by its prefix --ger: and from --nations:de.
+    "de_default": ["--ger"],
+    "de1956_l": ["--ger", "-s:1956", "-l"],
+    "de_rates": ["--ger", "--policy", "--mo", "--sp", "-l", "-s:2015"],
+    "de_all_terms": ["--ger", "--y:1,2,5,7,10,20,30", "--mo:1-5,5-10,over10", "--no-gdp", "--no-debt", "--no-interest", "-s:1995"],
+    "de_policy1999": ["--germany", "--policy", "--no-yield", "--no-gdp", "--no-debt", "--no-interest", "-s:1999", "-l"],
+    "de_r1991": ["--ger", "-r", "-s:1991"],
+    "de_p1991": ["--ger", "-p", "-s:1991"],
+    "de_lv": ["--ger", "--d:fnpm", "-i", "-s:2000", "-l"],
+    "de_reg1995": ["--ger", "--reg", "-s:1995"],
+    "all4": ["--na:ca,us,gb,de", "-s:2010"],
+    "de_nat": ["--na:de", "--ger:y:10,30", "--ger:max:6", "--ger:top:4t", "--ger:sp:30-2", "-s:2005"],
 }
 
 

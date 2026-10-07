@@ -36,6 +36,8 @@ from .config import (
     PlotConfig,
     nation_by_key,
 )
+from .de_data import ecb_series
+from .de_data import YIELD_HISTORY_ATTR as DE_YIELD_HISTORY_ATTR
 from .http import fetch_fred_csv
 from .uk_archive_data import EMBEDDED_UK_BANK_RATE_HISTORY, EMBEDDED_UK_MORTGAGE_HISTORY
 from .uk_data import YIELD_HISTORY_ATTR, iadb_series
@@ -74,6 +76,17 @@ CDN_MORTGAGE_HISTORY_TABLE = "34100145"
 # day; here by its first, as Canada's monthly rates are, so its step covers it.
 UK_POLICY_SERIES = "IUDBEDR"
 UK_MORTGAGE_SERIES = {"2f": "IUMBV34", "3f": "IUMBV37", "5f": "IUMBV42", "svr": "IUMTLMV"}
+# Germany (batch 4), from the ECB Data Portal, measured from Terry's laptop
+# 2026-10-06. Policy: the main refinancing rate, on the days it changed since
+# 1999: the fixed rate of the fixed-rate tenders, and from 2000-06-28 to
+# 2008-10-14, when the tenders were variable, their minimum bid rate. (The
+# Bundesbank's discount rate before 1999 is still to be found.) Mortgages:
+# the MFI interest rates on new housing loans to households in Germany, by
+# initial rate fixation, monthly from 2000 (2000-2002 the ECB's estimates;
+# reported from 2003), dated by each month's first day as the UK's are.
+DE_POLICY_FIXED = ("FM", "B.U2.EUR.4F.KR.MRR_FR.LEV", "PCPA")
+DE_POLICY_MINIMUM_BID = ("FM", "B.U2.EUR.4F.KR.MRR_MBR.LEV", "PCPA")
+DE_MORTGAGE_SERIES = {"1-5": "M.DE.B.A2C.I.R.A.2250.EUR.N", "5-10": "M.DE.B.A2C.O.R.A.2250.EUR.N", "over10": "M.DE.B.A2C.P.R.A.2250.EUR.N"}
 _MORTGAGE_LABELS = {
     "30": "30-Year Mortgage",
     "15": "15-Year Mortgage",
@@ -86,6 +99,9 @@ _MORTGAGE_LABELS = {
     "3f": "3-Year Fixed Mortgage (quoted, 75% LTV)",
     "5f": "5-Year Fixed Mortgage (quoted, 75% LTV)",
     "svr": "Standard Variable Rate (quoted)",
+    "1-5": "Mortgage, fixed 1–5 Years (new loans, avg.)",
+    "5-10": "Mortgage, fixed 5–10 Years (new loans, avg.)",
+    "over10": "Mortgage, fixed over 10 Years (new loans, avg.)",
 }
 
 
@@ -224,6 +240,45 @@ def _uk_mortgage(term: str) -> tuple[pd.Series, str]:
     return values, label
 
 
+def de_policy_rate() -> RateCurve | None:
+    """Return the ECB's main refinancing rate since 1999: fixed, the minimum bid while the tenders were variable, fixed again.
+
+    Both series hold only the days the rate changed: each value is carried
+    daily to the next change, and the last to today (it holds until changed). If the minimum bid rate
+    fails, the fixed rate alone, with a warning (wrong 2000-2008); None if
+    the fixed rate fails.
+    """
+    try:
+        fixed = _clean(ecb_series(*DE_POLICY_FIXED))
+    except Exception as exc:
+        print(f"  Warning: ECB main refinancing rate ({DE_POLICY_FIXED[1]}) unavailable ({exc}); not drawn.")
+        return None
+    try:
+        bid = _clean(ecb_series(*DE_POLICY_MINIMUM_BID))
+    except Exception as exc:
+        print(f"  Warning: ECB minimum bid rate ({DE_POLICY_MINIMUM_BID[1]}) unavailable ({exc}); "
+              "the fixed rate alone, wrong while the tenders were variable (2000-2008).")
+        bid = fixed.iloc[:0]
+    values = fixed
+    if not bid.empty:
+        # The fixed rate's first change after the variable tenders began ends them.
+        resumed = fixed.loc[fixed.index > bid.index[0]]
+        end = resumed.index[0] if not resumed.empty else pd.Timestamp.max
+        values = pd.concat([fixed.loc[fixed.index < bid.index[0]], bid.loc[bid.index < end], resumed])
+    # Each day's rate, carried from its change to the next and on to today,
+    # so a window ending between changes is drawn to its end (as the UK's
+    # daily Bank Rate is).
+    today = pd.Timestamp.today().normalize()
+    values = values.reindex(pd.date_range(values.index[0], max(today, values.index[-1]), freq="D")).ffill()
+    return RateCurve("policy", "ECB Main Refinancing Rate", values, POLICY_RATE_STYLE, title="Policy Rate")
+
+
+def _de_mortgage(term: str) -> pd.Series:
+    """Return one German mortgage band's monthly rate, dated by each month's first day."""
+    monthly = ecb_series("MIR", DE_MORTGAGE_SERIES[term], "PCPA")
+    return _clean(monthly.set_axis(monthly.index.to_period("M").start_time))
+
+
 def cdn_mortgage_history() -> pd.Series:
     """Return the CMHC conventional 5-year mortgage lending rate, monthly from 1951 (StatCan 34-10-0145).
 
@@ -258,10 +313,12 @@ def mortgage_rate(term: str) -> RateCurve | None:
     """
     country, yield_term = MORTGAGE_TERMS[term]
     label = _MORTGAGE_LABELS[term]
-    code = {"us": US_MORTGAGE_SERIES, "cdn": CDN_MORTGAGE_SERIES, "uk": UK_MORTGAGE_SERIES}[country][term]
+    code = {"us": US_MORTGAGE_SERIES, "cdn": CDN_MORTGAGE_SERIES, "uk": UK_MORTGAGE_SERIES, "de": DE_MORTGAGE_SERIES}[country][term]
     try:
         if country == "uk":
             values, label = _uk_mortgage(term)
+        elif country == "de":
+            values = _de_mortgage(term)
         else:
             values = _fred(code) if country == "us" else _valet(code)
     except Exception as exc:
@@ -310,35 +367,38 @@ def yield_spreads(country: str, yields: pd.DataFrame, config: PlotConfig) -> lis
         # takes no colour: Canada's chart of 7y-1m,10y-2y draws its 10y-2y
         # as its chart of 10y-2y alone does (options.nation_view).
         style = SPREAD_STYLE | {"color": SPREAD_COLORS[len(curves) % len(SPREAD_COLORS)]}
-        steps_until = CANADIAN_YIELD_HIST_END if country == "cdn" else _uk_steps_until(yields, (first, second))
+        steps_until = CANADIAN_YIELD_HIST_END if country == "cdn" else _steps_until(yields, (first, second))
         key = f"spread_{pair[0]}-{pair[1]}"
         curves.append(RateCurve(key, spread_label(pair), values, style, steps_until, spread=True, title="Spreads"))
     return curves
 
 
-def _uk_steps_until(yields: pd.DataFrame, columns: tuple[str, str]) -> pd.Timestamp | None:
-    """Return the last date a UK spread is monthly: where the later of its two terms' monthly history ends (None: neither has one).
+def _steps_until(yields: pd.DataFrame, columns: tuple[str, str]) -> pd.Timestamp | None:
+    """Return the last date a spread is monthly: where the later of its two terms' monthly history ends (None: neither has one).
 
     The UK's 10- and 20-year are monthly averages before their daily par
-    yields begin (``uk_data.fetch_uk_yields``), so a spread of them is too.
-    Empty for any other nation, whose yields carry no such record.
+    yields begin (``uk_data.fetch_uk_yields``), and Germany's terms are
+    end-of-month values before their daily ones (``de_data.fetch_de_yields``),
+    so a spread of them is too. Empty for the U.S., whose yields carry no
+    such record.
     """
+    assert YIELD_HISTORY_ATTR == DE_YIELD_HISTORY_ATTR  # one record, read alike for both nations
     through = [date for column, date in yields.attrs.get(YIELD_HISTORY_ATTR, {}).items() if column in columns]
     return max(through) if through else None
 
 
 def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[RateCurve]:
-    """Return one country's chosen curves for the yield axis ("cdn", "us" or "uk"), in drawing order.
+    """Return one country's chosen curves for the yield axis ("cdn", "us", "uk" or "de"), in drawing order.
 
     ``yields`` is the country's prepared yield frame (date-indexed for
-    Canada and the UK, a ``DATE`` column for the U.S.), which the spreads are taken from.
+    Canada, the UK and Germany, a ``DATE`` column for the U.S.), which the spreads are taken from.
     Each curve is fetched whole (from its first observation) and cut to the
     window when drawn, so the automatic start sees where it begins.
     """
     curves: list[RateCurve | None] = []
     if config.policy_rates:
         print("Fetching the policy rate …")
-        curves.append({"us": us_policy_rate, "cdn": cdn_policy_rate, "uk": uk_policy_rate}[country]())
+        curves.append({"us": us_policy_rate, "cdn": cdn_policy_rate, "uk": uk_policy_rate, "de": de_policy_rate}[country]())
     if config.mortgages:
         terms = [term for term in config.mortgage_terms if MORTGAGE_TERMS[term][0] == country]
         if not terms:
