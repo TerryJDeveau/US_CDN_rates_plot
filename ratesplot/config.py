@@ -151,6 +151,11 @@ LATEST_SESSION.headers.update(_BROWSER_HEADERS)
 # latest values have, with a browser's headers, which both require.
 UK_SESSION = requests.Session()
 UK_SESSION.headers.update(_BROWSER_HEADERS | {"Accept-Language": "en-GB,en;q=0.9"})
+# Germany's sources (Deutsche Bundesbank, the ECB, Eurostat; batch 4): a
+# session of their own, with a browser's headers, as they were measured with
+# from Terry's laptop (2026-10-06).
+DE_SESSION = requests.Session()
+DE_SESSION.headers.update(_BROWSER_HEADERS | {"Accept-Language": "en-GB,en;q=0.9,de;q=0.8"})
 # The quote feed is an extra: one quick try and one retry, then the chart is
 # drawn without it (with a warning).
 LATEST_QUOTE_TIMEOUT_SECONDS = 20
@@ -248,6 +253,22 @@ UK_MILLENNIUM_URL = (
 UK_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED UK ARCHIVE DATA"
 UK_ARCHIVE_END_MARKER = "# END AUTO-GENERATED UK ARCHIVE DATA"
 
+# Germany (batch 4, 2026-10-07): the Deutsche Bundesbank's time-series
+# database (yields), the ECB Data Portal (key interest rates, bank lending
+# rates, annual debt) and Eurostat (quarterly debt, interest, GDP,
+# population), all read live; the Bundesbank's yield on public debt
+# securities before 1972 (a frozen series) baked into
+# ``ratesplot/de_archive_data.py``. Spans measured from Terry's laptop
+# 2026-10-06 (tools/de_fixtures/README.md).
+BUNDESBANK_SERIES_URL = "https://api.statistiken.bundesbank.de/rest/download/{flow}/{key}"
+# The Bundesbank's old download, where the series of its former database
+# (BBK01) that were never moved to the new one are kept, frozen at 2020-04.
+BUNDESBANK_OLD_SERIES_URL = "https://www.bundesbank.de/statistic-rmi/StatisticDownload"
+ECB_SERIES_URL = "https://data-api.ecb.europa.eu/service/data/{flow}/{key}"
+EUROSTAT_DATASET_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}"
+DE_ARCHIVE_BEGIN_MARKER = "# BEGIN AUTO-GENERATED GERMAN ARCHIVE DATA"
+DE_ARCHIVE_END_MARKER = "# END AUTO-GENERATED GERMAN ARCHIVE DATA"
+
 # The latest values (--cur), newer than the regular series (see ratesplot.latest).
 # U.S. Treasury's daily par yield curve: the source of FRED's DGS series,
 # posted the same afternoon, where FRED follows a business day or more later.
@@ -318,6 +339,8 @@ UK_NATIONAL_DEBT_COLUMN = "UK National Debt (£)"
 # The UK's headline debt, beside the gross (Terry, 2026-10-06: "add net too").
 UK_NET_DEBT_COLUMN = "UK Net Debt (£)"
 UK_INTEREST_COLUMN = "TTM UK Interest Paid (£)"
+DE_DEBT_COLUMN = "Total German Debt (€)"
+DE_INTEREST_COLUMN = "TTM German Interest Paid (€)"
 
 # ---------------------------------------------------------------------------
 # Chart styling and per-country metadata

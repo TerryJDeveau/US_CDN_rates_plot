@@ -1,4 +1,4 @@
-"""HTTP and source-format helpers for FRED, Bank of Canada, Statistics Canada, the UK's sources and the latest-value sources."""
+"""HTTP and source-format helpers for FRED, Bank of Canada, Statistics Canada, the UK's and Germany's sources and the latest-value sources."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import requests
 
 from .config import (
     CANADIAN_SESSION,
+    DE_SESSION,
     DATE_COLUMN,
     DEFAULT_FRED_RETRIES,
     DEFAULT_GET_RETRIES,
@@ -169,6 +170,23 @@ def uk_get(
 ) -> requests.Response:
     """GET a Bank of England or Office for National Statistics URL with retries (``uk_data``), cached as the others are."""
     response = _session_get(UK_SESSION, "uk", url, params, max_retries=max_retries, timeout=timeout)
+    assert response is not None  # only missing_ok returns None
+    return response
+
+
+def de_get(
+    url: str,
+    params: dict | None = None,
+    *,
+    max_retries: int = DEFAULT_GET_RETRIES,
+    timeout: int = HTTP_TIMEOUT_SECONDS,
+) -> requests.Response:
+    """GET a Bundesbank, ECB or Eurostat URL with retries (``de_data``), cached as the others are.
+
+    The Bundesbank's whole-series download once broke off part way from the
+    laptop and answered on the next try (2026-10-06): the retries cover that.
+    """
+    response = _session_get(DE_SESSION, "de", url, params, max_retries=max_retries, timeout=timeout)
     assert response is not None  # only missing_ok returns None
     return response
 

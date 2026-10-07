@@ -57,6 +57,9 @@ from .config import (
     CENSUS_HIST_FIN_URL,
     CENSUS_OLD_ESTIMATES_URL,
     CENSUS_TABLES_URL,
+    BUNDESBANK_OLD_SERIES_URL,
+    DE_ARCHIVE_BEGIN_MARKER,
+    DE_ARCHIVE_END_MARKER,
     DATE_COLUMN,
     GDP_COLUMN,
     HISTORICAL_CDN_GDP_ANNUAL_TABLE,
@@ -78,7 +81,8 @@ from .config import (
     US_ARCHIVE_BEGIN_MARKER,
     US_ARCHIVE_END_MARKER,
 )
-from .http import canadian_get, get_if_published, uk_get
+from .de_data import parse_bundesbank_csv
+from .http import canadian_get, de_get, get_if_published, uk_get
 
 # Balance-sheet members that constitute marketable debt securities.
 DEBT_SECURITY_CATEGORIES = ("Short-term paper", "Bonds")
@@ -1385,3 +1389,53 @@ def bake_uk_archives(source_path: Path | None = None, workbook_path: Path | None
     print(f"Embedded the millennium dataset's UK history into {source_path}")
     for name, _comment, data in lists:
         print(f"  {name:32} {len(data):5,} values, {data.index[0]:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}")
+
+
+# ---------------------------------------------------------------------------
+# Germany (batch 4)
+# ---------------------------------------------------------------------------
+
+# The Bundesbank's former database (BBK01): the monthly average yield on
+# public debt securities outstanding, from 1956 (frozen at 2020-04).
+DE_PUBLIC_DEBT_YIELD_SERIES = "BBK01.WU0004"
+
+
+def bake_german_archives(source_path: Path | None = None, saved_csv: Path | None = None) -> None:
+    """Extract the Bundesbank's yield on public debt securities and embed it into ``ratesplot/de_archive_data.py``.
+
+    ``saved_csv`` reads the download already on disk (as saved in
+    ``tools/de_fixtures``) instead of fetching it. The series is a monthly
+    average, so each month is dated by its first day; every value the
+    series has is kept (to 2020-04), and ``de_data`` uses the months before
+    the term structure begins.
+    """
+    source_path = source_path or Path(__file__).resolve().with_name("de_archive_data.py")
+    if saved_csv is None:
+        print(f"Downloading the Bundesbank's {DE_PUBLIC_DEBT_YIELD_SERIES} …")
+        params = {"tsId": DE_PUBLIC_DEBT_YIELD_SERIES, "its_csvFormat": "en", "its_fileFormat": "csv", "mode": "its"}
+        text = de_get(BUNDESBANK_OLD_SERIES_URL, params).text
+        source_name = f"{BUNDESBANK_OLD_SERIES_URL}?tsId={DE_PUBLIC_DEBT_YIELD_SERIES}"
+    else:
+        text = Path(saved_csv).read_text(encoding="utf-8-sig")
+        source_name = f"{Path(saved_csv).name} (saved from {BUNDESBANK_OLD_SERIES_URL}?tsId={DE_PUBLIC_DEBT_YIELD_SERIES})"
+    values = parse_bundesbank_csv(text)
+    if values.name != DE_PUBLIC_DEBT_YIELD_SERIES:
+        raise RuntimeError(f"expected {DE_PUBLIC_DEBT_YIELD_SERIES}, read {values.name}; data module not modified.")
+    monthly = values.set_axis(values.index.to_period("M").start_time)
+    data = _require_rows(monthly.rename("value").to_frame(), DE_PUBLIC_DEBT_YIELD_SERIES)
+    comment = (
+        "Dated by the first day of the month averaged.\n"
+        f"{DE_PUBLIC_DEBT_YIELD_SERIES}: yields on debt securities outstanding issued by residents, public debt\n"
+        "securities, monthly average, percent"
+    )
+    block = (
+        f"{DE_ARCHIVE_BEGIN_MARKER}\n"
+        f"# Generated on {dt.date.today():%Y-%m-%d} from the Deutsche Bundesbank, read from:\n# {source_name}\n"
+        "# Historical observations in the source's own terms; de_data joins them to\n"
+        "# the live series at run time.\n\n"
+        + _embedded_list("EMBEDDED_DE_PUBLIC_DEBT_YIELD_HISTORY", comment, data, "value")
+        + f"{DE_ARCHIVE_END_MARKER}"
+    )
+    _replace_generated_block(source_path, DE_ARCHIVE_BEGIN_MARKER, DE_ARCHIVE_END_MARKER, block)
+    print(f"Embedded the Bundesbank's yield on public debt securities into {source_path}")
+    print(f"  EMBEDDED_DE_PUBLIC_DEBT_YIELD_HISTORY {len(data):5,} values, {data.index[0]:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}")
