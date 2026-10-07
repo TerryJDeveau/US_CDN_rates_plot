@@ -14,7 +14,7 @@ hand-edit it.
 
 # BEGIN AUTO-GENERATED GERMAN ARCHIVE DATA
 # Generated on 2026-10-07 from the Deutsche Bundesbank, read from:
-# bbk01_WU0004.csv (saved from https://www.bundesbank.de/statistic-rmi/StatisticDownload?tsId=BBK01.WU0004)
+# https://www.bundesbank.de/statistic-rmi/StatisticDownload?tsId=BBK01.WU0004
 # Historical observations in the source's own terms; de_data joins them to
 # the live series at run time.
 
