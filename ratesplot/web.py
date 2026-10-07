@@ -145,7 +145,7 @@ PAGE_SUMMARY = (
     "Government bond yields against public debt, GDP and interest outlays, for Canada and the "
     "United States, from Statistics Canada, the Bank of Canada, FRED, the U.S. Treasury and the "
     "U.S. Census Bureau; and, when ticked, for the United Kingdom, from the Bank of England and the "
-    "Office for National Statistics. Choose the charts in the panel on the left (the » button on a phone); "
+    "Office for National Statistics, and for Germany, from the Deutsche Bundesbank, the ECB and Eurostat. Choose the charts in the panel on the left (the » button on a phone); "
     "each change redraws them."
 )
 _SCRIPT_NAME = "ratesplot.py"
@@ -492,7 +492,7 @@ def _choice_values_offered(key: str) -> list[str]:
 
 
 def _choice_changed(key: str, value: str) -> None:
-    """Keep at least one box of a list ticked: an empty list would read as the default (``choice_refusal``)."""
+    """Keep at least one box of a list ticked: drawing none is the curve's own box (``choice_refusal``)."""
     if not any(st.session_state.get(_CHOICE + key + ":" + item, False) for item in _choice_values_offered(key)):
         st.session_state[_CHOICE + key + ":" + value] = True
         st.session_state[_NOTICE] = choice_refusal(option_of(key))

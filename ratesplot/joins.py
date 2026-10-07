@@ -1,6 +1,6 @@
 """Joining a nation's sources into one series, and laying the series on the chart's dates.
 
-Shared by the nations' data modules (``cdn_data``, ``uk_data``), moved here
+Shared by the nations' data modules (``cdn_data``, ``uk_data``, ``de_data``), moved here
 word for word from ``cdn_data`` (batch 3, 2026-10-06) so a second nation
 joins its baked history to its live tables by the same rules:
 
@@ -8,6 +8,7 @@ joins its baked history to its live tables by the same rules:
 * ``chain`` / ``splice_archived_series``: sources joined oldest to newest,
   the newer never modified, the older brought to its level by a ramp over
   its last years (see there);
+* ``ttm_sum``: quarterly flows summed over the trailing four quarters;
 * ``dated_by_quarter_end``: a joined series dated by the day each figure describes;
 * ``align_macro``: the macro series forward-filled onto the yield dates.
 """
@@ -123,6 +124,19 @@ def _splice_or_fallback(
     if modern is None:
         return archive
     return splice_archived_series(archive, modern, column, annual_historical=annual_historical)
+
+
+def ttm_sum(quarterly: pd.Series) -> pd.Series:
+    """Return the sum of each four consecutive quarters (a flow over the trailing year), dated by the last one's end.
+
+    The UK's (ONS) and Germany's (Eurostat) flows are given per quarter,
+    not as annual rates: the trailing year is the sum, where the U.S.'s and
+    Canada's annualised rates take the mean. A quarter missing inside
+    leaves the sums that include it missing. Moved here from ``uk_data``
+    (batch 4) so both nations sum alike.
+    """
+    regular = quarterly.resample("QE").sum(min_count=1)
+    return regular.rolling(4, min_periods=4).sum().dropna()
 
 
 def dated_by_quarter_end(series: pd.DataFrame | pd.Series | None) -> pd.DataFrame | pd.Series | None:

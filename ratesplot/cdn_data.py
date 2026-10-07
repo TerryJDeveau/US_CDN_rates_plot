@@ -241,7 +241,7 @@ def fetch_cdn_yields(config: PlotConfig) -> pd.DataFrame:
     """
     chosen = [column for column in config.fetched_yield_columns if column in YIELD_COLUMNS]
     absent = [column for column in config.yield_columns if column not in YIELD_COLUMNS]
-    if absent:
+    if absent and len(absent) < len(config.yield_columns):  # none left: plotting._warn_no_yields
         print(f"  Note: no Canadian {', '.join(absent)} yield; the Canadian chart is drawn without it.")
     if not chosen:
         return pd.DataFrame()

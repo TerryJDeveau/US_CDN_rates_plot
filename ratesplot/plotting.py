@@ -63,12 +63,14 @@ from .config import (
     SPREAD_AXIS_LABEL,
     SPREAD_INVERSION_ALPHA,
     TERM_COLORS,
+    DE,
     UK,
     US,
     YIELD_LINE_STYLE,
     YIELD_TERMS,
     CountryMetadata,
     PlotConfig,
+    nation_by_key,
 )
 from .console import this_thread_output_to
 from .endlabels import ValueFormatter
@@ -86,9 +88,18 @@ from .latest import (
 )
 from .legend import finish_legend_and_title
 from .measures import express
-from .rates import RateCurve, in_window, rate_curves
+from .rates import RateCurve, in_window, rate_curves, warn_none_drawn
 from .regression import SlopeLabel, add_regression_segments
 from .regression import legend_entry as regression_legend_entry
+from .de_data import (
+    fetch_de_components,
+    fetch_de_debt,
+    fetch_de_gdp,
+    fetch_de_interest,
+    fetch_de_population,
+    fetch_de_yields,
+    de_series_earliest,
+)
 from .uk_data import (
     YIELD_HISTORY_ATTR,
     fetch_uk_components,
@@ -218,6 +229,12 @@ def add_uk_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> li
     """Plot the UK's yields: each term's monthly history as steps, then its daily par yield (``uk_data.fetch_uk_yields``)."""
     through = dict(yields.attrs.get(YIELD_HISTORY_ATTR, {}))
     return add_stepped_yield_lines(ax, yields, config, "uk", through.get)
+
+
+def add_de_yield_lines(ax: Axes, yields: pd.DataFrame, config: PlotConfig) -> list[Line2D]:
+    """Plot Germany's yields: each term's monthly values as steps, then its daily ones (``de_data.fetch_de_yields``)."""
+    through = dict(yields.attrs.get(YIELD_HISTORY_ATTR, {}))
+    return add_stepped_yield_lines(ax, yields, config, "de", through.get)
 
 
 def add_stepped_yield_lines(
@@ -483,6 +500,7 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Ra
     ``rates`` are the yield axis's other chosen curves (``ratesplot.rates``).
     """
     _require_start(config)
+    _warn_no_yields("cdn", config)
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields, quote_time = extend_cdn_yields(fetch_cdn_yields(config), config)
     rates = rate_curves("cdn", yields, config)
@@ -518,6 +536,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     ``rates`` are the yield axis's other chosen curves (``ratesplot.rates``).
     """
     _require_start(config)
+    _warn_no_yields("us", config)
     warn_series_coverage(config.start, us_series_earliest(config))
     yields, quote_time = extend_us_yields(fetch_us_yields(config), config)
     if not yields.empty:
@@ -548,6 +567,7 @@ def prepare_uk(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     steers the UK's).
     """
     _require_start(config)
+    _warn_no_yields("uk", config)
     warn_series_coverage(config.start, uk_series_earliest(config))
     yields, quote_time = extend_cdn_yields(fetch_uk_yields(config), config, "uk", "UK")
     rates = rate_curves("uk", yields, config)
@@ -573,6 +593,38 @@ def prepare_uk(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     return yields, expressed, rates
 
 
+def prepare_de(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[RateCurve]]:
+    """Fetch and align all selected German inputs, in the configured measure; return ``(yields, macro, rates)``.
+
+    As ``prepare_uk``: date-indexed yields (each term's monthly part
+    recorded in ``attrs[de_data.YIELD_HISTORY_ATTR]``), run on with --cur
+    to the day's quotes; the macro curves aligned on their dates and
+    projected to a chart's last day as a debt clock is (no market debt
+    steers Germany's).
+    """
+    _require_start(config)
+    _warn_no_yields("de", config)
+    warn_series_coverage(config.start, de_series_earliest(config))
+    yields, quote_time = extend_cdn_yields(fetch_de_yields(config), config, "de", "German")
+    rates = rate_curves("de", yields, config)
+    warn_series_coverage(config.start, {curve.label: curve.first for curve in rates if not curve.spread})
+    if config.components:
+        series = (fetch_de_components(config), fetch_de_gdp(config))
+    else:
+        series = (fetch_de_debt(config), fetch_de_gdp(config), fetch_de_interest(config))
+    parts = [part for part in series if part is not None]
+    observed = {column: observed_through(part[column].dropna().index) for part in parts for column in part.columns}
+    history = pd.concat(parts, axis=1) if parts else pd.DataFrame()
+    aligned = align_macro(yields, series, config)
+    macro = project_to_now(aligned, observed, config, history)
+    projected = macro.attrs.get(PROJECTION_ATTR, {})
+    population = fetch_de_population() if config.per_capita else None
+    yields.attrs[QUOTE_TIME_ATTR] = quote_time
+    expressed = express(macro, config, DE, population)
+    expressed.attrs[PROJECTION_ATTR] = projected
+    return yields, expressed, rates
+
+
 @dataclass(frozen=True)
 class Country:
     """Everything needed to produce one country's chart."""
@@ -584,11 +636,12 @@ class Country:
     draw_yield_lines: YieldLineDrawer
 
 
-# In drawing order (Canadian, then U.S., then the UK's), as the command line always has.
+# In drawing order (Canadian, then U.S., then the UK's, then Germany's), as the command line always has.
 COUNTRIES: tuple[Country, ...] = (
     Country("cdn", "show_cdn", CDN, prepare_cdn, add_canadian_yield_lines),
     Country("us", "show_us", US, prepare_us, add_us_yield_lines),
     Country("uk", "show_uk", UK, prepare_uk, add_uk_yield_lines),
+    Country("de", "show_de", DE, prepare_de, add_de_yield_lines),
 )
 
 
@@ -601,6 +654,17 @@ def _require_start(config: PlotConfig) -> None:
     """Refuse a config whose automatic start has not been found yet (``resolve_start``)."""
     if config.start is None:
         raise ValueError("the start date is automatic: call plotting.resolve_start(config) before preparing a chart")
+
+
+def _warn_no_yields(country: str, config: PlotConfig) -> None:
+    """Warn when the yield curves are on but the chart has none of the chosen terms (``rates.warn_none_drawn``).
+
+    A chosen term it lacks among others is the fetcher's note; this is the
+    case where none is left, so the chart draws no yield.
+    """
+    nation = nation_by_key(country)
+    if config.include_yield and not nation.view("yield_terms", config.yield_terms):
+        warn_none_drawn(country, "yield", f"none of its yield terms ({','.join(nation.yield_terms)}) is chosen")
 
 
 def curve_first_dates(
@@ -749,3 +813,11 @@ def run_uk(config: PlotConfig) -> None:
     yields, macro, rates = prepare_uk(config)
     plot_country(yields, macro, rates, config, UK, add_uk_yield_lines)
     print("UK chart finished.\n")
+
+
+def run_de(config: PlotConfig) -> None:
+    """Fetch all selected German inputs and show Germany's chart in a matplotlib window."""
+    config = config.for_nation(DE.key)
+    yields, macro, rates = prepare_de(config)
+    plot_country(yields, macro, rates, config, DE, add_de_yield_lines)
+    print("German chart finished.\n")

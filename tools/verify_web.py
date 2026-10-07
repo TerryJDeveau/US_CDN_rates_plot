@@ -93,6 +93,8 @@ CHART_CASES = (
     "nat_limits", "nat_terms",
     # Batch 3: the UK, alone with its curves, with its own values, and all three nations.
     "uk_rates", "uk_nat", "all3",
+    # Batch 4: Germany, alone with its curves, with its own values, and all four nations.
+    "de_rates", "de_nat", "all4",
 )
 
 NATION_KEYS = tuple(nation.key for nation in NATIONS)  # in drawing order, as the page's tabs
@@ -493,7 +495,7 @@ def check_nation_sections(check: Check) -> None:
 
 def check_uk(check: Check) -> None:
     """Batch 3: the UK's chart from the address; its section with its own terms and defaults; a second nation ticked."""
-    page = new_page("--uk --e:2026-09-01 --uk:max:9")
+    page = new_page("--nations:gb --e:2026-09-01 --uk:max:9")
     check("no exception", not page.exception, page.exception)
     f = flags(page)
     check("address: the UK only", f["uk"] and not f["cdn"] and not f["us"], f)
@@ -511,16 +513,81 @@ def check_uk(check: Check) -> None:
         and page.checkbox(key="choice:uk:mortgage-terms:svr").value and not page.checkbox(key="choice:uk:mortgage-terms:2f").value,
     )
     check("its value in its own field", page.text_input(key="value:uk:max").value == "9", page.text_input(key="value:uk:max").value)
-    check("address kept", address(page) == "--UK --end:2026-09-01 --uk:max:9", address(page))
+    check("address kept", address(page) == "--nations:gb --end:2026-09-01 --uk:max:9", address(page))
     page.checkbox(key="flag:cdn").check()
     page.run()
     check("Canada ticked too: two charts", charts_shown(page) == 2, charts_shown(page))
-    check("address names both", address(page) == "--C --UK --end:2026-09-01 --uk:max:9", address(page))
+    check("address names both by --nations", address(page) == "--nations:ca,gb --end:2026-09-01 --uk:max:9", address(page))
+
+
+def check_de(check: Check) -> None:
+    """Batch 4: Germany's chart from the address (by --nations:de); its section; its values written with --ger:, never --de:."""
+    page = new_page("--na:de --e:2026-09-01 --ger:max:6 --mo")
+    check("no exception", not page.exception, page.exception)
+    f = flags(page)
+    check("address: Germany only", f["germany"] and not f["cdn"] and not f["us"] and not f["uk"], f)
+    check("one chart drawn", charts_shown(page) == 1, charts_shown(page))
+    keys = {box.key for box in page.checkbox if box.key}
+    check(
+        "Germany offers its seven terms and its mortgage bands only",
+        {f"choice:de:yields:{term}" for term in ("1y", "2y", "5y", "7y", "10y", "20y", "30y")}
+        | {"choice:de:mortgage-terms:1-5", "choice:de:mortgage-terms:over10"} <= keys
+        and "choice:de:yields:3m" not in keys and "choice:de:mortgage-terms:5" not in keys,
+        sorted(key for key in keys if key.startswith("choice:de:")),
+    )
+    check(
+        "its own defaults ticked: 2 5 10 30, the 5-10 year band",
+        all(page.checkbox(key=f"choice:de:yields:{term}").value for term in ("2y", "5y", "10y", "30y"))
+        and not page.checkbox(key="choice:de:yields:7y").value
+        and page.checkbox(key="choice:de:mortgage-terms:5-10").value and not page.checkbox(key="choice:de:mortgage-terms:1-5").value,
+    )
+    check("its value in its own field", page.text_input(key="value:de:max").value == "6", page.text_input(key="value:de:max").value)
+    check("address written with --ger:, not --de: (which is --debt:)",
+          address(page) == "--nations:de --mortgages --end:2026-09-01 --ger:max:6", address(page))
+    page.checkbox(key="choice:de:mortgage-terms:over10").check()
+    page.run()
+    tokens = address(page).split()
+    drawn = drawn_config(config_from_choices(*sort_tokens(tokens)[:2]), "de").mortgage_terms
+    check("a band ticked: the address draws Germany's two bands", drawn == ("5-10", "over10"), (address(page), drawn))
+    page.checkbox(key="flag:uk").check()
+    page.run()
+    check("the UK ticked too: two charts", charts_shown(page) == 2, charts_shown(page))
+
+
+def check_none_lists(check: Check) -> None:
+    """2026-10-07: a list that leaves a nation none of its terms: its boxes all unticked, the address kept, a warning logged."""
+
+    def ticked(at: AppTest, name: str) -> list[str]:
+        prefix = f"choice:{name}:"
+        return [box.key[len(prefix):] for box in at.checkbox if box.key and box.key.startswith(prefix) and box.value]
+
+    page = new_page("-c --y:7,20 --e:2026-09-01")
+    check("no exception", not page.exception, page.exception)
+    check("Canada's yield boxes all unticked (it has neither 7y nor 20y)", ticked(page, "cdn:yields") == [], ticked(page, "cdn:yields"))
+    check("no box 'none'", "choice:cdn:yields:none" not in {box.key for box in page.checkbox}, "")
+    check("address kept", address(page) == "--C --yields:7y,20y --end:2026-09-01", address(page))
+    check("one chart drawn", charts_shown(page) == 1, charts_shown(page))
+    warned = [line.strip() for c in page.code for line in c.value.splitlines() if "Warning: no yield" in line]
+    check("the warning in the log", any("on the Canadian chart" in line for line in warned), warned)
+    page.checkbox(key="choice:cdn:yields:10y").check()
+    page.run()
+    drawn = drawn_config(config_from_choices(*sort_tokens(address(page).split())[:2]), "cdn").yield_terms
+    check("10y ticked: the address draws Canada's 10-year", drawn == ("10y",), (address(page), drawn))
+    own = new_page("--cdn:y:none --e:2026-09-01")
+    check(
+        "a nation's own none: its boxes unticked, the other's at its default, the address kept",
+        ticked(own, "cdn:yields") == [] and ticked(own, "us:yields") == ["3m", "2y", "5y", "10y", "30y"]
+        and address(own) == "--cdn:yields:none --end:2026-09-01",
+        (ticked(own, "cdn:yields"), address(own)),
+    )
+    bad = new_page("--yields:none --e:2026-09-01")
+    warnings = [w.value for w in bad.warning]
+    check("a list of none for every chart reported, naming --no-yield", any("--no-yield" in w for w in warnings), warnings)
 
 
 PAGE_CHECKS = (
     check_address_and_rules, check_bad_addresses, check_view_buttons, check_calendars, check_size_boxes, check_choice_boxes,
-    check_nation_sections, check_uk,
+    check_nation_sections, check_uk, check_de, check_none_lists,
 )
 
 

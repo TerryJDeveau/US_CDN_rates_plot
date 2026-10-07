@@ -168,6 +168,34 @@ CASES: list[list[str]] = [
     ["--y:2,10", "--uk"], ["--uk", "-r", "--uk:top:150%"], ["--uk", "-r", "--uk:top:5t"], ["--uk", "--d:fp"],
     ["--uk:min:3", "--uk:max:2"], ["--uk:dim:800"], ["--g:top:5t"], ["--u:max:8"], ["--uk:start:2000"], ["--gb:"],
     ["--uk", "--policy", "--mo", "--sp", "-l"], ["--uk", "--yields:5,10,20"], ["--uk", "--yields:3m,2,5,10,30"],
+    # Germany (batch 4): a switch spelled with at least "ger" ("--de" stays --debt, "-g" GDP); its
+    # prefix "--ger:"; its code "de" in --nations only ("--de:fp" stays --debt:fp); its terms,
+    # mortgage bands and own defaults.
+    ["--ger"], ["--GER"], ["--germany"], ["germany"], ["--germ"], ["--ge"], ["--gem"], ["--germanyx"], ["--no-ger"],
+    ["--ger:1"], ["--de"], ["--de:fp"], ["--de:max:8"], ["--deu"], ["--ger", "-c"], ["--ger", "--uk", "-u"],
+    ["--nations:de"], ["--nations:ger"], ["--na:ca,us,gb,de"], ["--nations:DE,uk"], ["--nations:de,ger"],
+    ["--ger:top:4t"], ["--GER:y:10,30"], ["--ger:max:6"], ["--germ:max:6"], ["--germany:max:6"], ["--ger:y:3m"],
+    ["--ger:y:7,20"], ["--ger:no-y:30"], ["--ger:no-y:2,5,10,30"], ["--ger:mo:5-10,over10"], ["--ger:mo:5"],
+    ["--uk:mo:1-5"], ["--mo:1-5,5-10,over10"], ["--mo:5-10Y,OVER10"], ["--mo:10+"], ["--mo:over"], ["--ger:sp:30-2"],
+    ["--ger:sp:10-3m"], ["--sp:30-2", "--ger"], ["--y:3m,10", "--ger"], ["--ger", "-r", "--ger:top:150%"],
+    ["--ger", "-r", "--ger:top:4t"], ["--ger", "--d:fnpm"], ["--ger:min:3", "--ger:max:2"], ["--ger:dim:800"],
+    ["--ger:start:2000"], ["--ger:"], ["--ger", "--policy", "--mo", "--sp", "-l"], ["--ger", "--yields:2,5,10,30"],
+    ["--ger", "--yields:3m,2,5,10,30"], ["--ger", "--mo:30,5"],
+    # 2026-10-07 (Terry): only Canada and the U.S. have switches of their own; the UK and Germany are
+    # chosen with --nations:LIST alone. Their former switches are errors naming --nations; their
+    # prefixes (--uk:, --gb:, --ger:) still set their own values.
+    ["--nations:gb", "--uk:max:8"], ["--na:de", "--ger:max:6"], ["--na:ca,gb"], ["-c", "--na:de"], ["--na:gb", "-u"],
+    ["--no-ger"], ["--gb:"], ["--ger:"], ["--germany:1"], ["--deu"], ["--DE"], ["--na:de", "--de:fp"],
+    ["--usa", "--na:gb"], ["--canada", "--na:de"], ["--nations:gb", "--nations:de"],
+    # Germany's ISO three-letter code as a prefix too (Terry, 2026-10-07: "--deu:max:6 is ok").
+    ["--na:de", "--deu:max:6"], ["--DEU:y:10,30"], ["--nations:deu"], ["--deu:"], ["--deu:fp"],
+    # 2026-10-07 (Terry): a list for every chart that leaves a shown nation none of its terms draws
+    # none of them there, with a warning. A nation's own list may be "none"; a list for every chart
+    # may not (each has its --no- switch), and a removal of none drops nothing.
+    ["--cdn:yields:none"], ["--cdn:y:NONE"], ["--us:mo:none"], ["--ger:sp:none"], ["--uk:y:none", "--na:gb"],
+    ["--yields:none"], ["--y:none"], ["--mo:none"], ["--sp:none"], ["--no-y:none"], ["--us:no-y:none"],
+    ["-c", "--y:7,20"], ["--na:gb", "--mo:30"], ["--na:de", "--sp:10-3m"], ["--cdn:y:none", "--us:y:none"],
+    ["--cdn:y:none,10"],
 ]
 
 

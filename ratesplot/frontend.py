@@ -41,11 +41,13 @@ from .options import (
     GROUPS_CHOSEN_TOGETHER,
     OPTIONS,
     Kind,
+    NONE_ITEM,
     Option,
     by_name,
     choices_from_config,
     config_from_choices,
     format_dollar_bound,
+    list_switch,
     nation_choice,
     nation_view,
     options_in,
@@ -115,8 +117,9 @@ def save_state(state: dict) -> str | None:
 def nation_text(nation: Nation, option: Option, text: str) -> str:
     """Return a value for both charts as ``nation``'s own field shows it: its own terms and pairs only.
 
-    Blank stays blank (the default); a text that does not parse is kept as
-    it is, for the field to report.
+    Blank stays blank (the default); a list the nation has none of is
+    "none", which its chart draws (Terry, 2026-10-07); a text that does not
+    parse is kept as it is, for the field to report.
     """
     if not text.strip() or option.fields[0] not in ("yield_terms", "mortgage_terms", "spread_pairs"):
         return text
@@ -124,7 +127,7 @@ def nation_text(nation: Nation, option: Option, text: str) -> str:
         value = nation_view(nation, option, option.parse(text))
     except ValueError:
         return text
-    return option.format((value,), PlotConfig()) if value else ""
+    return option.format((value,), PlotConfig())
 
 
 def spread_to_nations(payloads: dict[str, str]) -> dict[str, str]:
@@ -280,9 +283,9 @@ def choice_values(option: Option, text: str, nation: Nation | None = None) -> li
 
     A blank text is the option's default; for a nation's own field, as far as
     its chart draws it (``nation_view``: Canada's mortgage terms by default
-    are "5"). Lenient, for ticking the boxes: a text that does not parse
-    names nothing here (the option's parser reports it when the chart is
-    drawn).
+    are "5"). "none" names nothing, so no box is ticked. Lenient, for
+    ticking the boxes: a text that does not parse names nothing here (the
+    option's parser reports it when the chart is drawn).
     """
     default = PlotConfig()
     try:
@@ -291,6 +294,8 @@ def choice_values(option: Option, text: str, nation: Nation | None = None) -> li
         return []
     if nation is not None and not text.strip():
         value = nation_view(nation, option, value)
+    if not value:
+        return []
     written = option.format((value,), default)
     return [item for item in written.split(",") if item]
 
@@ -325,22 +330,23 @@ def choices_text(option: Option, ticked: list[str]) -> str:
     """Return the option's text for the ticked items, written as the command line writes it.
 
     The yield terms in term order ("3m,2y,7y,10y", wherever 7y's box is), the
-    spreads in box order (which sets their colours); "" when none is ticked.
+    spreads in box order (which sets their colours); "none" when none is
+    ticked, which a nation's field shows when a list for every chart leaves
+    it none of its items (a blank field would be its default).
     """
     joined = ",".join(ticked)
-    return ",".join(choice_values(option, joined)) if joined else ""
+    return ",".join(choice_values(option, joined)) if joined else NONE_ITEM
 
 
 def choice_refusal(option: Option) -> str:
     """Say why a list's last ticked box stays ticked, and which box draws none of it.
 
-    An empty list would read as the default, so the last box stays; drawing
-    none is the job of the curve's own box (Terry, 2026-10-06: "that is what
-    --no-y is for"): the flag a list belongs to, or for the yield terms the
-    yield curve's.
+    Drawing none is the job of the curve's own box (Terry, 2026-10-06:
+    "that is what --no-y is for"): the flag a list belongs to, or for the
+    yield terms the yield curve's (``options.list_switch``). A field shows
+    no box ticked only when the command line left that nation none of a list.
     """
-    switch = by_name(option.turns_on or "yield")
-    return f"At least one of the {option.label.lower()} stays ticked; to draw none, untick “{switch.label}”."
+    return f"At least one of the {option.label.lower()} stays ticked; to draw none, untick “{list_switch(option).label}”."
 
 
 def option_help_lines(option: Option) -> tuple[str, str, str]:

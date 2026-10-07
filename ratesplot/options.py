@@ -194,8 +194,23 @@ def parse_term(spec: str, *, kind: str) -> str:
     return key
 
 
+# A nation's own list that draws none of its items (Terry, 2026-10-07: a list
+# for every chart leaving a nation none of its terms draws none of them, with
+# a warning). Written so in that nation's field, its boxes all unticked, and
+# after its code (--cdn:yields:none); a list for every chart cannot be "none"
+# (``config_from_choices``): its curves have their own --no- switch.
+NONE_ITEM = "none"
+
+
+def _is_none(spec: str) -> bool:
+    """True for the list that names no item (``NONE_ITEM``)."""
+    return spec.strip().lower() == NONE_ITEM
+
+
 def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
-    """Parse a comma-separated list of yield terms into ``YIELD_TERMS`` keys, in that order (repeats are harmless)."""
+    """Parse a comma-separated list of yield terms into ``YIELD_TERMS`` keys, in that order (repeats are harmless); "none" is none."""
+    if _is_none(spec):
+        return ()
     items = [item for item in spec.split(",") if item.strip()]
     if not items:
         raise ValueError(f"empty {kind} list: name terms such as 3m,2,10")
@@ -204,15 +219,17 @@ def parse_terms(spec: str, *, kind: str) -> tuple[str, ...]:
 
 
 def format_terms(values: tuple, _config: PlotConfig) -> str:
-    """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``."""
-    return ",".join(values[0])
+    """Format yield terms as the command line writes them: ``3m,2y,5y,10y,30y``; none as "none"."""
+    return ",".join(values[0]) or NONE_ITEM
 
 
 def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
-    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v prime Canada; 2f 3f 5f svr UK), in that order.
+    """Parse ``--mortgages:LIST``: terms of ``MORTGAGE_TERMS`` (30 15 U.S.; 5 3 1 5v prime Canada; 2f 3f 5f svr UK; 1-5 5-10 over10 Germany), in that order.
 
-    A "y" after the years is accepted ("30y"), and repeats are harmless.
+    A "y" after the years is accepted ("30y"), and repeats are harmless; "none" is none.
     """
+    if _is_none(spec):
+        return ()
     items = [item.strip().lower() for item in spec.split(",") if item.strip()]
     if not items:
         raise ValueError("empty --mortgages list: name terms such as 30,5")
@@ -223,7 +240,8 @@ def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
             raise ValueError(
                 f"invalid --mortgages term {item!r}: use 30 or 15 (U.S.), 5, 3, 1, 5v or prime "
                 "(Canada, 5v the 5-year variable, prime the banks' prime rate), 2f, 3f, 5f or svr "
-                "(UK, fixed for 2, 3 or 5 years; svr the standard variable rate)"
+                "(UK, fixed for 2, 3 or 5 years; svr the standard variable rate), 1-5, 5-10 or over10 "
+                "(Germany, fixed for over 1 to 5, over 5 to 10, or over 10 years)"
             )
         chosen.add(term)
     return tuple(term for term in MORTGAGE_TERMS if term in chosen)
@@ -232,8 +250,10 @@ def parse_mortgage_terms(spec: str) -> tuple[str, ...]:
 def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
     """Parse ``--spreads:LIST``: pairs of yield terms such as ``10y-2y,10-3m``, each the first less the second.
 
-    Kept in the order given (it sets their colours); a repeated pair is drawn once.
+    Kept in the order given (it sets their colours); a repeated pair is drawn once; "none" is none.
     """
+    if _is_none(spec):
+        return ()
     items = [item.strip() for item in spec.split(",") if item.strip()]
     if not items:
         raise ValueError("empty --spreads list: name pairs such as 10y-2y,10y-3m")
@@ -251,7 +271,7 @@ def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
 
 
 def parse_nations(spec: str) -> tuple[str, ...]:
-    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us, gb or uk), to their keys in ``NATIONS`` order."""
+    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us, gb or uk, de, ger or deu), to their keys in ``NATIONS`` order."""
     codes = [item.strip().lower() for item in spec.split(",") if item.strip()]
     if not codes:
         raise ValueError("empty --nations list: name nations' codes such as ca,us")
@@ -264,8 +284,8 @@ def parse_nations(spec: str) -> tuple[str, ...]:
 
 
 def format_spreads(values: tuple, _config: PlotConfig) -> str:
-    """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``."""
-    return ",".join(f"{first}-{second}" for first, second in values[0])
+    """Format spread pairs as the command line writes them: ``10y-2y,10y-3m,30y-10y``; none as "none"."""
+    return ",".join(f"{first}-{second}" for first, second in values[0]) or NONE_ITEM
 
 
 def is_percent_bound(spec: str) -> bool:
@@ -471,6 +491,13 @@ class Option:
     # its field (the default, or what the option before it in the table gave).
     removes: bool = False
     flag: str | None = None  # SWITCH: the argparse flag
+    # False: not on the command line at all (no spelling matches it, no
+    # argparse flag, not in --help); the window and the page still show its
+    # control. The nations other than Canada and the U.S. (Terry, 2026-10-07:
+    # "--usa and --canada ... are allowed as base-level CLI switches ...
+    # other national base-level CLI options (such as --uk, --ger, --deu, etc.)
+    # should not be allowed"): those are chosen with --nations:LIST only.
+    command_line: bool = True
     flag_help: str | None = None  # SWITCH: argparse's own one-line help
     # GUI. ``label`` is the caption beside the control. ``format`` turns the
     # field value(s) back into text a parser accepts, given the rest of the
@@ -509,6 +536,7 @@ _MORTGAGE_CHOICES = (
     ("U.S.", (("30", "30y"), ("15", "15y"))),
     ("Canada", (("5", "5y"), ("3", "3y"), ("1", "1y"), ("5v", "5y var."), ("prime", "prime"))),
     ("UK", (("2f", "2y fixed"), ("3f", "3y fixed"), ("5f", "5y fixed"), ("svr", "SVR"))),
+    ("Germany", (("1-5", "1–5y fixed"), ("5-10", "5–10y fixed"), ("over10", "over 10y fixed"))),
 )
 _SPREAD_CHOICES = (
     ("", tuple((f"{a}-{b}", f"{a}–{b}") for a, b in DEFAULT_SPREADS)),
@@ -552,12 +580,22 @@ OPTIONS: tuple[Option, ...] = (
         "us", Kind.SWITCH, ("show_us",), "country", "--U / -U / --us / --usa", "U.S. chart only",
         names=("us", "usa"), flag="--U", flag_help="U.S. chart only", label="United States",
     ),
-    # Batch 3: drawn only when named (with no nation named, Canada and the
-    # U.S. are). At least "uk" or "gb": "-u" stays the U.S., "-g" the GDP curve.
+    # The other nations (batch 3 the UK, batch 4 Germany): drawn only when
+    # named, and named only by --nations:LIST (Terry, 2026-10-07; batch 3 had
+    # --uk / --gb, batch 4's draft --ger). Switches still, so the window and
+    # the page have a tick box for each; ``command_line=False`` keeps them off
+    # the command line, which writes them as --nations:LIST
+    # (``command_line_tokens``). Their names are kept for that tick box's
+    # key and for messages; ``switch_of`` relates a nation to its switch.
     Option(
-        "uk", Kind.SWITCH, ("show_uk",), "country", "--UK / --uk / --gb",
+        "uk", Kind.SWITCH, ("show_uk",), "country", "--nations:gb",
         "the UK's chart (only when named; with\n-c or -u, those too)",
-        names=("uk", "gb"), shortest=2, flag="--UK", flag_help="the UK's chart", label="United Kingdom",
+        names=("uk", "gb"), shortest=2, label="United Kingdom", command_line=False,
+    ),
+    Option(
+        "germany", Kind.SWITCH, ("show_de",), "country", "--nations:de",
+        "Germany's chart (only when named; with\n-c or -u, those too)",
+        names=("germany",), shortest=3, label="Germany", command_line=False,
     ),
     # The same by the nations' codes, for when there are more than two
     # (batch 2). The command line turns it into the switches of the nations it
@@ -565,7 +603,7 @@ OPTIONS: tuple[Option, ...] = (
     # control: the window and the page show the switches.
     Option(
         "nations", Kind.VALUE, (), "country", "--nations:LIST / --na:LIST",
-        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk\n(--nations:ca,us,gb)",
+        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk, de, ger\nor deu (--nations:ca,us,gb,de); the only\nway to name the UK's and Germany's",
         names=("nations",), shortest=2, parse=parse_nations, in_gui=False,
     ),
     # Curves. The listing order here is the help order; the selection rule is
@@ -611,7 +649,7 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "yields", Kind.VALUE, ("yield_terms",), "curves", "--yields:LIST / --y:LIST",
         "the yield terms drawn: 1m 3m 6m 1 2 5 7\n10 20 30 (years unless m; default\n"
-        f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only, the UK 5 10 20 (its\ndefault)",
+        f"{','.join(DEFAULT_YIELD_TERMS)}); Canada has the\ndefault five only, the UK 5 10 20 (its\ndefault), Germany 1 2 5 7 10 20 30\n(its default 2 5 10 30)",
         names=("yields",), parse=partial(parse_terms, kind="--yields"), label="Yield terms", format=format_terms,
         editor="choices", choices=_YIELD_CHOICES,
     ),
@@ -626,21 +664,22 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "policy", Kind.FLAG, ("policy_rates",), "rates", "--policy / --no-policy",
         "each country's policy rate: the effective\nfed funds rate; the Bank Rate, then\n"
-        "CORRA from 1997 (a quarter point lower);\nthe UK's Bank Rate",
+        "CORRA from 1997 (a quarter point lower);\nthe UK's Bank Rate; the ECB's main\nrefinancing rate (Germany, from 1999)",
         names=("policy-rates",), shortest=2, label="Policy rate",
     ),
     # At least "mo": "--m:" stays ambiguous (--min or --max).
     Option(
         "mortgages", Kind.FLAG, ("mortgages",), "rates", "--mortgages / --no-mortgages",
         "mortgage rates, dashed in the colour of\nthe yield of their term: U.S. survey\n"
-        "averages; Canadian posted rates; UK\nquoted rates",
+        "averages; Canadian posted rates; UK\nquoted rates; German averages of new\nloans",
         names=("mortgages",), shortest=2, label="Mortgage rates",
     ),
     Option(
         "mortgage-terms", Kind.VALUE, ("mortgage_terms",), "rates", "--mortgages:LIST / --mo:LIST",
         "the terms: 30 15 (U.S.), 5 3 1 5v prime\n(Canada; 5v variable, broker average;\nprime, the banks' prime rate),\n"
-        "2f 3f 5f svr (UK: fixed 2, 3, 5 years;\nthe standard variable rate);\n"
-        f"default {','.join(DEFAULT_MORTGAGE_TERMS)} (the UK's: svr); turns\n--mortgages on",
+        "2f 3f 5f svr (UK: fixed 2, 3, 5 years;\nthe standard variable rate),\n"
+        "1-5 5-10 over10 (Germany: fixed over 1\nto 5, over 5 to 10, over 10 years);\n"
+        f"default {','.join(DEFAULT_MORTGAGE_TERMS)} (the UK's: svr; Germany's:\n5-10); turns --mortgages on",
         names=("mortgages",), shortest=2, parse=parse_mortgage_terms, turns_on="mortgages",
         label="Mortgage terms", format=format_terms, editor="choices", choices=_MORTGAGE_CHOICES,
     ),
@@ -653,7 +692,7 @@ OPTIONS: tuple[Option, ...] = (
     Option(
         "spread-pairs", Kind.VALUE, ("spread_pairs",), "rates", "--spreads:LIST / --sp:LIST",
         "pairs of yield terms, the first less the\nsecond (default "
-        f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())};\nthe UK's: 10y-5y,20y-10y); turns\n--spreads on",
+        f"{format_spreads((DEFAULT_SPREADS,), PlotConfig())};\nthe UK's: 10y-5y,20y-10y; Germany's:\n10y-2y,30y-10y); turns --spreads on",
         names=("spreads",), shortest=2, parse=parse_spreads, turns_on="spreads",
         label="Spreads", format=format_spreads, editor="choices", choices=_SPREAD_CHOICES, panel="curves",
     ),
@@ -822,12 +861,22 @@ _PART_OPTIONS = {"debt-parts": "debt", "interest-parts": "interest"}
 # "Choices" are what a user expressed, keyed by option name:
 #   payloads: VALUE option -> its text (absent = not given, so the default)
 #   flags:    FLAG / TOGGLE / SWITCH option -> True or False (absent = not given)
+# The fields holding a list of items (terms, pairs), which a nation's chart
+# draws as far as it has them (``nation_view``) and which may be none.
+_LIST_FIELDS = ("yield_terms", "mortgage_terms", "spread_pairs")
+
+
+def list_switch(option: Option) -> Option:
+    """Return the switch that draws a list's curves: the flag the list turns on (--mortgages), or for the yield terms the yield curve."""
+    return by_name(option.turns_on or "yield")
 
 
 def _removed(option: Option, spec: str, current: tuple) -> tuple:
-    """Return ``current`` without the items ``spec`` names (``option.removes``); raise if one is not there or none is left."""
+    """Return ``current`` without the items ``spec`` names (``option.removes``); raise if it names none, one is not there or none is left."""
     dropped = option.parse(spec)
     spelling = option.usage.split(":")[0]
+    if not dropped:
+        raise ValueError(f"{spelling}:{spec.strip()} drops nothing; name the terms to drop, such as 30")
     absent = [item for item in dropped if item not in current]
     if absent:
         raise ValueError(f"{spelling}:{spec.strip()}: {','.join(absent)} is not drawn anyway (drawn: {','.join(current)})")
@@ -890,7 +939,7 @@ def _nation_settings(payloads: Mapping[str, str], values: Mapping[str, object]) 
                 check_macro_bounds(own)
                 check_macro_bound_units(given, own)
         except ValueError as exc:
-            raise ValueError(f"{exc} (--{nation.key}: {nation.name} only)") from None
+            raise ValueError(f"{exc} (--{nation.prefix}: {nation.name} only)") from None
         # Kept only where the nation's chart differs: Canada's own mortgage
         # terms "5" draw what the default "30,5" draws on its chart.
         fields = {option.fields[0]: option for option in options_of(Kind.VALUE) if per_nation(option) and not option.removes}
@@ -923,6 +972,9 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     * A value option that removes (``--no-yields:LIST``) takes its items out
       of its field as the options before it left it; an item not there, or
       none left, is an error.
+    * A list for every chart names at least one item: "none" is a nation's
+      own (``--cdn:yields:none``), and every chart's curves of a list have
+      their own switch (--no-yield, --no-mortgages, --no-spreads).
     * A value that belongs to a flag (``turns_on``: --reg:TOL) turns it on,
       unless the flag was given explicitly (--reg:2 --no-reg is off); given
       for one nation (--us:sp:10-2) too, for both charts.
@@ -938,6 +990,11 @@ def config_from_choices(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
             values[option.fields[0]] = _removed(option, payloads[option.name], values[option.fields[0]])
         elif option.name in payloads:
             parsed = option.parse(payloads[option.name])
+            if option.fields[0] in _LIST_FIELDS and not parsed:
+                raise ValueError(
+                    f"{option.usage.split(':')[0]}:{payloads[option.name].strip()} draws none on every chart; "
+                    f"use --no-{list_switch(option).name} (a nation's own list may be none: --cdn:{option.names[0]}:none)"
+                )
             values.update(zip(option.fields, parsed if len(option.fields) > 1 else (parsed,)))
         if option.check is not None:
             option.check(values)
@@ -1014,13 +1071,15 @@ def choices_from_config(config: PlotConfig) -> tuple[dict[str, str], dict[str, b
     return payloads, flags
 
 
-def _shorter_as_removal(option: Option, text: str) -> str | None:
+def _shorter_as_removal(option: Option, text: str, default: tuple | None = None) -> str | None:
     """Return the option's value written as what it drops from the default, when that is shorter; else None.
 
     ``--no-yields:30y`` rather than ``--yields:3m,2y,5y,10y`` (an option
     with a remover, ``Option.removes``, on its field). None also when the
     text does not parse; the caller then writes it as it is. "" when it
     is the default, spelled another way: nothing need be written.
+    ``default``: the list the removal is taken from, when not the default
+    for every chart (a nation's own default: Germany's has no 3-month).
     """
     remover = next((other for other in options_of(Kind.VALUE) if other.removes and other.fields == option.fields), None)
     if remover is None:
@@ -1029,7 +1088,9 @@ def _shorter_as_removal(option: Option, text: str) -> str | None:
         chosen = option.parse(text)
     except ValueError:
         return None
-    default = getattr(PlotConfig(), option.fields[0])
+    if not chosen:
+        return None  # "none": dropping every term is refused (``_removed``)
+    default = getattr(PlotConfig(), option.fields[0]) if default is None else default
     dropped = [item for item in default if item not in chosen]
     if tuple(chosen) == tuple(default):
         return ""
@@ -1071,20 +1132,22 @@ def _nation_tokens(option: Option, texts: dict[str, str], spelling: str) -> list
     (``--yields:3m,2y,5y,7y,10y,30y``); else one nation's own list (the U.S.'s
     spreads "10y-2y,7y-1m" draw Canada's "10y-2y"). Otherwise each nation's
     own value is written after its code (``--us:max:8``), and a nation at the
-    default needs none.
+    default needs none. A list for every chart names at least one item, so
+    nations left none of it all are each written ``--cdn:yields:none``.
     """
     default = getattr(PlotConfig(), option.fields[0])
     nations = {nation.key: nation for nation in NATIONS}
-    if option.fields[0] in ("yield_terms", "mortgage_terms", "spread_pairs"):
+    if option.fields[0] in _LIST_FIELDS:
         try:
             own = {key: option.parse(text) if text else default for key, text in texts.items()}
         except ValueError:
             own = {}
         # The default first: every nation at its own default (the UK's
         # differs from the others') needs nothing written.
-        candidates = [default, *own.values()]
-        if own and option.fields[0] != "spread_pairs":
-            candidates.insert(1, option.parse(",".join(item for value in own.values() for item in value)))
+        candidates = [value for value in (default, *own.values()) if value]
+        union = [item for value in own.values() for item in value]
+        if union and option.fields[0] != "spread_pairs":
+            candidates.insert(1, option.parse(",".join(union)))
         for candidate in candidates:
             if own and all(
                 nation_view(nations[key], option, candidate) == nation_view(nations[key], option, value)
@@ -1103,14 +1166,17 @@ def _nation_tokens(option: Option, texts: dict[str, str], spelling: str) -> list
         except ValueError:
             at_default = False
         if not at_default:
-            shorter = _shorter_as_removal(option, text)
+            # Shortened from the nation's own default, which is what its
+            # removal is taken from (Germany's 2 5 10 30 has no 3-month).
+            shorter = _shorter_as_removal(option, text, dict(nations[key].own_defaults).get(option.fields[0], default))
             if shorter != "":
-                tokens.append(f"--{key}:{(shorter or f'{spelling}:{text}').lstrip('-')}")
+                # The nation's prefix, not its key: Germany's key "de" would be --debt.
+                tokens.append(f"--{nations[key].prefix}:{(shorter or f'{spelling}:{text}').lstrip('-')}")
     return tokens
 
 
-def _switch_of(nation: Nation) -> str:
-    """Return the name of the switch that chooses ``nation``'s chart ("uk")."""
+def switch_of(nation: Nation) -> str:
+    """Return the name of the switch that chooses ``nation``'s chart ("uk", "germany")."""
     return next(option.name for option in options_in("country") if option.fields == (nation.show_field,))
 
 
@@ -1128,7 +1194,13 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
     chosen = [option for option in countries if flags.get(option.name)]
     by_default = [option for option in countries if option.fields[0] in {n.show_field for n in NATIONS if n.shown_by_default}]
     if chosen and chosen != by_default:
-        tokens += [option.flag for option in chosen]
+        if all(option.command_line for option in chosen):
+            tokens += [option.flag for option in chosen]
+        else:
+            # A nation with no switch on the command line: every chosen nation
+            # by its code (its first: ca, us, gb, de), "--nations:ca,gb".
+            nations = {nation.show_field: nation for nation in NATIONS}
+            tokens.append("--nations:" + ",".join(nations[option.fields[0]].codes[0] for option in chosen))
 
     # Curves: name the ones on, or negate the ones off, whichever is shorter
     # (both mean the same under the curve rule; all off needs every "--no-").
@@ -1166,10 +1238,11 @@ def command_line_tokens(payloads: Mapping[str, str], flags: Mapping[str, bool]) 
         if per_nation(option):
             # A nation drawn only when asked for, and not asked for, writes
             # nothing (its fields stay in the window for when it is).
-            written_for = [n for n in NATIONS if n.shown_by_default or flags.get(_switch_of(n), False)]
+            written_for = [n for n in NATIONS if n.shown_by_default or flags.get(switch_of(n), False)]
             texts = {nation.key: payloads.get(nation_choice(nation, option), text).strip() for nation in written_for}
             text = text if len(set(texts.values())) > 1 else next(iter(texts.values()))
-        if len(set(texts.values())) > 1:
+        # "none" in every nation's field is written for each: a list for every chart is never none.
+        if len(set(texts.values())) > 1 or (texts and _is_none(text)):
             if option.turns_on and not flags.get(option.turns_on, default_flags.get(option.turns_on)):
                 continue
             written = _nation_tokens(option, texts, option.usage.split(":")[0])
@@ -1209,7 +1282,8 @@ _HELP_COLUMN = 36  # width of the spellings column (fits "--interest:LETTERS / -
 _HELP_MIN_GAP = 3  # a spelling longer than the column still gets this many spaces
 _HELP_INTRO = """\
 Run with no flags to open the interactive window with both charts (Canadian,
-then U.S.; the UK's when asked for, --uk). Flags set the window's starting values.
+then U.S.; the UK's and Germany's when asked for, --nations:gb or --nations:de,
+which -c and -u may join). Flags set the window's starting values.
 
 Names are case-insensitive, the dashes in front are optional, and any leading
 part of a name will do: -r, --rel and --relative are the same. A name is never
@@ -1221,8 +1295,10 @@ not be given one (-r:1 is an error).
 """
 _HELP_NATIONS = (
     "A nation's code in front sets a value for its chart only: --us:top:20t, --cdn:yields:2,10, "
-    "--us:no-y:30 (codes ca or cdn, us, and gb or uk, written in full). It goes on {names}; the nation's "
-    "own value replaces the one for both charts."
+    "--us:no-y:30 (codes ca or cdn, us, gb or uk, and ger or deu, written in full; Germany's de only in "
+    "--nations, since --de is --debt). It goes on {names}; the nation's own value replaces the one for both charts. "
+    "A nation's own list may be none (--cdn:yields:none). A list for every chart draws on each chart the items that "
+    "nation has; a chart left none of them draws none, with a warning (-c --yields:7,20)."
 )
 
 
@@ -1235,7 +1311,7 @@ def help_epilog() -> str:
     for group, heading in GROUPS.items():
         lines.append(heading)
         for option in OPTIONS:
-            if option.group != group:
+            if option.group != group or not option.command_line:
                 continue
             width = max(_HELP_COLUMN, len(option.usage) + _HELP_MIN_GAP)
             first, *rest = option.help.split("\n")

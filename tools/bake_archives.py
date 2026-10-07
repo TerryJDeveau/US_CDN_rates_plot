@@ -15,6 +15,9 @@ the BEGIN/END markers of
   "A millennium of macroeconomic data", no longer updated). Needs
   ``openpyxl``. ``--uk-workbook FILE`` reads a copy already downloaded
   instead of fetching the 27.5 MB workbook.
+* ``ratesplot/de_archive_data.py``: Germany's 10-year before 1972 (the
+  Bundesbank's frozen yield on public debt securities, from 1956).
+  ``--de-csv FILE`` reads a download already saved (tools/de_fixtures).
 
 Nothing is written for a country unless every one of its sources is extracted
 and the new module compiles.
@@ -28,8 +31,9 @@ Normal runs only read the modules.
 Usage (from the project root)::
 
     python tools/bake_archives.py            # every nation
-    python tools/bake_archives.py --only us  # or cdn, or uk
+    python tools/bake_archives.py --only us  # or cdn, uk, de
     python tools/bake_archives.py --only uk --uk-workbook a-millennium-of-macroeconomic-data-for-the-uk.xlsx
+    python tools/bake_archives.py --only de --de-csv tools/de_fixtures/raw/bbk01_WU0004.csv
 """
 
 from __future__ import annotations
@@ -41,20 +45,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ratesplot.bake import bake_canadian_archives, bake_uk_archives, bake_us_archives  # noqa: E402
+from ratesplot.bake import bake_canadian_archives, bake_german_archives, bake_uk_archives, bake_us_archives  # noqa: E402
 
-BAKES = {"cdn": bake_canadian_archives, "us": bake_us_archives, "uk": bake_uk_archives}
+BAKES = {"cdn": bake_canadian_archives, "us": bake_us_archives, "uk": bake_uk_archives, "de": bake_german_archives}
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", choices=sorted(BAKES), help="bake one nation only")
     parser.add_argument("--uk-workbook", type=Path, help="the UK millennium workbook already on disk (not downloaded)")
+    parser.add_argument("--de-csv", type=Path, help="the Bundesbank's WU0004 download already on disk (not downloaded)")
     args = parser.parse_args(argv)
     for key, bake in BAKES.items():
         if args.only in (None, key):
             if key == "uk":
                 bake(workbook_path=args.uk_workbook)
+            elif key == "de":
+                bake(saved_csv=args.de_csv)
             else:
                 bake()
     return 0

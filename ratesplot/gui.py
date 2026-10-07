@@ -333,9 +333,10 @@ class _ChoicesEditor:
 
     See ``RatesPlotApp._add_choices_control``. As for the levels, the text
     stays the single source of truth; the boxes are a view of it. The last
-    ticked box cannot be unticked (``refuse`` says why): an empty list would
-    read as the default. A value set from elsewhere that has no box (a spread
-    named on the command line) gets one, in a row "other".
+    ticked box cannot be unticked (``refuse`` says why): drawing none is the
+    curve's own box. A text "none" (a list for every chart that left this
+    nation none of its items) ticks no box. A value set from elsewhere that
+    has no box (a spread named on the command line) gets one, in a row "other".
     """
 
     def __init__(

@@ -77,7 +77,7 @@ from .config import (
     component_column,
 )
 from .http import uk_get
-from .joins import chain, embedded_frame
+from .joins import chain, embedded_frame, ttm_sum
 from .uk_archive_data import (
     EMBEDDED_UK_10Y_HISTORY,
     EMBEDDED_UK_20Y_HISTORY,
@@ -250,18 +250,6 @@ def _ons_stock(cdid: str) -> pd.Series:
     return ons_series(cdid, "quarters")
 
 
-def ttm_sum(quarterly: pd.Series) -> pd.Series:
-    """Return the sum of each four consecutive quarters (a flow over the trailing year), dated by the last one's end.
-
-    ONS gives the UK's flows per quarter, not as annual rates: the
-    trailing year is the sum, where the U.S.'s and Canada's annualised
-    rates take the mean. A quarter missing inside leaves the sums that
-    include it missing.
-    """
-    regular = quarterly.resample("QE").sum(min_count=1)
-    return regular.rolling(4, min_periods=4).sum().dropna()
-
-
 # ---------------------------------------------------------------------------
 # Per-curve fetchers
 # ---------------------------------------------------------------------------
@@ -299,7 +287,7 @@ def fetch_uk_yields(config: PlotConfig) -> pd.DataFrame:
     """
     chosen = [column for column in config.fetched_yield_columns if column in UK_YIELD_SERIES]
     absent = [column for column in config.yield_columns if column not in UK_YIELD_SERIES]
-    if absent:
+    if absent and len(absent) < len(config.yield_columns):  # none left: plotting._warn_no_yields
         print(f"  Note: no UK {', '.join(absent)} yield; the UK chart is drawn without it.")
     if not chosen:
         return pd.DataFrame()
