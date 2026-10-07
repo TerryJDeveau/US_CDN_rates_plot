@@ -70,6 +70,7 @@ from .config import (
     YIELD_TERMS,
     CountryMetadata,
     PlotConfig,
+    nation_by_key,
 )
 from .console import this_thread_output_to
 from .endlabels import ValueFormatter
@@ -87,7 +88,7 @@ from .latest import (
 )
 from .legend import finish_legend_and_title
 from .measures import express
-from .rates import RateCurve, in_window, rate_curves
+from .rates import RateCurve, in_window, rate_curves, warn_none_drawn
 from .regression import SlopeLabel, add_regression_segments
 from .regression import legend_entry as regression_legend_entry
 from .de_data import (
@@ -499,6 +500,7 @@ def prepare_cdn(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Ra
     ``rates`` are the yield axis's other chosen curves (``ratesplot.rates``).
     """
     _require_start(config)
+    _warn_no_yields("cdn", config)
     warn_series_coverage(config.start, CANADIAN_SERIES_EARLIEST)
     yields, quote_time = extend_cdn_yields(fetch_cdn_yields(config), config)
     rates = rate_curves("cdn", yields, config)
@@ -534,6 +536,7 @@ def prepare_us(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     ``rates`` are the yield axis's other chosen curves (``ratesplot.rates``).
     """
     _require_start(config)
+    _warn_no_yields("us", config)
     warn_series_coverage(config.start, us_series_earliest(config))
     yields, quote_time = extend_us_yields(fetch_us_yields(config), config)
     if not yields.empty:
@@ -564,6 +567,7 @@ def prepare_uk(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     steers the UK's).
     """
     _require_start(config)
+    _warn_no_yields("uk", config)
     warn_series_coverage(config.start, uk_series_earliest(config))
     yields, quote_time = extend_cdn_yields(fetch_uk_yields(config), config, "uk", "UK")
     rates = rate_curves("uk", yields, config)
@@ -599,6 +603,7 @@ def prepare_de(config: PlotConfig) -> tuple[pd.DataFrame, pd.DataFrame, list[Rat
     steers Germany's).
     """
     _require_start(config)
+    _warn_no_yields("de", config)
     warn_series_coverage(config.start, de_series_earliest(config))
     yields, quote_time = extend_cdn_yields(fetch_de_yields(config), config, "de", "German")
     rates = rate_curves("de", yields, config)
@@ -649,6 +654,17 @@ def _require_start(config: PlotConfig) -> None:
     """Refuse a config whose automatic start has not been found yet (``resolve_start``)."""
     if config.start is None:
         raise ValueError("the start date is automatic: call plotting.resolve_start(config) before preparing a chart")
+
+
+def _warn_no_yields(country: str, config: PlotConfig) -> None:
+    """Warn when the yield curves are on but the chart has none of the chosen terms (``rates.warn_none_drawn``).
+
+    A chosen term it lacks among others is the fetcher's note; this is the
+    case where none is left, so the chart draws no yield.
+    """
+    nation = nation_by_key(country)
+    if config.include_yield and not nation.view("yield_terms", config.yield_terms):
+        warn_none_drawn(country, "yield", f"none of its yield terms ({','.join(nation.yield_terms)}) is chosen")
 
 
 def curve_first_dates(

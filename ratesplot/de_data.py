@@ -361,7 +361,7 @@ def fetch_de_yields(config: PlotConfig) -> pd.DataFrame:
     """
     chosen = [column for column in config.fetched_yield_columns if column in DE_YIELD_SERIES]
     absent = [column for column in config.yield_columns if column not in DE_YIELD_SERIES]
-    if absent:
+    if absent and len(absent) < len(config.yield_columns):  # none left: plotting._warn_no_yields
         print(f"  Note: no German {', '.join(absent)} yield; the German chart is drawn without it.")
     if not chosen:
         return pd.DataFrame()

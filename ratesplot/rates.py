@@ -338,6 +338,18 @@ def mortgage_rate(term: str) -> RateCurve | None:
     return RateCurve(f"mortgage_{term}", label, values, _mortgage_style(term), title="Mortgage Rates", color_of=color_of)
 
 
+def warn_none_drawn(country: str, curve: str, why: str) -> None:
+    """Warn that a nation's chart draws no ``curve`` of a chosen list, ``why`` naming what it has.
+
+    Terry, 2026-10-07, of a list for every chart that leaves a shown nation
+    none of its terms (``-c --yields:7,20``): "plot no yields in that case,
+    but issue a warning message". The same words for a nation's own list
+    of none (``--cdn:yields:none``), which is how the window and the page
+    hold that case, so the command line's log and theirs read alike.
+    """
+    print(f"  Warning: no {curve} on the {nation_by_key(country).adjective} chart: {why}.")
+
+
 def spread_label(pair: tuple[str, str]) -> str:
     """Return a spread's legend label: ``("10y", "2y")`` -> "10Y–2Y Spread"."""
     return f"{pair[0].upper()}–{pair[1].upper()} Spread"
@@ -350,8 +362,13 @@ def yield_spreads(country: str, yields: pd.DataFrame, config: PlotConfig) -> lis
     the day's quotes. A value is drawn where both terms have one. Canada's
     yields are monthly before 2001, so its spreads are steps there, as its
     yields are. A pair with a term the country has no yield for is named and
-    left out, and the colours go to the pairs drawn, in order.
+    left out, and the colours go to the pairs drawn, in order; with none of
+    the pairs its terms make, one warning says so.
     """
+    nation = nation_by_key(country)
+    if not nation.view("spread_pairs", config.spread_pairs):
+        warn_none_drawn(country, "spread", f"no spread chosen is of two of its yield terms ({','.join(nation.yield_terms)})")
+        return []
     if yields.empty:
         return []
     frame = yields.set_index(DATE_COLUMN) if DATE_COLUMN in yields.columns else yields
@@ -402,8 +419,8 @@ def rate_curves(country: str, yields: pd.DataFrame, config: PlotConfig) -> list[
     if config.mortgages:
         terms = [term for term in config.mortgage_terms if MORTGAGE_TERMS[term][0] == country]
         if not terms:
-            name = nation_by_key(country).adjective
-            print(f"  Note: none of the mortgage terms {','.join(config.mortgage_terms)} is {name}; no mortgage rate on this chart.")
+            own = ",".join(nation_by_key(country).mortgage_terms)
+            warn_none_drawn(country, "mortgage rate", f"none of its mortgage terms ({own}) is chosen")
         else:
             print("Fetching mortgage rates …")
         curves += [mortgage_rate(term) for term in terms]
