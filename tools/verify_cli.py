@@ -187,6 +187,8 @@ CASES: list[list[str]] = [
     ["--nations:gb", "--uk:max:8"], ["--na:de", "--ger:max:6"], ["--na:ca,gb"], ["-c", "--na:de"], ["--na:gb", "-u"],
     ["--no-ger"], ["--gb:"], ["--ger:"], ["--germany:1"], ["--deu"], ["--DE"], ["--na:de", "--de:fp"],
     ["--usa", "--na:gb"], ["--canada", "--na:de"], ["--nations:gb", "--nations:de"],
+    # Germany's ISO three-letter code as a prefix too (Terry, 2026-10-07: "--deu:max:6 is ok").
+    ["--na:de", "--deu:max:6"], ["--DEU:y:10,30"], ["--nations:deu"], ["--deu:"], ["--deu:fp"],
 ]
 
 

@@ -501,12 +501,13 @@ NATIONS: tuple[Nation, ...] = (
     ),
     # Batch 4: drawn only when asked for, as the UK is. Its code "de" names it
     # in --nations only: "--de" is --debt and "--de:fp" --debt:fp, so a value
-    # for Germany alone is written "--ger:max:8". Its own defaults, which are
+    # for Germany alone is written "--ger:max:8" (or "--deu:max:8", its ISO
+    # three-letter code; Terry, 2026-10-07: "--deu:max:6 is ok"). Its own defaults, which are
     # what the defaults for every chart draw on its chart (it has no 3-month
     # yield), given so that no default chart notes the 3-month's absence;
     # and its usual fixation, 5 to 10 years, as its mortgage rate.
     Nation(
-        "de", "Germany", ("de", "ger"), ("1y", "2y", "5y", "7y", "10y", "20y", "30y"), "German",
+        "de", "Germany", ("de", "ger", "deu"), ("1y", "2y", "5y", "7y", "10y", "20y", "30y"), "German",
         shown_by_default=False, list_only_codes=("de",),
         own_defaults=(
             ("yield_terms", ("2y", "5y", "10y", "30y")),

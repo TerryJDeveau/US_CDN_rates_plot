@@ -252,7 +252,7 @@ def parse_spreads(spec: str) -> tuple[tuple[str, str], ...]:
 
 
 def parse_nations(spec: str) -> tuple[str, ...]:
-    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us, gb or uk, de or ger), to their keys in ``NATIONS`` order."""
+    """Parse ``--nations:LIST``: nations' codes (ca or cdn, us, gb or uk, de, ger or deu), to their keys in ``NATIONS`` order."""
     codes = [item.strip().lower() for item in spec.split(",") if item.strip()]
     if not codes:
         raise ValueError("empty --nations list: name nations' codes such as ca,us")
@@ -584,7 +584,7 @@ OPTIONS: tuple[Option, ...] = (
     # control: the window and the page show the switches.
     Option(
         "nations", Kind.VALUE, (), "country", "--nations:LIST / --na:LIST",
-        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk, de or\nger (--nations:ca,us,gb,de); the only way\nto name the UK's and Germany's",
+        "the charts of these nations only, by\ncode: ca or cdn, us, gb or uk, de, ger\nor deu (--nations:ca,us,gb,de); the only\nway to name the UK's and Germany's",
         names=("nations",), shortest=2, parse=parse_nations, in_gui=False,
     ),
     # Curves. The listing order here is the help order; the selection rule is
@@ -1249,7 +1249,7 @@ not be given one (-r:1 is an error).
 """
 _HELP_NATIONS = (
     "A nation's code in front sets a value for its chart only: --us:top:20t, --cdn:yields:2,10, "
-    "--us:no-y:30 (codes ca or cdn, us, gb or uk, and ger, written in full; Germany's de only in "
+    "--us:no-y:30 (codes ca or cdn, us, gb or uk, and ger or deu, written in full; Germany's de only in "
     "--nations, since --de is --debt). It goes on {names}; the nation's own value replaces the one for both charts."
 )
 
