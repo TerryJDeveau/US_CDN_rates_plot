@@ -59,8 +59,17 @@ def format_percent(value: float) -> str:
 
 
 def format_spread(value: float) -> str:
-    """Format a yield spread in percentage points, signed, two decimals: ``+0.47 pts``, ``-1.02 pts``."""
-    return f"{value:+.2f} pts"
+    """Format a yield spread in basis points, signed and whole: 0.36 -> ``+36 pts``, -1.02 -> ``-102 pts``.
+
+    A spread is drawn in percent on the yield axis, but quoted, as the market
+    quotes one, in hundredths of a percentage point (Terry, 2026-10-06: a
+    spread of 0.36 % is 36 pts, not 0.36). The yields are published to two
+    decimals, so a whole number loses nothing; ``int`` turns a ``-0.0`` from
+    ``round`` into 0, so a spread that rounds to nothing reads ``+0 pts``.
+    One point either way is ``+1 pt``.
+    """
+    points = int(round(value * 100))
+    return f"{points:+d} {'pt' if abs(points) == 1 else 'pts'}"
 
 
 def format_yield(value: float) -> str:

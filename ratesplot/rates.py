@@ -101,7 +101,7 @@ class RateCurve:
     # Canadian yields' monthly history before 2001); None: as ``style`` says.
     steps_until: pd.Timestamp | None = None
     # A spread: drawn thick, its inverted stretches (below zero) shaded, and
-    # its end label written in points ("+0.47 pts").
+    # its end label written in basis points ("+47 pts" for 0.47 points).
     spread: bool = False
     title: str = ""  # its phrase in the chart title ("Policy Rate"); curves of a kind share one
     # The yield column whose drawn colour it takes, if that yield is on the
