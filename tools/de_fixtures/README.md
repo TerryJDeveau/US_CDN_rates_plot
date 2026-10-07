@@ -1,9 +1,15 @@
 # German sources for batch 4, measured on the laptop (Ambergris), 2026-10-06/07
 
 Cloud sessions cannot reach the data sources, so the German sources were fetched from the laptop
-first, as the UK's were (`tools/uk_fixtures`). `raw/` holds each response **as served**, unpruned
-(prune to what the parser checks need before merging, as batch 3 did). `raw/_index.tsv` lists
-every request: file, HTTP status, bytes, content type, first and last data line, URL.
+first, as the UK's were (`tools/uk_fixtures`). `raw/` holds each response **as served**. `raw/_index.tsv` lists each request kept: file, HTTP
+status, bytes, content type, first and last data line, URL.
+
+**Pruned 2026-10-07** (the build of batch 4) to the 33 responses `tools/check_de_parsers.py`
+reads, as batch 3 did: it serves them to the program's own fetchers by URL and query, so each
+must stay as served. The other 23 (the 3- and 15-year terms, the old database's other series,
+the failed `UMR` keys, €STR, the ECB's other key rates and quarterly debt, the convergence
+yield, the APRC, the ECB's GDP, and the failed ECB keys) and the FRED rows are in commit
+`b90210e`, with this README as it was.
 
 Fetched by a scratch script with a browser User-Agent, 8 at a time. Spans below are what the
 sources served on 2026-10-06 evening (Toronto).
@@ -71,7 +77,16 @@ DE3M, DE6M, DE1Y, DE2Y, DE5Y, DE7Y, DE10Y, DE20Y, DE30Y (`-DE`). `DE3M-DE` answe
   INTDSRDEM193N (discount rate), IR3TIB01DEM156N, IRSTCI01DEM156N, CPMNACSCAB1GQDE (GDP),
   GGGDTADEA188N (debt % GDP), POPTOTDEA647NWDB, DEUPOPNDQ.
 
-## Still to find (for the building session)
+## Used by the program (batch 4, built 2026-10-07)
+
+Yields `bbk_ts_{d,m}_*` (1 2 5 7 10 20 30 years) and `bbk01_WU0004` (baked, the 10-year before
+1972-09); policy `ecb_mro_fixed` + `ecb_mro_minbid`; mortgages `ecb_mir_house_{1_5,5_10,10plus}`;
+debt `ecb_gfs_a_debt` (year-ends 1991-1999) + `est_ggdebt_q`; interest `est_edpt1_a` (1995-2001)
++ `est_ggnfa_q`; GDP `est_gdp_q`; population `est_pjan_a` + `est_pop_q`; quotes `cnbc_de_quotes`.
+`bbk01_WZ9826` shows the monthly term structure is end-of-month values; the error answers
+(`bbk01_SU0112`, `bbk_ts_m_R00X5`, `ecb_mir_house_float`) are kept as answers to refuse.
+
+## Still to find (on the laptop)
 
 - The Bundesbank discount and Lombard rates, 1948–1998, as SDMX keys.
 - German GDP, debt, interest and population **before 1991** (West Germany): Destatis or the
